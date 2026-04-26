@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #1a56db;
+  --color-primary-dark: #1e429f;
+  --color-primary-light: #76a9fa;
+  --color-accent: #e3a008;
+
+  --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-display: "Sora", system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: var(--font-body);
+  }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+@layer components {
+  .btn-primary {
+    @apply text-white font-semibold px-4 py-2 rounded-lg transition-all;
+    background-color: var(--color-primary);
+  }
+
+  .btn-primary:hover {
+    background-color: var(--color-primary-dark);
+  }
+
+  .sidebar-active {
+    background-color: var(--color-primary);
+    @apply text-white;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl border border-gray-100 shadow-sm;
+  }
+
+  .text-brand { color: var(--color-primary); }
+  .bg-brand { background-color: var(--color-primary); }
+  .border-brand { border-color: var(--color-primary); }
+  .ring-brand { --tw-ring-color: var(--color-primary); }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+}
