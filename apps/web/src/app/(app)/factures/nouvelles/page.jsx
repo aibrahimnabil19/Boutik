@@ -1,0 +1,417 @@
+// Invoice builder: create/edit a facture, then print it with the shop's logo/signature.
+'use client'
+
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useForm } from 'react-hook-form'
+import { v4 as uuid } from 'uuid'
+import { toast } from 'sonner'
+import { Plus, Trash2, Printer, Save, ArrowLeft, Check } from 'lucide-react'
+import { format } from 'date-fns'
+import { fr } from 'date-fns/locale'
+import { useAppStore } from '@/context/store'
+import { localDb, getAll, localUpsert } from '@/lib/db/local'
+import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
+import { FormField, inputCls, Btn } from '@/components/ui'
+
+const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
+
+export default function NouvelleFacturePage() {
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+  const existingId   = searchParams.get('id')
+  const shop         = useAppStore(s => s.shop)
+  const printRef     = useRef()
+
+  const [items, setItems] = useState([{ id: uuid(), designation: '', quantity: 1, unit: 'Pièces', unit_price: 0 }])
+  const [products, setProducts] = useState([])
+  const [saving, setSaving]     = useState(false)
+  const [status, setStatus]     = useState('draft')
+  const [invoiceId]             = useState(existingId || uuid())
+  const [invoiceNumber, setInvoiceNumber] = useState('')
+
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm({
+    defaultValues: {
+      date:           format(new Date(), 'yyyy-MM-dd'),
+      city:           shop?.city || '',
+      client_name:    '',
+      client_address: '',
+      client_phone:   '',
+    }
+  })
+
+  const load = useCallback(async () => {
+    if (!shop?.id) return
+    const [prods, allInvoices] = await Promise.all([
+      getAll('products', shop.id),
+      getAll('invoices', shop.id),
+    ])
+    setProducts(prods)
+
+    if (existingId) {
+      const inv   = await localDb.invoices.get(existingId)
+      const lines = await localDb.invoice_items.where('invoice_id').equals(existingId).toArray()
+      if (inv) {
+        reset({
+          date: inv.date, city: inv.city || '', client_name: inv.client_name || '',
+          client_address: inv.client_address || '', client_phone: inv.client_phone || '',
+        })
+        setStatus(inv.status)
+        setInvoiceNumber(inv.invoice_number)
+        if (lines.length > 0) setItems(lines)
+      }
+    } else {
+      const num = generateInvoiceNumber(allInvoices.filter(i => i.type === 'facture'), 'facture')
+      setInvoiceNumber(num)
+    }
+  }, [shop?.id, existingId, reset])
+
+  useEffect(() => { load() }, [load])
+
+  // ─── Items helpers ────────────────────────────────────────────────────────
+  function updateItem(id, field, value) {
+    setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it))
+  }
+  function addItem() {
+    setItems(prev => [...prev, { id: uuid(), designation: '', quantity: 1, unit: 'Pièces', unit_price: 0 }])
+  }
+  function removeItem(id) {
+    if (items.length === 1) return
+    setItems(prev => prev.filter(it => it.id !== id))
+  }
+  function fillFromProduct(itemId, productId) {
+    const prod = products.find(p => p.id === productId)
+    if (prod) updateItem(itemId, 'designation', prod.name)
+  }
+
+  const computedItems = items.map(it => ({
+    ...it,
+    total_price: Number(it.quantity) * Number(it.unit_price),
+  }))
+  const grandTotal = calculateInvoiceTotal(computedItems)
+
+  // ─── Save ─────────────────────────────────────────────────────────────────
+  async function onSubmit(data, newStatus = status) {
+    setSaving(true)
+    try {
+      const invoice = {
+        id:             invoiceId,
+        shop_id:        shop.id,
+        type:           'facture',
+        invoice_number: invoiceNumber,
+        date:           data.date,
+        city:           data.city || shop?.city || '',
+        client_name:    data.client_name,
+        client_address: data.client_address,
+        client_phone:   data.client_phone,
+        total_amount:   grandTotal,
+        amount_in_words: amountToWordsFCFA(grandTotal),
+        status:         newStatus,
+        created_at:     new Date().toISOString(),
+        updated_at:     new Date().toISOString(),
+      }
+      await localDb.invoices.put(invoice)
+
+      // Replace items
+      await localDb.invoice_items.where('invoice_id').equals(invoiceId).delete()
+      for (let i = 0; i < computedItems.length; i++) {
+        const it = computedItems[i]
+        await localDb.invoice_items.put({
+          id: it.id, invoice_id: invoiceId,
+          designation: it.designation, quantity: Number(it.quantity),
+          unit: it.unit, unit_price: Number(it.unit_price),
+          total_price: it.total_price, sort_order: i,
+        })
+      }
+      setStatus(newStatus)
+      toast.success(newStatus === 'finalized' ? 'Facture finalisée !' : 'Brouillon enregistré')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // ─── Print ────────────────────────────────────────────────────────────────
+  function handlePrint() {
+    window.print()
+  }
+
+  const formValues = watch()
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Top bar - hidden on print */}
+      <div className="no-print sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-3">
+        <button onClick={() => router.push('/factures')}
+          className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <h1 className="font-display font-bold text-gray-900">
+          Facture {invoiceNumber}
+        </h1>
+        <div className="ml-auto flex items-center gap-2">
+          <Btn variant="secondary" icon={Printer} onClick={handlePrint}>Imprimer</Btn>
+          <Btn variant="secondary" icon={Save} onClick={handleSubmit(d => onSubmit(d, 'draft'))} disabled={saving}>
+            Brouillon
+          </Btn>
+          <Btn icon={Check} onClick={handleSubmit(d => onSubmit(d, 'finalized'))} disabled={saving}>
+            Finaliser
+          </Btn>
+        </div>
+      </div>
+
+      {/* Two-column layout: form left, preview right */}
+      <div className="no-print max-w-7xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
+        {/* ── Form ── */}
+        <div className="space-y-5">
+          <div className="card p-5">
+            <h3 className="font-semibold text-gray-800 mb-4">Informations générales</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label="Date" required>
+                <input {...register('date', { required: true })} type="date" className={inputCls} />
+              </FormField>
+              <FormField label="Ville">
+                <input {...register('city')} placeholder={shop?.city || 'Niamey'} className={inputCls} />
+              </FormField>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <h3 className="font-semibold text-gray-800 mb-4">Client</h3>
+            <div className="space-y-3">
+              <FormField label="Nom du client">
+                <input {...register('client_name')} placeholder="Ex: M. HAROUNA" className={inputCls} />
+              </FormField>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Adresse">
+                  <input {...register('client_address')} placeholder="Ex: Niamey 200" className={inputCls} />
+                </FormField>
+                <FormField label="Téléphone">
+                  <input {...register('client_phone')} placeholder="Ex: 92 00 00 00" className={inputCls} />
+                </FormField>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-800">Lignes de facture</h3>
+              <Btn size="sm" icon={Plus} onClick={addItem}>Ajouter</Btn>
+            </div>
+
+            <div className="space-y-3">
+              {items.map((item, idx) => (
+                <div key={item.id} className="border border-gray-100 rounded-xl p-3 space-y-2 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-400">Ligne {idx + 1}</span>
+                    <button onClick={() => removeItem(item.id)} className="text-gray-300 hover:text-red-500 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Product picker shortcut */}
+                  <select
+                    className={`${inputCls} text-xs`}
+                    onChange={e => fillFromProduct(item.id, e.target.value)}
+                    defaultValue=""
+                  >
+                    <option value="">— Remplir depuis catalogue —</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+
+                  <input
+                    value={item.designation}
+                    onChange={e => updateItem(item.id, 'designation', e.target.value)}
+                    placeholder="Désignation du produit / service"
+                    className={inputCls}
+                  />
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-400">Qté</label>
+                      <input type="number" min="0.001" step="0.001"
+                        value={item.quantity}
+                        onChange={e => updateItem(item.id, 'quantity', e.target.value)}
+                        className={`${inputCls} mt-0.5`} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400">Unité</label>
+                      <select value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)}
+                        className={`${inputCls} mt-0.5`}>
+                        {UNITS.map(u => <option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400">Prix unit.</label>
+                      <input type="number" min="0"
+                        value={item.unit_price}
+                        onChange={e => updateItem(item.id, 'unit_price', e.target.value)}
+                        className={`${inputCls} mt-0.5`} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400">Total</label>
+                      <div className={`${inputCls} mt-0.5 bg-gray-100 text-gray-600 flex items-center`}>
+                        {formatFCFA(Number(item.quantity) * Number(item.unit_price))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">
+              <span className="font-semibold text-gray-700">MONTANT TOTAL</span>
+              <span className="font-display text-xl font-bold" style={{ color: 'var(--color-primary)' }}>
+                {formatFCFA(grandTotal)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Preview ── */}
+        <div className="no-print">
+          <div className="card p-6 sticky top-24">
+            <h3 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Aperçu</h3>
+            <InvoicePreview
+              shop={shop}
+              invoiceNumber={invoiceNumber}
+              formValues={formValues}
+              items={computedItems}
+              grandTotal={grandTotal}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── PRINT VERSION (full page) ── */}
+      <div className="print-only">
+        <InvoicePreview
+          shop={shop}
+          invoiceNumber={invoiceNumber}
+          formValues={formValues}
+          items={computedItems}
+          grandTotal={grandTotal}
+          full
+        />
+      </div>
+
+      <style jsx global>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          body { background: white !important; }
+        }
+        @media screen {
+          .print-only { display: none !important; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ─── Invoice Preview Component ────────────────────────────────────────────────
+function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, full }) {
+  const dateStr = formValues.date
+    ? format(new Date(formValues.date), 'dd MMMM yyyy', { locale: fr })
+    : '—'
+
+  const city = formValues.city || shop?.city || 'Niamey'
+
+  return (
+    <div className={`bg-white font-sans text-gray-900 ${full ? 'p-10 min-h-screen' : 'p-5 text-xs border border-gray-100 rounded-xl'}`}
+         style={{ fontSize: full ? '12pt' : undefined }}>
+
+      {/* Header: logo + company info */}
+      <div className="flex justify-between items-start mb-8">
+        <div className="flex items-start gap-4">
+          {shop?.logo_url && (
+            <img src={shop.logo_url} alt="Logo" className="w-16 h-16 object-contain" />
+          )}
+          <div>
+            <h2 className="font-display font-bold text-lg" style={{ color: shop?.color_primary || '#1a56db' }}>
+              {shop?.name}
+            </h2>
+            {shop?.address && <p className="text-gray-500">{shop.address}</p>}
+            {shop?.nif && <p className="text-gray-500">NIF: {shop.nif}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-gray-500">{city}, le {dateStr}</p>
+        </div>
+      </div>
+
+      {/* Invoice title */}
+      <div className="text-center mb-6">
+        <h1 className="font-display text-xl font-bold uppercase tracking-wide"
+            style={{ color: shop?.color_primary || '#1a56db' }}>
+          FACTURE DE VENTE N°{invoiceNumber}
+        </h1>
+      </div>
+
+      {/* Client info */}
+      {(formValues.client_name || formValues.client_address || formValues.client_phone) && (
+        <div className="border border-gray-200 rounded-lg p-4 mb-6 grid grid-cols-3 gap-4">
+          {formValues.client_name    && <div><span className="text-gray-500">CLIENT : </span><strong>{formValues.client_name}</strong></div>}
+          {formValues.client_address && <div><span className="text-gray-500">ADRESSE : </span>{formValues.client_address}</div>}
+          {formValues.client_phone   && <div><span className="text-gray-500">Tél : </span>{formValues.client_phone}</div>}
+        </div>
+      )}
+
+      {/* Items table */}
+      <table className="w-full border-collapse mb-4">
+        <thead>
+          <tr style={{ background: shop?.color_primary || '#1a56db' }} className="text-white">
+            <th className="text-left px-3 py-2 font-semibold">Désignation</th>
+            <th className="text-center px-3 py-2 font-semibold w-16">Qté</th>
+            <th className="text-center px-3 py-2 font-semibold w-20">Unité</th>
+            <th className="text-right px-3 py-2 font-semibold w-28">Prix Unitaire</th>
+            <th className="text-right px-3 py-2 font-semibold w-28">Prix Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, i) => (
+            <tr key={item.id} className={i % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+              <td className="px-3 py-2">{item.designation || '—'}</td>
+              <td className="px-3 py-2 text-center">{item.quantity}</td>
+              <td className="px-3 py-2 text-center">{item.unit}</td>
+              <td className="px-3 py-2 text-right">{formatFCFA(item.unit_price)}</td>
+              <td className="px-3 py-2 text-right font-semibold">{formatFCFA(item.total_price)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ background: shop?.color_primary || '#1a56db' }} className="text-white">
+            <td colSpan={4} className="px-3 py-2 font-bold text-right">MONTANT TOTAL</td>
+            <td className="px-3 py-2 font-bold text-right">{formatFCFA(grandTotal)}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* Amount in words */}
+      <p className="text-gray-600 italic mb-8">{amountToWordsFCFA(grandTotal)}</p>
+
+      {/* Signature area */}
+      <div className="flex justify-between items-end mt-12">
+        <div />
+        <div className="text-center">
+          <p className="text-gray-600 mb-2">Signature</p>
+          {shop?.signature_url && (
+            <img src={shop.signature_url} alt="Signature" className="h-14 object-contain mx-auto" />
+          )}
+          {shop?.cachet_url && (
+            <img src={shop.cachet_url} alt="Cachet" className="h-14 object-contain mx-auto mt-2" />
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="mt-12 pt-4 border-t border-gray-200 text-center text-gray-400 text-xs">
+        {[shop?.phone && `Tél : ${shop.phone}`,
+          shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,
+          shop?.email && `Email : ${shop.email}`
+        ].filter(Boolean).join('   ·   ')}
+      </div>
+    </div>
+  )
+}
