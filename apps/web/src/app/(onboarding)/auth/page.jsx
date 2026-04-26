@@ -1,7 +1,3 @@
-// Login / Sign-up screen.
-// On first device: user must be online (to create account and cache credentials).
-// On repeat visits: checks cached session from Supabase SSR cookies (auto-refresh).
-
 'use client'
 
 import { useState } from 'react'
@@ -14,7 +10,7 @@ import { Eye, EyeOff, Loader2, ArrowRight, UserPlus, LogIn } from 'lucide-react'
 
 export default function AuthPage() {
   const router = useRouter()
-  const [mode, setMode] = useState('login') // 'login' | 'signup'
+  const [mode, setMode] = useState('login')
   const [loading, setLoading] = useState(false)
   const [showPass, setShowPass] = useState(false)
 
@@ -26,10 +22,9 @@ export default function AuthPage() {
 
     try {
       if (mode === 'signup') {
-        // Check that access code is still pending
         const pendingCode = await getSetting('pending_code')
         if (!pendingCode) {
-          toast.error('Code d\'accès manquant. Retournez à l\'étape précédente.')
+          toast.error("Code d'accès manquant. Retournez à l'étape précédente.")
           router.push('/access-code')
           return
         }
@@ -37,13 +32,10 @@ export default function AuthPage() {
         const { data: authData, error } = await supabase.auth.signUp({
           email: data.email.trim().toLowerCase(),
           password: data.password,
-          options: {
-            data: { full_name: data.full_name?.trim() || '' },
-          },
+          options: { data: { full_name: data.full_name?.trim() || '' } },
         })
         if (error) throw error
 
-        // Mark the access code as used
         await supabase
           .from('access_codes')
           .update({ used_by: authData.user.id, used_at: new Date().toISOString() })
@@ -54,9 +46,7 @@ export default function AuthPage() {
 
         toast.success('Compte créé ! Configurez votre boutique.')
         router.push('/setup')
-
       } else {
-        // Login
         const { data: authData, error } = await supabase.auth.signInWithPassword({
           email: data.email.trim().toLowerCase(),
           password: data.password,
@@ -65,7 +55,6 @@ export default function AuthPage() {
 
         await setSetting('user_id', authData.user.id)
 
-        // Check if shop already set up
         const { data: profile } = await supabase
           .from('profiles')
           .select('shop_id')
@@ -90,10 +79,13 @@ export default function AuthPage() {
     }
   }
 
+  const inputCls = `w-full h-11 px-4 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-400
+    focus:outline-none focus:ring-2 focus:ring-blue-400/60 focus:border-blue-400 text-sm transition-all`
+
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-      <div className="absolute top-0 left-0 w-96 h-96 rounded-full bg-blue-600/10 blur-3xl -translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 rounded-full bg-amber-500/10 blur-3xl translate-x-1/2 translate-y-1/2" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <div className="absolute top-0 left-0 w-96 h-96 rounded-full bg-blue-600/10 blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-96 h-96 rounded-full bg-amber-500/10 blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
 
       <div className="relative w-full max-w-md">
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
@@ -121,19 +113,18 @@ export default function AuthPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {mode === 'signup' && (
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Nom complet</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">Nom complet</label>
                 <input
                   {...register('full_name')}
                   type="text"
                   placeholder="Votre nom"
-                  className="w-full h-11 px-4 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500
-                             focus:outline-none focus:ring-2 focus:ring-blue-400/60 focus:border-blue-400 text-sm transition-all"
+                  className={inputCls}
                 />
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Adresse email</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Adresse email</label>
               <input
                 {...register('email', {
                   required: 'Email requis',
@@ -141,14 +132,13 @@ export default function AuthPage() {
                 })}
                 type="email"
                 placeholder="vous@exemple.com"
-                className="w-full h-11 px-4 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500
-                           focus:outline-none focus:ring-2 focus:ring-blue-400/60 focus:border-blue-400 text-sm transition-all"
+                className={inputCls}
               />
               {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Mot de passe</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Mot de passe</label>
               <div className="relative">
                 <input
                   {...register('password', {
@@ -157,8 +147,7 @@ export default function AuthPage() {
                   })}
                   type={showPass ? 'text' : 'password'}
                   placeholder="••••••••"
-                  className="w-full h-11 px-4 pr-11 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500
-                             focus:outline-none focus:ring-2 focus:ring-blue-400/60 focus:border-blue-400 text-sm transition-all"
+                  className={`${inputCls} pr-11`}
                 />
                 <button
                   type="button"
