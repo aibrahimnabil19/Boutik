@@ -56,7 +56,7 @@ export default function AccessCodePage() {
         return
       }
       if (data.used_by) {
-        toast.error('Ce code a déjà été utilisé.')
+        toast.error('Ce code a déjà été utilisé et ne peut plus être utilisé de nouveau.')
         return
       }
       if (data.expires_at && new Date(data.expires_at) < new Date()) {
@@ -128,9 +128,8 @@ export default function AccessCodePage() {
               {Array.from({ length: CODE_LENGTH }).map((_, i) => (
                 <div
                   key={i}
-                  className={`h-1 w-3 rounded-full transition-all duration-200 ${
-                    i < fullCode.length ? 'bg-blue-400' : 'bg-white/10'
-                  }`}
+                  className={`h-1 w-3 rounded-full transition-all duration-200 ${i < fullCode.length ? 'bg-blue-400' : 'bg-white/10'
+                    }`}
                 />
               ))}
             </div>

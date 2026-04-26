@@ -365,22 +365,20 @@ export default function AdminPage() {
           ].map(({ label, value, icon: Icon, color }) => (
             <div key={label} className="bg-white/5 border border-white/10 rounded-2xl p-5">
               <div
-                className={`w-8 h-8 rounded-lg mb-3 flex items-center justify-center ${
-                  color === 'blue'
+                className={`w-8 h-8 rounded-lg mb-3 flex items-center justify-center ${color === 'blue'
                     ? 'bg-blue-500/20'
                     : color === 'green'
-                    ? 'bg-emerald-500/20'
-                    : 'bg-amber-500/20'
-                }`}
+                      ? 'bg-emerald-500/20'
+                      : 'bg-amber-500/20'
+                  }`}
               >
                 <Icon
-                  className={`w-4 h-4 ${
-                    color === 'blue'
+                  className={`w-4 h-4 ${color === 'blue'
                       ? 'text-blue-400'
                       : color === 'green'
-                      ? 'text-emerald-400'
-                      : 'text-amber-400'
-                  }`}
+                        ? 'text-emerald-400'
+                        : 'text-amber-400'
+                    }`}
                 />
               </div>
               <p className="font-display text-2xl font-bold">{loading ? '—' : value}</p>
@@ -397,9 +395,8 @@ export default function AdminPage() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                tab === key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === key ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
             >
               <Icon className="w-4 h-4" />
               {label}
@@ -465,21 +462,33 @@ export default function AdminPage() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span
-                            className={`font-mono text-sm font-bold tracking-widest ${
-                              code.used_by ? 'text-slate-500 line-through' : 'text-white'
-                            }`}
+                            className={`font-mono text-sm font-bold tracking-widest ${code.used_by ? 'text-slate-500 line-through' : 'text-white'
+                              }`}
                           >
                             {formatCode(code.code)}
                           </span>
+
+                          {code.used_by ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">
+                              Utilisé
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/20">
+                              Disponible
+                            </span>
+                          )}
+
                           {code.label && (
                             <span className="text-xs text-slate-500 truncate">— {code.label}</span>
                           )}
                         </div>
+
                         <p className="text-xs text-slate-600 mt-0.5">
                           Créé le {format(new Date(code.created_at), 'dd MMM yyyy', { locale: fr })}
                           {code.used_by && ` · Utilisé par ${code.user?.email || '—'}`}
+                          {code.used_at && ` · Le ${format(new Date(code.used_at), 'dd MMM yyyy à HH:mm', { locale: fr })}`}
                         </p>
                       </div>
 
@@ -546,11 +555,10 @@ export default function AdminPage() {
 
                     <div className="flex-none">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
-                          u.role === 'admin'
+                        className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin'
                             ? 'bg-blue-500/20 text-blue-400'
                             : 'bg-white/5 text-slate-500'
-                        }`}
+                          }`}
                       >
                         {u.role}
                       </span>
