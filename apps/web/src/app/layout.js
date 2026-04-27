@@ -2,7 +2,7 @@ import { Toaster } from 'sonner'
 import './globals.css'
 
 export const metadata = {
-  title: 'BM Suite',
+  title: 'Boutik',
   description: 'Gestion comptable & commerciale',
 }
 

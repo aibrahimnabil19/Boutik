@@ -334,7 +334,7 @@ export default function AdminPage() {
           </div>
           <div>
             <h1 className="font-display font-bold text-lg">Panneau Admin</h1>
-            <p className="text-slate-500 text-xs">BM Suite</p>
+            <p className="text-slate-500 text-xs">Boutik</p>
           </div>
         </div>
 
