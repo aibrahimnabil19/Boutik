@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState([])
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
+  const [period, setPeriod] = useState('6m')
 
   useEffect(() => {
     if (!shop?.id) return
@@ -39,15 +40,15 @@ export default function DashboardPage() {
         const monthEnd = endOfMonth(now)
         const inMonth = (d) => isWithinInterval(new Date(d), { start: monthStart, end: monthEnd })
 
-        const monthSales     = sales.filter(s => inMonth(s.date)).reduce((a, s) => a + (s.total_sale || 0), 0)
+        const monthSales = sales.filter(s => inMonth(s.date)).reduce((a, s) => a + (s.total_sale || 0), 0)
         const monthPurchases = purchases.filter(p => inMonth(p.date)).reduce((a, p) => a + (p.total_amount || 0), 0)
-        const monthExpenses  = expenses.filter(e => inMonth(e.date)).reduce((a, e) => a + (e.amount || 0), 0)
-        const monthProfit    = sales.filter(s => inMonth(s.date)).reduce((a, s) => a + (s.profit || 0), 0) - monthExpenses
+        const monthExpenses = expenses.filter(e => inMonth(e.date)).reduce((a, e) => a + (e.amount || 0), 0)
+        const monthProfit = sales.filter(s => inMonth(s.date)).reduce((a, s) => a + (s.profit || 0), 0) - monthExpenses
 
         setKpis({ sales: monthSales, purchases: monthPurchases, expenses: monthExpenses, profit: monthProfit })
 
         // Chart: last 6 months
-        setChartData(getMonthlyTotals(sales, purchases, expenses, 6))
+        setChartData(buildChartData({ sales, purchases, expenses, period }))
 
         // Recent sales (last 5)
         setRecentSales([...sales].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
@@ -64,7 +65,7 @@ export default function DashboardPage() {
   }, [shop?.id])
 
   const primaryColor = shop?.color_primary || '#1a56db'
-  const accentColor  = shop?.color_accent  || '#e3a008'
+  const accentColor = shop?.color_accent || '#e3a008'
 
   return (
     <div className="p-6 space-y-6">
@@ -110,6 +111,22 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Selector */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-gray-800">Évolution</h2>
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+        >
+          <option value="7d">7 jours</option>
+          <option value="30d">30 jours</option>
+          <option value="month">Mois actuel</option>
+          <option value="6m">6 mois</option>
+          <option value="12m">12 mois</option>
+        </select>
+      </div>
+
       {/* Chart */}
       <div className="card p-6">
         <h2 className="font-semibold text-gray-800 mb-4">Évolution sur 6 mois</h2>
@@ -133,7 +150,7 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                     tickFormatter={v => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                tickFormatter={v => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
               <Tooltip formatter={(v, name) => [formatFCFA(v), name]} labelStyle={{ fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Area type="monotone" dataKey="ventes" name="Ventes" stroke={primaryColor} fill="url(#gSales)" strokeWidth={2} dot={false} />
@@ -201,11 +218,11 @@ export default function DashboardPage() {
 
 // ─── KPI Card ────────────────────────────────────────────────────────────────
 const colorMap = {
-  blue:   { bg: 'bg-blue-50',   text: 'text-blue-600',   icon: 'text-blue-500' },
+  blue: { bg: 'bg-blue-50', text: 'text-blue-600', icon: 'text-blue-500' },
   purple: { bg: 'bg-purple-50', text: 'text-purple-600', icon: 'text-purple-500' },
-  amber:  { bg: 'bg-amber-50',  text: 'text-amber-600',  icon: 'text-amber-500' },
-  green:  { bg: 'bg-emerald-50',text: 'text-emerald-600',icon: 'text-emerald-500' },
-  red:    { bg: 'bg-red-50',    text: 'text-red-600',    icon: 'text-red-500' },
+  amber: { bg: 'bg-amber-50', text: 'text-amber-600', icon: 'text-amber-500' },
+  green: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: 'text-emerald-500' },
+  red: { bg: 'bg-red-50', text: 'text-red-600', icon: 'text-red-500' },
 }
 
 function KpiCard({ label, value, icon: Icon, color, loading }) {
@@ -228,6 +245,43 @@ function KpiCard({ label, value, icon: Icon, color, loading }) {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function computeStock(product, purchases, sales) {
   const bought = purchases.filter(p => p.product_id === product.id).reduce((a, p) => a + p.quantity, 0)
-  const sold   = sales.filter(s => s.product_id === product.id).reduce((a, s) => a + s.quantity, 0)
+  const sold = sales.filter(s => s.product_id === product.id).reduce((a, s) => a + s.quantity, 0)
   return (product.stock_initial || 0) + bought - sold
+}
+
+function buildChartData({ sales, purchases, expenses, period }) {
+  if (period === '7d' || period === '30d' || period === 'month') {
+    const days = period === '7d' ? 7 : period === '30d' ? 30 : new Date().getDate()
+    const result = []
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const key = d.toISOString().slice(0, 10)
+
+      const ventes = sales
+        .filter((s) => String(s.date).slice(0, 10) === key)
+        .reduce((a, s) => a + Number(s.total_sale || 0), 0)
+
+      const benefice = sales
+        .filter((s) => String(s.date).slice(0, 10) === key)
+        .reduce((a, s) => a + Number(s.profit || 0), 0)
+
+      const dep = expenses
+        .filter((e) => String(e.date).slice(0, 10) === key)
+        .reduce((a, e) => a + Number(e.amount || 0), 0)
+
+      result.push({
+        month: format(d, 'dd MMM', { locale: fr }),
+        ventes,
+        benefice: benefice - dep,
+      })
+    }
+
+    return result
+  }
+
+  if (period === '12m') return getMonthlyTotals(sales, purchases, expenses, 12)
+
+  return getMonthlyTotals(sales, purchases, expenses, 6)
 }

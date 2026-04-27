@@ -1,71 +1,119 @@
-// Pushes the offline queue to Supabase whenever connection is available.
-
-import { localDb } from '../db/local'
-import { getSupabaseClient } from '../supabase/client'
+import { localDb } from '@/lib/db/local'
+import { getSupabaseClient } from '@/lib/supabase/client'
 
 let syncInProgress = false
 
-export async function runSync() {
+const TABLES = [
+  'products',
+  'purchases',
+  'sales',
+  'expenses',
+  'clients',
+  'client_transactions',
+  'suppliers',
+  'supplier_transactions',
+  'invoices',
+  'invoice_items',
+]
+
+export async function runSync(shopId) {
   if (syncInProgress) return
+  if (!shopId) return
+
   syncInProgress = true
+  const supabase = getSupabaseClient()
+
+  try {
+    const queue = await localDb.sync_queue.orderBy('created_at').toArray()
+
+    for (const item of queue) {
+      try {
+        const { table_name, operation, payload, record_id, _localId } = item
+
+        if (operation === 'delete') {
+          const { error } = await supabase
+            .from(table_name)
+            .update({ deleted_at: payload.deleted_at })
+            .eq('id', payload.id)
+
+          if (error) throw error
+        } else {
+          const { error } = await supabase
+            .from(table_name)
+            .upsert(payload, { onConflict: 'id' })
+
+          if (error) throw error
+        }
+
+        if (localDb[table_name]) {
+          await localDb[table_name]
+            .where('id')
+            .equals(record_id)
+            .modify({ sync_status: 'synced' })
+        }
+
+        await localDb.sync_queue.delete(_localId)
+      } catch (err) {
+        console.warn('[sync push failed]', item.table_name, item.record_id, err?.message)
+      }
+    }
+
+    await pullFromRemote(shopId)
+  } finally {
+    syncInProgress = false
+  }
+}
+
+export async function pullFromRemote(shopId) {
+  if (!shopId) return
 
   const supabase = getSupabaseClient()
-  const queue = await localDb.sync_queue.orderBy('created_at').toArray()
 
-  for (const item of queue) {
+  for (const table of TABLES) {
     try {
-      const { table_name, operation, payload } = item
+      let query = supabase.from(table).select('*')
 
-      if (operation === 'delete') {
-        await supabase.from(table_name).update({ deleted_at: payload.deleted_at }).eq('id', payload.id)
-      } else {
-        // insert or upsert
-        const { error } = await supabase.from(table_name).upsert(payload, { onConflict: 'id' })
+      if (table === 'invoice_items') {
+        const { data: invoices } = await supabase
+          .from('invoices')
+          .select('id')
+          .eq('shop_id', shopId)
+
+        const invoiceIds = (invoices || []).map((x) => x.id)
+        if (!invoiceIds.length) continue
+
+        const { data, error } = await supabase
+          .from('invoice_items')
+          .select('*')
+          .in('invoice_id', invoiceIds)
+
         if (error) throw error
+        await localDb.invoice_items.bulkPut(data || [])
+        continue
       }
 
-      // Mark record as synced locally
-      await localDb[table_name]?.where('id').equals(item.record_id).modify({ sync_status: 'synced' })
-      await localDb.sync_queue.delete(item._localId)
+      query = query.eq('shop_id', shopId)
+
+      const { data, error } = await query
+      if (error) throw error
+
+      await localDb[table].bulkPut((data || []).filter((row) => !row.deleted_at))
     } catch (err) {
-      console.warn('[sync] failed for', item.table_name, item.record_id, err.message)
-      // Leave in queue, will retry next time
+      console.warn('[sync pull failed]', table, err?.message)
     }
   }
-
-  syncInProgress = false
 }
 
-/** Pull remote data for this shop and hydrate local DB */
-export async function pullFromRemote(shopId) {
-  const supabase = getSupabaseClient()
-  const tables = ['products', 'purchases', 'sales', 'expenses', 'clients',
-                  'client_transactions', 'suppliers', 'supplier_transactions',
-                  'invoices', 'invoice_items']
+export function startSyncListener(shopId) {
+  if (typeof window === 'undefined') return () => {}
 
-  for (const table of tables) {
-    const query = supabase.from(table).select('*')
-    if (table !== 'invoice_items') query.eq('shop_id', shopId)
+  const handleOnline = () => runSync(shopId)
 
-    const { data, error } = await query
-    if (error || !data) continue
-
-    // Bulk insert into local DB (put = upsert by primary key)
-    await localDb[table].bulkPut(data)
-  }
-}
-
-/** Start listening for online events and auto-sync */
-export function startSyncListener() {
-  if (typeof window === 'undefined') return
-
-  const handleOnline = () => runSync()
   window.addEventListener('online', handleOnline)
 
-  // Also sync every 2 minutes if online
   const interval = setInterval(() => {
-    if (navigator.onLine) runSync()
-  }, 2 * 60 * 1000)
+    if (navigator.onLine) runSync(shopId)
+  }, 30000)
 
   return () => {
     window.removeEventListener('online', handleOnline)

@@ -80,9 +80,22 @@ export default function AppLayout({ children }) {
 
   // Sync listener
   useEffect(() => {
-    const unsub = startSyncListener()
-    return unsub
-  }, [])
+    if (!shop?.id) return
+
+    let cleanup = () => { }
+
+    async function bootSync() {
+      const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
+
+      await pullFromRemote(shop.id)
+      await runSync(shop.id)
+      cleanup = startSyncListener(shop.id)
+    }
+
+    bootSync()
+
+    return () => cleanup()
+  }, [shop?.id])
 
   // Online/offline indicator
   useEffect(() => {
@@ -126,7 +139,7 @@ export default function AppLayout({ children }) {
             <img src={shop.logo_url} alt="Logo" className="w-8 h-8 rounded-lg object-contain flex-none" />
           ) : (
             <div className="w-8 h-8 rounded-lg flex-none flex items-center justify-center text-white text-xs font-bold"
-                 style={{ background: 'var(--color-primary)' }}>
+              style={{ background: 'var(--color-primary)' }}>
               {(shop?.name || 'B')[0]}
             </div>
           )}
@@ -154,12 +167,11 @@ export default function AppLayout({ children }) {
 
             return (
               <Link key={item.href} href={item.href}>
-                <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group ${
-                  active
+                <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group ${active
                     ? 'text-white shadow-sm'
                     : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
-                }`}
-                style={active ? { background: 'var(--color-primary)' } : {}}
+                  }`}
+                  style={active ? { background: 'var(--color-primary)' } : {}}
                 >
                   <Icon className="w-4 h-4 flex-none" />
                   {sidebarOpen && <span className="text-sm font-medium truncate">{item.label}</span>}
@@ -206,9 +218,8 @@ export default function AppLayout({ children }) {
 
           <div className="flex items-center gap-3 ml-auto">
             {/* Online indicator */}
-            <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
-              online ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
-            }`}>
+            <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${online ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+              }`}>
               {online ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {online ? 'En ligne' : 'Hors ligne'}
             </div>

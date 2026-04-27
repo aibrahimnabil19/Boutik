@@ -7,7 +7,7 @@ import { FileText, Plus, Printer, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { localDb, getAll } from '@/lib/db/local'
+import { localDb, getAll, localDelete } from '@/lib/db/local'
 import { formatFCFA } from '@/lib/core/calculations'
 import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard } from '@/components/ui'
 
@@ -35,11 +35,22 @@ export default function ProformasPage() {
     ), [invoices, search])
 
   async function handleDelete(id) {
-    await localDb.invoice_items.where('invoice_id').equals(id).delete()
-    await localDb.invoices.delete(id)
+  try {
+    const items = await localDb.invoice_items.where('invoice_id').equals(id).toArray()
+
+    for (const item of items) {
+      await localDelete('invoice_items', item.id)
+    }
+
+    await localDelete('invoices', id)
+
     toast.success('Proforma supprimé')
-    load()
+    setConfirm(null)
+    await load()
+  } catch (err) {
+    toast.error('Suppression impossible')
   }
+}
 
   return (
     <div className="p-6">

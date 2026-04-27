@@ -18,29 +18,62 @@ import {
 
 export default function VentesPage() {
   const shop = useAppStore(s => s.shop)
-  const [sales, setSales]       = useState([])
+  const [sales, setSales] = useState([])
   const [products, setProducts] = useState([])
-  const [search, setSearch]     = useState('')
-  const [modal, setModal]       = useState(false)
-  const [confirm, setConfirm]   = useState(null)
-  const [loading, setLoading]   = useState(true)
+  const [purchases, setPurchases] = useState([])
+  const [search, setSearch] = useState('')
+  const [modal, setModal] = useState(false)
+  const [confirm, setConfirm] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [productId, setProductId] = useState('')
-  const [unitCost, setUnitCost]   = useState(0)
+  const [unitCost, setUnitCost] = useState(0)
+  const [items, setItems] = useState([
+    { id: uuid(), product_id: '', quantity: 1, unit_sale_price: 0 }
+  ])
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_sale_price: '' }
   })
 
-  const qty   = Number(watch('quantity')   || 0)
+  function addItem() {
+    setItems((prev) => [...prev, { id: uuid(), product_id: '', quantity: 1, unit_sale_price: 0 }])
+  }
+
+  function removeItem(id) {
+    setItems((prev) => prev.filter((x) => x.id !== id))
+  }
+
+  function updateItem(id, patch) {
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+  }
+
+  function computeStock(product, purchases, sales) {
+    const bought = purchases
+      .filter((p) => p.product_id === product.id)
+      .reduce((a, p) => a + Number(p.quantity || 0), 0)
+
+    const sold = sales
+      .filter((s) => s.product_id === product.id)
+      .reduce((a, s) => a + Number(s.quantity || 0), 0)
+
+    return Number(product.stock_initial || 0) + bought - sold
+  }
+
+  const qty = Number(watch('quantity') || 0)
   const price = Number(watch('unit_sale_price') || 0)
   const total = qty * price
   const profit = total - (qty * unitCost)
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [s, p] = await Promise.all([getAll('sales', shop.id), getAll('products', shop.id)])
+    const [s, p, a] = await Promise.all([
+      getAll('sales', shop.id),
+      getAll('products', shop.id),
+      getAll('purchases', shop.id),
+    ])
     setSales(s.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(p)
+    setPurchases(a)
     setLoading(false)
   }, [shop?.id])
 
@@ -57,31 +90,54 @@ export default function VentesPage() {
   }
 
   async function onSubmit(data) {
-    const prod = products.find(p => p.id === productId)
-    const q    = Number(data.quantity)
-    const sp   = Number(data.unit_sale_price)
-    const cost = unitCost
+    const saleBatchId = uuid()
+    const now = new Date().toISOString()
 
-    const record = {
-      id:                 uuid(),
-      shop_id:            shop.id,
-      date:               data.date,
-      store:              data.store || '',
-      product_id:         productId || null,
-      product_code:       prod?.code || '',
-      product_name:       data.product_name || prod?.name || '',
-      quantity:           q,
-      unit_sale_price:    sp,
-      total_sale:         q * sp,
-      unit_purchase_cost: cost,
-      total_purchase_cost: q * cost,
-      profit:             (q * sp) - (q * cost),
-      created_at:         new Date().toISOString(),
-      updated_at:         new Date().toISOString(),
-      sync_status:        'pending',
+    for (const item of items) {
+      const prod = products.find((p) => p.id === item.product_id)
+      const q = Number(item.quantity || 0)
+      const price = Number(item.unit_sale_price || 0)
+
+      if (!prod) {
+        toast.error('Un article n’a pas de produit sélectionné')
+        return
+      }
+
+      const currentStock = computeStock(prod, purchases, sales)
+      if (q > currentStock) {
+        toast.error(`Stock insuffisant pour ${prod.name}. Disponible: ${currentStock}`)
+        return
+      }
     }
 
-    await localUpsert('sales', record)
+    for (const item of items) {
+      const prod = products.find((p) => p.id === item.product_id)
+      const q = Number(item.quantity || 0)
+      const price = Number(item.unit_sale_price || 0)
+      const total = q * price
+      const cost = Number(prod.purchase_price || 0)
+
+      await localUpsert('sales', {
+        id: uuid(),
+        sale_batch_id: saleBatchId,
+        shop_id: shop.id,
+        date: data.date,
+        store: data.store || '',
+        product_id: prod.id,
+        product_code: prod.code || '',
+        product_name: prod.name,
+        quantity: q,
+        unit_sale_price: price,
+        total_sale: total,
+        unit_purchase_cost: cost,
+        total_purchase_cost: q * cost,
+        profit: total - q * cost,
+        created_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
+    }
+
     toast.success('Vente enregistrée')
     setModal(false)
     load()
@@ -101,7 +157,7 @@ export default function VentesPage() {
     ), [sales, search])
 
   const totalRevenue = useMemo(() => sales.reduce((a, s) => a + (s.total_sale || 0), 0), [sales])
-  const totalProfit  = useMemo(() => sales.reduce((a, s) => a + (s.profit || 0), 0), [sales])
+  const totalProfit = useMemo(() => sales.reduce((a, s) => a + (s.profit || 0), 0), [sales])
 
   return (
     <div className="p-6">
@@ -112,9 +168,9 @@ export default function VentesPage() {
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <StatCard label="Chiffre d'affaires total" value={formatFCFA(totalRevenue)} color="blue"   icon={TrendingUp} />
-        <StatCard label="Bénéfice total"            value={formatFCFA(totalProfit)}  color="green"  icon={TrendingUp} />
-        <StatCard label="Nombre de ventes"          value={sales.length}             color="purple" />
+        <StatCard label="Chiffre d'affaires total" value={formatFCFA(totalRevenue)} color="blue" icon={TrendingUp} />
+        <StatCard label="Bénéfice total" value={formatFCFA(totalProfit)} color="green" icon={TrendingUp} />
+        <StatCard label="Nombre de ventes" value={sales.length} color="purple" />
       </div>
 
       <div className="card overflow-hidden">
@@ -136,7 +192,7 @@ export default function VentesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date','Produit','Magasin','Qté','Prix unit.','Total','Coût','Bénéfice',''].map(h => (
+                  {['Date', 'Produit', 'Magasin', 'Qté', 'Prix unit.', 'Total', 'Coût', 'Bénéfice', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
