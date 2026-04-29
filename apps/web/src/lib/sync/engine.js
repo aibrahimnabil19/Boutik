@@ -53,8 +53,16 @@ export async function runSync(shopId) {
         }
 
         await localDb.sync_queue.delete(_localId)
+
+        console.log('[sync push ok]', table_name, record_id)
       } catch (err) {
-        console.warn('[sync push failed]', item.table_name, item.record_id, err?.message)
+        console.error('[sync push failed]', {
+          table: item.table_name,
+          recordId: item.record_id,
+          operation: item.operation,
+          payload: item.payload,
+          message: err?.message,
+        })
       }
     }
 

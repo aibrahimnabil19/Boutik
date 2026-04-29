@@ -17,24 +17,27 @@ import {
 
 export default function ProduitsPage() {
   const shop = useAppStore(s => s.shop)
-  const [products, setProducts]   = useState([])
+  const [products, setProducts] = useState([])
   const [purchases, setPurchases] = useState([])
-  const [sales, setSales]         = useState([])
-  const [search, setSearch]       = useState('')
-  const [modal, setModal]         = useState(false)
-  const [editing, setEditing]     = useState(null)
-  const [confirm, setConfirm]     = useState(null)
-  const [loading, setLoading]     = useState(true)
+  const [sales, setSales] = useState([])
+  const [search, setSearch] = useState('')
+  const [modal, setModal] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [confirm, setConfirm] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [suppliers, setSuppliers] = useState([])
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm()
 
   async function load() {
     if (!shop?.id) return
-    const [p, pu, s] = await Promise.all([
+    const [p, pu, s, su] = await Promise.all([
       getAll('products', shop.id),
       getAll('purchases', shop.id),
       getAll('sales', shop.id),
+      getAll('suppliers', shop.id),
     ])
+    setSuppliers(su)
     setProducts(p)
     setPurchases(pu)
     setSales(s)
@@ -46,27 +49,29 @@ export default function ProduitsPage() {
   function openAdd() { reset({}); setEditing(null); setModal(true) }
   function openEdit(p) {
     setEditing(p)
-    reset({ code: p.code, name: p.name, purchase_price: p.purchase_price,
-            sale_price: p.sale_price, stock_initial: p.stock_initial,
-            alert_threshold: p.alert_threshold, supplier: p.supplier, unit: p.unit })
+    reset({
+      code: p.code, name: p.name, purchase_price: p.purchase_price,
+      sale_price: p.sale_price, stock_initial: p.stock_initial,
+      alert_threshold: p.alert_threshold, supplier: p.supplier, unit: p.unit
+    })
     setModal(true)
   }
 
   async function onSubmit(data) {
     const record = {
-      id:              editing?.id || uuid(),
-      shop_id:         shop.id,
-      code:            data.code || '',
-      name:            data.name,
-      purchase_price:  Number(data.purchase_price) || 0,
-      sale_price:      data.sale_price ? Number(data.sale_price) : null,
-      stock_initial:   Number(data.stock_initial) || 0,
+      id: editing?.id || uuid(),
+      shop_id: shop.id,
+      code: data.code || '',
+      name: data.name,
+      purchase_price: Number(data.purchase_price) || 0,
+      sale_price: data.sale_price ? Number(data.sale_price) : null,
+      stock_initial: Number(data.stock_initial) || 0,
       alert_threshold: data.alert_threshold ? Number(data.alert_threshold) : null,
-      supplier:        data.supplier || '',
-      unit:            data.unit || 'Pièces',
-      updated_at:      new Date().toISOString(),
-      created_at:      editing?.created_at || new Date().toISOString(),
-      sync_status:     'pending',
+      supplier: data.supplier || '',
+      unit: data.unit || 'Pièces',
+      updated_at: new Date().toISOString(),
+      created_at: editing?.created_at || new Date().toISOString(),
+      sync_status: 'pending',
     }
     await localUpsert('products', record)
     toast.success(editing ? 'Produit mis à jour' : 'Produit ajouté')
@@ -105,10 +110,10 @@ export default function ProduitsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Total produits"   value={products.length} icon={Package} color="blue" />
-        <StatCard label="Alertes stock"    value={lowStockCount}   icon={AlertTriangle} color="amber" />
-        <StatCard label="Valeur achat"     value={formatFCFA(products.reduce((a,p) => a + (p.purchase_price||0) * calculateStock(p, purchases, sales), 0))} color="purple" />
-        <StatCard label="Fournisseurs"     value={new Set(products.map(p=>p.supplier).filter(Boolean)).size} color="green" />
+        <StatCard label="Total produits" value={products.length} icon={Package} color="blue" />
+        <StatCard label="Alertes stock" value={lowStockCount} icon={AlertTriangle} color="amber" />
+        <StatCard label="Valeur achat" value={formatFCFA(products.reduce((a, p) => a + (p.purchase_price || 0) * calculateStock(p, purchases, sales), 0))} color="purple" />
+        <StatCard label="Fournisseurs" value={new Set(products.map(p => p.supplier).filter(Boolean)).size} color="green" />
       </div>
 
       {/* Table */}
@@ -158,8 +163,8 @@ export default function ProduitsPage() {
                         {low
                           ? <Badge color="red">⚠ Bas</Badge>
                           : p.alert_threshold != null
-                          ? <Badge color="green">OK</Badge>
-                          : <span className="text-gray-300 text-xs">—</span>
+                            ? <Badge color="green">OK</Badge>
+                            : <span className="text-gray-300 text-xs">—</span>
                         }
                       </td>
                       <td className="px-4 py-3">
@@ -208,8 +213,13 @@ export default function ProduitsPage() {
           </FormField>
 
           <FormField label="Fournisseur">
-            <input {...register('supplier')} placeholder="Ex: TATA" className={inputCls} />
-          </FormField>
+  <select {...register('supplier')} className={inputCls}>
+    <option value="">— Choisir un fournisseur —</option>
+    {suppliers.map((s) => (
+      <option key={s.id} value={s.name}>{s.name}</option>
+    ))}
+  </select>
+</FormField>
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Prix d'achat (FCFA)">

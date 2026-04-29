@@ -1,7 +1,7 @@
 // Settings: shop profile, theme, sync status, import Excel, danger zone.
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import {
@@ -16,12 +16,12 @@ import { FormField, inputCls, Btn } from '@/components/ui'
 import Image from 'next/image'
 
 const THEMES = [
-  { name: 'Bleu océan',   primary: '#1a56db', accent: '#e3a008' },
-  { name: 'Vert nature',  primary: '#057a55', accent: '#e3a008' },
-  { name: 'Rouge rubis',  primary: '#c81e1e', accent: '#fbbf24' },
+  { name: 'Bleu océan', primary: '#1a56db', accent: '#e3a008' },
+  { name: 'Vert nature', primary: '#057a55', accent: '#e3a008' },
+  { name: 'Rouge rubis', primary: '#c81e1e', accent: '#fbbf24' },
   { name: 'Violet royal', primary: '#6c2bd9', accent: '#f59e0b' },
-  { name: 'Ardoise',      primary: '#374151', accent: '#10b981' },
-  { name: 'Orange vif',   primary: '#c05621', accent: '#1a56db' },
+  { name: 'Ardoise', primary: '#374151', accent: '#10b981' },
+  { name: 'Orange vif', primary: '#c05621', accent: '#1a56db' },
 ]
 
 export default function SettingsPage() {
@@ -35,9 +35,48 @@ export default function SettingsPage() {
   const [signatureFile, setSignatureFile] = useState(null)
   const [customPrimary, setCustomPrimary] = useState(shop?.color_primary || '#1a56db')
 
+  const [pendingCount, setPendingCount] = useState(0)
+  const [lastSyncAt, setLastSyncAt] = useState(null)
+
   const logoRef = useRef()
   const cachetRef = useRef()
   const signatureRef = useRef()
+
+  const refreshSyncStats = useCallback(async () => {
+    const count = await localDb.sync_queue.count()
+    const savedLastSync = await localDb.app_settings.get('last_sync_at')
+    setPendingCount(count)
+    setLastSyncAt(savedLastSync?.value || null)
+  }, [])
+
+  async function handleManualSync() {
+    if (!shop?.id) {
+      toast.error('Aucune boutique active')
+      return
+    }
+
+    setSyncing(true)
+
+    try {
+      await runSync(shop.id)
+      await pullFromRemote(shop.id)
+
+      const now = new Date().toISOString()
+      await setSetting('last_sync_at', now)
+
+      await refreshSyncStats()
+      toast.success('Synchronisation terminée')
+    } catch (err) {
+      console.error('[manual sync failed]', err)
+      toast.error(err.message || 'Échec de la synchronisation')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  useEffect(() => {
+    refreshSyncStats()
+  }, [refreshSyncStats])
 
   const { register, handleSubmit } = useForm({
     defaultValues: {
@@ -122,8 +161,8 @@ export default function SettingsPage() {
 
   async function handleClearLocalData() {
     if (!confirm('Supprimer toutes les données locales ? Cette action est irréversible si non synchronisé.')) return
-    const tables = ['products','purchases','sales','expenses','clients','client_transactions',
-                    'suppliers','supplier_transactions','invoices','invoice_items','sync_queue']
+    const tables = ['products', 'purchases', 'sales', 'expenses', 'clients', 'client_transactions',
+      'suppliers', 'supplier_transactions', 'invoices', 'invoice_items', 'sync_queue']
     for (const t of tables) {
       await localDb[t].clear()
     }
@@ -147,9 +186,8 @@ export default function SettingsPage() {
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 w-fit">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button key={key} onClick={() => setActiveTab(key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-800'
-            }`}>
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-800'
+              }`}>
             <Icon className="w-4 h-4" />
             {label}
           </button>
@@ -222,7 +260,7 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium text-gray-700 mb-2">Cachet / Tampon</p>
                 <Btn size="sm" icon={Upload} variant="secondary"
                   onClick={() => cachetRef.current?.click()}>
-                  {cachetFile ? '✓ ' + cachetFile.name.slice(0,20) : 'Changer'}
+                  {cachetFile ? '✓ ' + cachetFile.name.slice(0, 20) : 'Changer'}
                 </Btn>
                 <input ref={cachetRef} type="file" accept="image/*" className="hidden"
                   onChange={e => setCachetFile(e.target.files[0])} />
@@ -231,7 +269,7 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium text-gray-700 mb-2">Signature</p>
                 <Btn size="sm" icon={Upload} variant="secondary"
                   onClick={() => signatureRef.current?.click()}>
-                  {signatureFile ? '✓ ' + signatureFile.name.slice(0,20) : 'Changer'}
+                  {signatureFile ? '✓ ' + signatureFile.name.slice(0, 20) : 'Changer'}
                 </Btn>
                 <input ref={signatureRef} type="file" accept="image/*" className="hidden"
                   onChange={e => setSignatureFile(e.target.files[0])} />
@@ -255,9 +293,8 @@ export default function SettingsPage() {
             <div className="grid grid-cols-3 gap-3 mb-5">
               {THEMES.map(theme => (
                 <button key={theme.name} onClick={() => setCustomPrimary(theme.primary)}
-                  className={`p-3 rounded-xl border-2 transition-all ${
-                    customPrimary === theme.primary ? 'border-gray-400 scale-105' : 'border-gray-200 hover:border-gray-300'
-                  }`} style={{ background: theme.primary + '15' }}>
+                  className={`p-3 rounded-xl border-2 transition-all ${customPrimary === theme.primary ? 'border-gray-400 scale-105' : 'border-gray-200 hover:border-gray-300'
+                    }`} style={{ background: theme.primary + '15' }}>
                   <div className="flex gap-1 mb-2">
                     <div className="w-4 h-4 rounded" style={{ background: theme.primary }} />
                     <div className="w-4 h-4 rounded" style={{ background: theme.accent }} />
@@ -285,10 +322,10 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-400 mb-2">Aperçu</p>
               <div className="flex gap-2 flex-wrap">
                 <div className="h-8 px-4 rounded-lg flex items-center text-white text-sm font-semibold"
-                     style={{ background: customPrimary }}>Bouton</div>
+                  style={{ background: customPrimary }}>Bouton</div>
                 <div className="h-8 w-8 rounded-lg" style={{ background: customPrimary + '20' }} />
                 <div className="h-8 px-3 rounded-lg flex items-center text-sm font-medium border-2"
-                     style={{ borderColor: customPrimary, color: customPrimary }}>Outline</div>
+                  style={{ borderColor: customPrimary, color: customPrimary }}>Outline</div>
               </div>
             </div>
           </div>
@@ -316,6 +353,33 @@ export default function SettingsPage() {
               <Btn icon={syncing ? Loader2 : RefreshCw} disabled={syncing} onClick={handleSync}>
                 {syncing ? 'Synchronisation…' : 'Synchroniser maintenant'}
               </Btn>
+            </div>
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Synchronisation des données</h3>
+                  <p className="text-sm text-gray-500">
+                    Envoie les données locales vers Supabase puis recharge les données distantes.
+                  </p>
+                </div>
+                <Btn onClick={handleManualSync} disabled={syncing} icon={syncing ? Loader2 : RefreshCw}>
+                  {syncing ? 'Synchronisation…' : 'Synchroniser maintenant'}
+                </Btn>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-gray-50 border border-gray-100 p-4">
+                  <p className="text-xs text-gray-500">Éléments en attente</p>
+                  <p className="text-2xl font-bold text-gray-900">{pendingCount}</p>
+                </div>
+
+                <div className="rounded-xl bg-gray-50 border border-gray-100 p-4">
+                  <p className="text-xs text-gray-500">Dernière synchronisation</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    {lastSyncAt ? new Date(lastSyncAt).toLocaleString('fr-FR') : 'Jamais'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

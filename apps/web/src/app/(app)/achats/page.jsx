@@ -25,6 +25,7 @@ export default function AchatsPage() {
   const [confirm, setConfirm]     = useState(null)
   const [loading, setLoading]     = useState(true)
   const [selectedProduct, setSelectedProduct] = useState(null)
+  const [suppliers, setSuppliers] = useState([])
 
   const { register, handleSubmit, reset, watch, setValue } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 }
@@ -36,7 +37,12 @@ export default function AchatsPage() {
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [p, pr] = await Promise.all([getAll('purchases', shop.id), getAll('products', shop.id)])
+    const [p, pr, su] = await Promise.all([
+  getAll('purchases', shop.id),
+  getAll('products', shop.id),
+  getAll('suppliers', shop.id),
+])
+setSuppliers(su)
     setPurchases(p.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(pr)
     setLoading(false)
@@ -167,8 +173,13 @@ export default function AchatsPage() {
               <input {...register('date', { required: true })} type="date" className={inputCls} />
             </FormField>
             <FormField label="Fournisseur">
-              <input {...register('supplier')} placeholder="Ex: TATA" className={inputCls} />
-            </FormField>
+  <select {...register('supplier')} className={selectCls}>
+    <option value="">— Choisir un fournisseur —</option>
+    {suppliers.map((s) => (
+      <option key={s.id} value={s.name}>{s.name}</option>
+    ))}
+  </select>
+</FormField>
           </div>
 
           <FormField label="Produit du catalogue" hint="Optionnel — remplit les champs ci-dessous">

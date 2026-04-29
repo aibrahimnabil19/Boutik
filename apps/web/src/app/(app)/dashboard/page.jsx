@@ -13,6 +13,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 import { TrendingUp, TrendingDown, ShoppingCart, Wallet, Package, AlertTriangle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 export default function DashboardPage() {
   const shop = useAppStore(s => s.shop)
@@ -22,6 +23,10 @@ export default function DashboardPage() {
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
   const [period, setPeriod] = useState('6m')
+  const [productsCount, setProductsCount] = useState(0)
+  const router = useRouter()
+
+  const totalProductsCount = products.length
 
   useEffect(() => {
     if (!shop?.id) return
@@ -53,6 +58,8 @@ export default function DashboardPage() {
         // Recent sales (last 5)
         setRecentSales([...sales].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
 
+        setProductsCount(products.length)
+
         // Low stock products
         setLowStock(products.filter(p => p.alert_threshold != null && computeStock(p, purchases, sales) <= p.alert_threshold))
       } catch (err) {
@@ -78,6 +85,24 @@ export default function DashboardPage() {
           {format(new Date(), "EEEE d MMMM yyyy", { locale: fr })} · {shop?.name}
         </p>
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <button
+    onClick={() => router.push('/ventes')}
+    className="rounded-2xl bg-blue-600 text-white p-5 text-left shadow-sm hover:bg-blue-700 transition"
+  >
+    <p className="text-sm opacity-90">Accès rapide</p>
+    <p className="text-xl font-bold mt-1">Nouvelle vente</p>
+  </button>
+
+  <button
+    onClick={() => router.push('/achats')}
+    className="rounded-2xl bg-emerald-600 text-white p-5 text-left shadow-sm hover:bg-emerald-700 transition"
+  >
+    <p className="text-sm opacity-90">Accès rapide</p>
+    <p className="text-xl font-bold mt-1">Nouvel achat</p>
+  </button>
+</div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -129,7 +154,13 @@ export default function DashboardPage() {
 
       {/* Chart */}
       <div className="card p-6">
-        <h2 className="font-semibold text-gray-800 mb-4">Évolution sur 6 mois</h2>
+        <h2 className="font-semibold text-gray-800 mb-4">
+          {period === '7d' && 'Évolution sur 7 jours'}
+          {period === '30d' && 'Évolution sur 30 jours'}
+          {period === 'month' && 'Évolution du mois'}
+          {period === '6m' && 'Évolution sur 6 mois'}
+          {period === '12m' && 'Évolution sur 12 mois'}
+        </h2>
         {chartData.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
             Pas encore de données

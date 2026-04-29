@@ -51,20 +51,46 @@ export async function queueSync(tableName, operation, recordId, payload) {
 export async function localUpsert(table, record, operation = 'upsert') {
   await localDb[table].put(record)
   await queueSync(table, operation, record.id, record)
+  await triggerSyncNow(record.shop_id)
   return record
 }
 
 /** Soft delete a record */
 export async function localDelete(table, id) {
+  const existing = await localDb[table].where('id').equals(id).first()
   const now = new Date().toISOString()
-  await localDb[table].where('id').equals(id).modify({ deleted_at: now, sync_status: 'pending' })
+
+  await localDb[table]
+    .where('id')
+    .equals(id)
+    .modify({ deleted_at: now, sync_status: 'pending' })
+
   await queueSync(table, 'delete', id, { id, deleted_at: now })
+  await triggerSyncNow(existing?.shop_id)
 }
 
 /** Get all non-deleted records for a shop */
 export async function getAll(table, shopId) {
   return localDb[table]
-    .where('shop_id').equals(shopId)
-    .filter(r => !r.deleted_at)
+    .where('shop_id')
+    .equals(shopId)
+    .filter((r) => !r.deleted_at)
     .toArray()
+}
+
+export async function getPendingSyncItems() {
+  return localDb.sync_queue.orderBy('created_at').toArray()
+}
+
+async function triggerSyncNow(shopId) {
+  if (typeof window === 'undefined') return
+  if (!navigator.onLine) return
+  if (!shopId) return
+
+  try {
+    const { runSync } = await import('@/lib/sync/engine')
+    await runSync(shopId)
+  } catch (err) {
+    console.error('[triggerSyncNow failed]', err?.message)
+  }
 }

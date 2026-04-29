@@ -1,4 +1,3 @@
-// apps/web/src/app/(app)/layout.jsx
 // The main authenticated app shell: sidebar + topbar + theme injection.
 
 'use client'
@@ -9,28 +8,38 @@ import { usePathname, useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { getSetting } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
-import { startSyncListener } from '@/lib/sync/engine'
+import { startSyncListener, runSync, pullFromRemote } from '@/lib/sync/engine'
 import {
-  LayoutDashboard, Package, ShoppingCart, TrendingUp,
-  Receipt, FileText, FileBadge, Users, Truck,
-  PieChart, Wallet, Settings, LogOut, Menu, X,
-  Wifi, WifiOff, ChevronRight
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  TrendingUp,
+  FileText,
+  Users,
+  Truck,
+  PieChart,
+  Wallet,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  Wifi,
+  WifiOff,
+  ChevronRight,
 } from 'lucide-react'
 
 const NAV = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Produits', href: '/produits', icon: Package },
-  { separator: 'Transactions' },
-  { label: 'Achats', href: '/achats', icon: ShoppingCart },
+  { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Ventes', href: '/ventes', icon: TrendingUp },
+  { label: 'Achats', href: '/achats', icon: ShoppingCart },
   { label: 'Dépenses', href: '/depenses', icon: Wallet },
-  { separator: 'Documents' },
-  { label: 'Factures', href: '/factures', icon: Receipt },
-  { label: 'Proformas', href: '/proformas', icon: FileText },
   { separator: 'Tiers' },
   { label: 'Clients', href: '/clients', icon: Users },
   { label: 'Fournisseurs', href: '/fournisseurs', icon: Truck },
-  { separator: 'Analyse' },
+  { separator: 'Documents' },
+  { label: 'Documents', href: '/documents', icon: FileText },
+  { separator: 'Catalogue & analyse' },
+  { label: 'Produits', href: '/produits', icon: Package },
   { label: 'Stock', href: '/stock', icon: Package },
   { label: 'Rentabilité', href: '/rentabilite', icon: PieChart },
 ]
@@ -43,34 +52,67 @@ export default function AppLayout({ children }) {
   const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
+    let cleanupSync = null
+    let mounted = true
+
     async function init() {
-      const supabase = getSupabaseClient()
-      const { data: { session } } = await supabase.auth.getSession()
+      try {
+        const supabase = getSupabaseClient()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-      if (!session) {
-        router.replace('/auth')
-        return
+        if (!session) {
+          router.replace('/auth')
+          return
+        }
+
+        const shopId = await getSetting('shop_id')
+        if (!shopId) {
+          router.replace('/setup')
+          return
+        }
+
+        const [profileRes, shopRes] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', session.user.id).single(),
+          supabase.from('shops').select('*').eq('id', shopId).single(),
+        ])
+
+        if (!mounted) return
+
+        if (profileRes.data) setProfile(profileRes.data)
+        if (shopRes.data) {
+          setShop(shopRes.data)
+          applyTheme(shopRes.data)
+        }
+
+        setUser(session.user)
+
+        await pullFromRemote(shopId)
+        await runSync(shopId)
+        cleanupSync = startSyncListener(shopId)
+
+        setLoaded(true)
+      } catch (err) {
+        console.error('[layout init failed]', err)
       }
-
-      const shopId = await getSetting('shop_id')
-      if (!shopId) {
-        router.replace('/setup')
-        return
-      }
-
-      // Load profile and shop
-      const [profileRes, shopRes] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', session.user.id).single(),
-        supabase.from('shops').select('*').eq('id', shopId).single(),
-      ])
-
-      if (profileRes.data) setProfile(profileRes.data)
-      if (shopRes.data) { setShop(shopRes.data); }
-      setUser(session.user)
-      setLoaded(true)
     }
 
     init()
+
+    return () => {
+      mounted = false
+      if (cleanupSync) cleanupSync()
+    }
+  }, [router, setProfile, setShop, setUser, applyTheme])
+
+  useEffect(() => {
+    return () => {
+      if (window.__boutikSyncCleanup) {
+        window.__boutikSyncCleanup()
+        window.__boutikSyncCleanup = null
+      }
+    }
   }, [])
 
   // Apply theme whenever shop changes
@@ -79,23 +121,23 @@ export default function AppLayout({ children }) {
   }, [shop])
 
   // Sync listener
-useEffect(() => {
-  if (!shop?.id) return
+  useEffect(() => {
+    if (!shop?.id) return
 
-  let cleanup = () => {}
+    let cleanup = () => { }
 
-  async function bootSync() {
-    const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
+    async function bootSync() {
+      const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
 
-    await pullFromRemote(shop.id)
-    await runSync(shop.id)
-    cleanup = startSyncListener(shop.id)
-  }
+      await pullFromRemote(shop.id)
+      await runSync(shop.id)
+      cleanup = startSyncListener(shop.id)
+    }
 
-  bootSync()
+    bootSync()
 
-  return () => cleanup()
-}, [shop?.id])
+    return () => cleanup()
+  }, [shop?.id])
 
   // Online/offline indicator
   useEffect(() => {
@@ -168,8 +210,8 @@ useEffect(() => {
             return (
               <Link key={item.href} href={item.href}>
                 <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group ${active
-                    ? 'text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                  ? 'text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
                   }`}
                   style={active ? { background: 'var(--color-primary)' } : {}}
                 >

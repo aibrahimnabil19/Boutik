@@ -27,6 +27,7 @@ export default function VentesPage() {
   const [loading, setLoading] = useState(true)
   const [productId, setProductId] = useState('')
   const [unitCost, setUnitCost] = useState(0)
+  const [clients, setClients] = useState([])
   const [items, setItems] = useState([
     { id: uuid(), product_id: '', quantity: 1, unit_sale_price: 0 }
   ])
@@ -66,11 +67,13 @@ export default function VentesPage() {
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [s, p, a] = await Promise.all([
+    const [s, p, pu, c] = await Promise.all([
       getAll('sales', shop.id),
       getAll('products', shop.id),
       getAll('purchases', shop.id),
+      getAll('clients', shop.id),
     ])
+    setClients(c)
     setSales(s.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(p)
     setPurchases(a)
@@ -105,7 +108,7 @@ export default function VentesPage() {
 
       const currentStock = computeStock(prod, purchases, sales)
       if (q > currentStock) {
-        toast.error(`Stock insuffisant pour ${prod.name}. Disponible: ${currentStock}`)
+        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${currentStock}`)
         return
       }
     }
@@ -244,6 +247,15 @@ export default function VentesPage() {
               <option value="">— Sélectionner un produit —</option>
               {products.map(p => (
                 <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''}</option>
+              ))}
+            </select>
+          </FormField>
+
+          <FormField label="Client">
+            <select {...register('client_name')} className={selectCls}>
+              <option value="">— Choisir un client —</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.name}>{c.name}</option>
               ))}
             </select>
           </FormField>
