@@ -71,16 +71,19 @@ export async function pullFromRemote(shopId) {
 
   for (const table of TABLES) {
     try {
-      let query = supabase.from(table).select('*')
-
       if (table === 'invoice_items') {
-        const { data: invoices } = await supabase
+        const { data: invoices, error: invoicesError } = await supabase
           .from('invoices')
           .select('id')
           .eq('shop_id', shopId)
 
+        if (invoicesError) throw invoicesError
+
         const invoiceIds = (invoices || []).map((x) => x.id)
-        if (!invoiceIds.length) continue
+        if (!invoiceIds.length) {
+          await localDb.invoice_items.clear()
+          continue
+        }
 
         const { data, error } = await supabase
           .from('invoice_items')
@@ -88,13 +91,16 @@ export async function pullFromRemote(shopId) {
           .in('invoice_id', invoiceIds)
 
         if (error) throw error
-        await localDb.invoice_items.bulkPut(data || [])
+
+        await localDb.invoice_items.bulkPut((data || []).filter((row) => !row.deleted_at))
         continue
       }
 
-      query = query.eq('shop_id', shopId)
+      const { data, error } = await supabase
+        .from(table)
+        .select('*')
+        .eq('shop_id', shopId)
 
-      const { data, error } = await query
       if (error) throw error
 
       await localDb[table].bulkPut((data || []).filter((row) => !row.deleted_at))
@@ -106,6 +112,7 @@ export async function pullFromRemote(shopId) {
 
 export function startSyncListener(shopId) {
   if (typeof window === 'undefined') return () => {}
+  if (!shopId) return () => {}
 
   const handleOnline = () => runSync(shopId)
 
@@ -113,7 +120,7 @@ export function startSyncListener(shopId) {
 
   const interval = setInterval(() => {
     if (navigator.onLine) runSync(shopId)
-  }, 30000)
+  }, 15000)
 
   return () => {
     window.removeEventListener('online', handleOnline)

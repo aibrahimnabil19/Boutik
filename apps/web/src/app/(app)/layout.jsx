@@ -79,23 +79,23 @@ export default function AppLayout({ children }) {
   }, [shop])
 
   // Sync listener
-  useEffect(() => {
-    if (!shop?.id) return
+useEffect(() => {
+  if (!shop?.id) return
 
-    let cleanup = () => { }
+  let cleanup = () => {}
 
-    async function bootSync() {
-      const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
+  async function bootSync() {
+    const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
 
-      await pullFromRemote(shop.id)
-      await runSync(shop.id)
-      cleanup = startSyncListener(shop.id)
-    }
+    await pullFromRemote(shop.id)
+    await runSync(shop.id)
+    cleanup = startSyncListener(shop.id)
+  }
 
-    bootSync()
+  bootSync()
 
-    return () => cleanup()
-  }, [shop?.id])
+  return () => cleanup()
+}, [shop?.id])
 
   // Online/offline indicator
   useEffect(() => {
