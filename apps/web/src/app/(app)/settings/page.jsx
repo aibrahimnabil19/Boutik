@@ -146,19 +146,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleSync() {
-    setSyncing(true)
-    try {
-      await runSync()
-      if (shop?.id) await pullFromRemote(shop.id)
-      toast.success('Synchronisation terminée !')
-    } catch (err) {
-      toast.error('Erreur de synchronisation')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   async function handleClearLocalData() {
     if (!confirm('Supprimer toutes les données locales ? Cette action est irréversible si non synchronisé.')) return
     const tables = ['products', 'purchases', 'sales', 'expenses', 'clients', 'client_transactions',
@@ -349,11 +336,11 @@ export default function SettingsPage() {
             <p className="text-gray-500 text-sm mb-4">
               Synchronise les données locales vers le cloud Supabase. Se fait automatiquement toutes les 2 minutes si vous êtes en ligne.
             </p>
-            <div className="flex gap-3">
+            {/* <div className="flex gap-3">
               <Btn icon={syncing ? Loader2 : RefreshCw} disabled={syncing} onClick={handleSync}>
                 {syncing ? 'Synchronisation…' : 'Synchroniser maintenant'}
               </Btn>
-            </div>
+            </div> */}
             <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>

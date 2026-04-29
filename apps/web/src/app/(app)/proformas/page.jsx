@@ -45,7 +45,6 @@ export default function ProformasPage() {
     await localDelete('invoices', id)
 
     toast.success('Proforma supprimé')
-    setConfirm(null)
     await load()
   } catch (err) {
     toast.error('Suppression impossible')

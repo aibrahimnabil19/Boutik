@@ -106,38 +106,38 @@ export default function AppLayout({ children }) {
     }
   }, [router, setProfile, setShop, setUser, applyTheme])
 
-  useEffect(() => {
-    return () => {
-      if (window.__boutikSyncCleanup) {
-        window.__boutikSyncCleanup()
-        window.__boutikSyncCleanup = null
-      }
-    }
-  }, [])
+  // useEffect(() => {
+  //   return () => {
+  //     if (window.__boutikSyncCleanup) {
+  //       window.__boutikSyncCleanup()
+  //       window.__boutikSyncCleanup = null
+  //     }
+  //   }
+  // }, [])
 
   // Apply theme whenever shop changes
   useEffect(() => {
     if (shop) applyTheme()
-  }, [shop])
+  }, [shop, applyTheme])
 
   // Sync listener
-  useEffect(() => {
-    if (!shop?.id) return
+  // useEffect(() => {
+  //   if (!shop?.id) return
 
-    let cleanup = () => { }
+  //   let cleanup = () => { }
 
-    async function bootSync() {
-      const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
+  //   async function bootSync() {
+  //     const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
 
-      await pullFromRemote(shop.id)
-      await runSync(shop.id)
-      cleanup = startSyncListener(shop.id)
-    }
+  //     await pullFromRemote(shop.id)
+  //     await runSync(shop.id)
+  //     cleanup = startSyncListener(shop.id)
+  //   }
 
-    bootSync()
+  //   bootSync()
 
-    return () => cleanup()
-  }, [shop?.id])
+  //   return () => cleanup()
+  // }, [shop?.id])
 
   // Online/offline indicator
   useEffect(() => {

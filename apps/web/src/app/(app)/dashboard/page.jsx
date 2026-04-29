@@ -23,10 +23,10 @@ export default function DashboardPage() {
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
   const [period, setPeriod] = useState('6m')
-  const [productsCount, setProductsCount] = useState(0)
+  const [rawSales, setRawSales] = useState([])
+  const [rawPurchases, setRawPurchases] = useState([])
+  const [rawExpenses, setRawExpenses] = useState([])
   const router = useRouter()
-
-  const totalProductsCount = products.length
 
   useEffect(() => {
     if (!shop?.id) return
@@ -53,12 +53,17 @@ export default function DashboardPage() {
         setKpis({ sales: monthSales, purchases: monthPurchases, expenses: monthExpenses, profit: monthProfit })
 
         // Chart: last 6 months
-        setChartData(buildChartData({ sales, purchases, expenses, period }))
+        setRawSales(sales)
+        setRawPurchases(purchases)
+        setRawExpenses(expenses)
+
+        useEffect(() => {
+          if (rawSales.length === 0 && rawPurchases.length === 0) return
+          setChartData(buildChartData({ sales: rawSales, purchases: rawPurchases, expenses: rawExpenses, period }))
+        }, [period, rawSales, rawPurchases, rawExpenses])
 
         // Recent sales (last 5)
         setRecentSales([...sales].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
-
-        setProductsCount(products.length)
 
         // Low stock products
         setLowStock(products.filter(p => p.alert_threshold != null && computeStock(p, purchases, sales) <= p.alert_threshold))
@@ -87,22 +92,22 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-  <button
-    onClick={() => router.push('/ventes')}
-    className="rounded-2xl bg-blue-600 text-white p-5 text-left shadow-sm hover:bg-blue-700 transition"
-  >
-    <p className="text-sm opacity-90">Accès rapide</p>
-    <p className="text-xl font-bold mt-1">Nouvelle vente</p>
-  </button>
+        <button
+          onClick={() => router.push('/ventes')}
+          className="rounded-2xl bg-blue-600 text-white p-5 text-left shadow-sm hover:bg-blue-700 transition"
+        >
+          <p className="text-sm opacity-90">Accès rapide</p>
+          <p className="text-xl font-bold mt-1">Nouvelle vente</p>
+        </button>
 
-  <button
-    onClick={() => router.push('/achats')}
-    className="rounded-2xl bg-emerald-600 text-white p-5 text-left shadow-sm hover:bg-emerald-700 transition"
-  >
-    <p className="text-sm opacity-90">Accès rapide</p>
-    <p className="text-xl font-bold mt-1">Nouvel achat</p>
-  </button>
-</div>
+        <button
+          onClick={() => router.push('/achats')}
+          className="rounded-2xl bg-emerald-600 text-white p-5 text-left shadow-sm hover:bg-emerald-700 transition"
+        >
+          <p className="text-sm opacity-90">Accès rapide</p>
+          <p className="text-xl font-bold mt-1">Nouvel achat</p>
+        </button>
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

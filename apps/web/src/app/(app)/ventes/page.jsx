@@ -28,25 +28,10 @@ export default function VentesPage() {
   const [productId, setProductId] = useState('')
   const [unitCost, setUnitCost] = useState(0)
   const [clients, setClients] = useState([])
-  const [items, setItems] = useState([
-    { id: uuid(), product_id: '', quantity: 1, unit_sale_price: 0 }
-  ])
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_sale_price: '' }
   })
-
-  function addItem() {
-    setItems((prev) => [...prev, { id: uuid(), product_id: '', quantity: 1, unit_sale_price: 0 }])
-  }
-
-  function removeItem(id) {
-    setItems((prev) => prev.filter((x) => x.id !== id))
-  }
-
-  function updateItem(id, patch) {
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)))
-  }
 
   function computeStock(product, purchases, sales) {
     const bought = purchases
@@ -76,7 +61,7 @@ export default function VentesPage() {
     setClients(c)
     setSales(s.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(p)
-    setPurchases(a)
+    setPurchases(pu)
     setLoading(false)
   }, [shop?.id])
 
@@ -92,59 +77,48 @@ export default function VentesPage() {
     }
   }
 
-  async function onSubmit(data) {
-    const saleBatchId = uuid()
-    const now = new Date().toISOString()
-
-    for (const item of items) {
-      const prod = products.find((p) => p.id === item.product_id)
-      const q = Number(item.quantity || 0)
-      const price = Number(item.unit_sale_price || 0)
-
-      if (!prod) {
-        toast.error('Un article n’a pas de produit sélectionné')
-        return
-      }
-
-      const currentStock = computeStock(prod, purchases, sales)
-      if (q > currentStock) {
-        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${currentStock}`)
-        return
-      }
-    }
-
-    for (const item of items) {
-      const prod = products.find((p) => p.id === item.product_id)
-      const q = Number(item.quantity || 0)
-      const price = Number(item.unit_sale_price || 0)
-      const total = q * price
-      const cost = Number(prod.purchase_price || 0)
-
-      await localUpsert('sales', {
-        id: uuid(),
-        sale_batch_id: saleBatchId,
-        shop_id: shop.id,
-        date: data.date,
-        store: data.store || '',
-        product_id: prod.id,
-        product_code: prod.code || '',
-        product_name: prod.name,
-        quantity: q,
-        unit_sale_price: price,
-        total_sale: total,
-        unit_purchase_cost: cost,
-        total_purchase_cost: q * cost,
-        profit: total - q * cost,
-        created_at: now,
-        updated_at: now,
-        sync_status: 'pending',
-      })
-    }
-
-    toast.success('Vente enregistrée')
-    setModal(false)
-    load()
+async function onSubmit(data) {
+  const prod = products.find(p => p.id === productId)
+  if (!prod) {
+    toast.error('Veuillez sélectionner un produit')
+    return
   }
+
+  const q = Number(data.quantity)
+  const price = Number(data.unit_sale_price)
+  const cost = Number(prod.purchase_price || 0)
+
+  const currentStock = computeStock(prod, purchases, sales)
+  if (q > currentStock) {
+    toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${currentStock}`)
+    return
+  }
+
+  const now = new Date().toISOString()
+  await localUpsert('sales', {
+    id: uuid(),
+    shop_id: shop.id,
+    date: data.date,
+    store: data.store || '',
+    product_id: prod.id,
+    product_code: prod.code || '',
+    client_name: data.client_name || '',
+    product_name: data.product_name || prod.name,
+    quantity: q,
+    unit_sale_price: price,
+    total_sale: q * price,
+    unit_purchase_cost: cost,
+    total_purchase_cost: q * cost,
+    profit: q * price - q * cost,
+    created_at: now,
+    updated_at: now,
+    sync_status: 'pending',
+  })
+
+  toast.success('Vente enregistrée')
+  setModal(false)
+  load()
+}
 
   function openAdd() {
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_sale_price: '' })
