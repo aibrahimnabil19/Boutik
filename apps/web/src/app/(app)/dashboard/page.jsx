@@ -39,7 +39,6 @@ export default function DashboardPage() {
           getAll('products', shop.id),
         ])
 
-        // This month KPIs
         const now = new Date()
         const monthStart = startOfMonth(now)
         const monthEnd = endOfMonth(now)
@@ -52,20 +51,12 @@ export default function DashboardPage() {
 
         setKpis({ sales: monthSales, purchases: monthPurchases, expenses: monthExpenses, profit: monthProfit })
 
-        // Chart: last 6 months
+        // Store raw data for the chart effect below
         setRawSales(sales)
         setRawPurchases(purchases)
         setRawExpenses(expenses)
 
-        useEffect(() => {
-          if (rawSales.length === 0 && rawPurchases.length === 0) return
-          setChartData(buildChartData({ sales: rawSales, purchases: rawPurchases, expenses: rawExpenses, period }))
-        }, [period, rawSales, rawPurchases, rawExpenses])
-
-        // Recent sales (last 5)
         setRecentSales([...sales].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
-
-        // Low stock products
         setLowStock(products.filter(p => p.alert_threshold != null && computeStock(p, purchases, sales) <= p.alert_threshold))
       } catch (err) {
         console.error(err)
@@ -75,6 +66,12 @@ export default function DashboardPage() {
     }
     load()
   }, [shop?.id])
+
+  // 2. Separate top-level effect reacts to period or raw data changes
+  useEffect(() => {
+    if (rawSales.length === 0 && rawPurchases.length === 0) return
+    setChartData(buildChartData({ sales: rawSales, purchases: rawPurchases, expenses: rawExpenses, period }))
+  }, [period, rawSales, rawPurchases, rawExpenses])
 
   const primaryColor = shop?.color_primary || '#1a56db'
   const accentColor = shop?.color_accent || '#e3a008'
