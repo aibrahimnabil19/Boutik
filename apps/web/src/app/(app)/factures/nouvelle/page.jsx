@@ -10,10 +10,9 @@ import { Plus, Trash2, Printer, Save, ArrowLeft, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { localDb, getAll, localUpsert } from '@/lib/db/local'
+import { localDb, getAll, localUpsert, localDelete  } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
-import { localDb, getAll } from '@/lib/db/local'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
