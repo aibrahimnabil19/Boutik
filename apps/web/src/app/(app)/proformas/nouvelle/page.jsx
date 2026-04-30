@@ -1,5 +1,3 @@
-// apps/web/src/app/(app)/proformas/nouvelle/page.jsx
-// Proforma builder — same layout as invoice but labeled as PROFORMA.
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -11,7 +9,7 @@ import { Plus, Trash2, Printer, Save, ArrowLeft, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { localDb, getAll } from '@/lib/db/local'
+import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
 
@@ -91,27 +89,50 @@ export default function NouvelleProformaPage() {
     setSaving(true)
     try {
       const proforma = {
-        id: proformaId, shop_id: shop.id, type: 'proforma',
+        id: proformaId,
+        shop_id: shop.id,
+        type: 'proforma',
         invoice_number: proformaNumber,
-        date: data.date, city: data.city || shop?.city || '',
-        client_name: data.client_name, client_address: data.client_address,
-        client_phone: data.client_phone, validity: data.validity,
+        date: data.date,
+        city: data.city || shop?.city || '',
+        client_name: data.client_name,
+        client_address: data.client_address,
+        client_phone: data.client_phone,
+        validity: data.validity,
         total_amount: grandTotal,
         amount_in_words: amountToWordsFCFA(grandTotal),
         status: 'finalized',
-        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }
-      await localDb.invoices.put(proforma)
-      await localDb.invoice_items.where('invoice_id').equals(proformaId).delete()
+
+      // Use localUpsert so proforma enters sync_queue
+      await localUpsert('invoices', proforma)
+
+      // Delete existing items via localDelete so deletions are queued
+      const existingItems = await localDb.invoice_items
+        .where('invoice_id').equals(proformaId).toArray()
+
+      for (const item of existingItems) {
+        await localDelete('invoice_items', item.id)
+      }
+
+      // Insert new items via localUpsert
       for (let i = 0; i < computedItems.length; i++) {
         const it = computedItems[i]
-        await localDb.invoice_items.put({
-          id: it.id, invoice_id: proformaId,
-          designation: it.designation, quantity: Number(it.quantity),
-          unit: it.unit, unit_price: Number(it.unit_price),
-          total_price: it.total_price, sort_order: i,
+        await localUpsert('invoice_items', {
+          id: it.id,
+          invoice_id: proformaId,
+          shop_id: shop.id,
+          designation: it.designation,
+          quantity: Number(it.quantity),
+          unit: it.unit,
+          unit_price: Number(it.unit_price),
+          total_price: it.total_price,
+          sort_order: i,
         })
       }
+
       toast.success('Proforma enregistré !')
     } catch (err) {
       toast.error(err.message)
@@ -277,7 +298,7 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, 
 
   return (
     <div className={`bg-white font-sans text-gray-900 ${full ? 'p-10 min-h-screen' : 'p-5 text-xs border border-gray-100 rounded-xl'}`}
-         style={{ fontSize: full ? '12pt' : undefined }}>
+      style={{ fontSize: full ? '12pt' : undefined }}>
       <div className="flex justify-between items-start mb-8">
         <div className="flex items-start gap-4">
           {shop?.logo_url && (
@@ -301,16 +322,16 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, 
 
       <div className="text-center mb-6">
         <h1 className="font-display text-xl font-bold uppercase tracking-wide"
-            style={{ color: shop?.color_primary || '#1a56db' }}>
+          style={{ color: shop?.color_primary || '#1a56db' }}>
           FACTURE PROFORMA N°{proformaNumber}
         </h1>
       </div>
 
       {(formValues.client_name || formValues.client_address || formValues.client_phone) && (
         <div className="border border-gray-200 rounded-lg p-4 mb-6 grid grid-cols-3 gap-4">
-          {formValues.client_name    && <div><span className="text-gray-500">CLIENT : </span><strong>{formValues.client_name}</strong></div>}
+          {formValues.client_name && <div><span className="text-gray-500">CLIENT : </span><strong>{formValues.client_name}</strong></div>}
           {formValues.client_address && <div><span className="text-gray-500">ADRESSE : </span>{formValues.client_address}</div>}
-          {formValues.client_phone   && <div><span className="text-gray-500">Tél : </span>{formValues.client_phone}</div>}
+          {formValues.client_phone && <div><span className="text-gray-500">Tél : </span>{formValues.client_phone}</div>}
         </div>
       )}
 
@@ -364,8 +385,8 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, 
 
       <div className="mt-10 pt-4 border-t border-gray-200 text-center text-gray-400 text-xs">
         {[shop?.phone && `Tél : ${shop.phone}`,
-          shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,
-          shop?.email && `Email : ${shop.email}`
+        shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,
+        shop?.email && `Email : ${shop.email}`
         ].filter(Boolean).join('   ·   ')}
       </div>
     </div>

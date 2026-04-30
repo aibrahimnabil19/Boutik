@@ -13,6 +13,7 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
+import { localDb, getAll } from '@/lib/db/local'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
@@ -91,46 +92,60 @@ export default function NouvelleFacturePage() {
   const grandTotal = calculateInvoiceTotal(computedItems)
 
   // ─── Save ─────────────────────────────────────────────────────────────────
-  async function onSubmit(data, newStatus = status) {
-    setSaving(true)
-    try {
-      const invoice = {
-        id:             invoiceId,
-        shop_id:        shop.id,
-        type:           'facture',
-        invoice_number: invoiceNumber,
-        date:           data.date,
-        city:           data.city || shop?.city || '',
-        client_name:    data.client_name,
-        client_address: data.client_address,
-        client_phone:   data.client_phone,
-        total_amount:   grandTotal,
-        amount_in_words: amountToWordsFCFA(grandTotal),
-        status:         newStatus,
-        created_at:     new Date().toISOString(),
-        updated_at:     new Date().toISOString(),
-      }
-      await localDb.invoices.put(invoice)
-
-      // Replace items
-      await localDb.invoice_items.where('invoice_id').equals(invoiceId).delete()
-      for (let i = 0; i < computedItems.length; i++) {
-        const it = computedItems[i]
-        await localDb.invoice_items.put({
-          id: it.id, invoice_id: invoiceId,
-          designation: it.designation, quantity: Number(it.quantity),
-          unit: it.unit, unit_price: Number(it.unit_price),
-          total_price: it.total_price, sort_order: i,
-        })
-      }
-      setStatus(newStatus)
-      toast.success(newStatus === 'finalized' ? 'Facture finalisée !' : 'Brouillon enregistré')
-    } catch (err) {
-      toast.error(err.message)
-    } finally {
-      setSaving(false)
+async function onSubmit(data, newStatus = status) {
+  setSaving(true)
+  try {
+    const invoice = {
+      id: invoiceId,
+      shop_id: shop.id,
+      type: 'facture',
+      invoice_number: invoiceNumber,
+      date: data.date,
+      city: data.city || shop?.city || '',
+      client_name: data.client_name,
+      client_address: data.client_address,
+      client_phone: data.client_phone,
+      total_amount: grandTotal,
+      amount_in_words: amountToWordsFCFA(grandTotal),
+      status: newStatus,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
+
+    // Use localUpsert so invoice enters sync_queue
+    await localUpsert('invoices', invoice)
+
+    // Delete existing items via localDelete so deletions are queued
+    const existingItems = await localDb.invoice_items
+      .where('invoice_id').equals(invoiceId).toArray()
+    for (const item of existingItems) {
+      await localDelete('invoice_items', item.id)
+    }
+
+    // Insert new items via localUpsert
+    for (let i = 0; i < computedItems.length; i++) {
+      const it = computedItems[i]
+      await localUpsert('invoice_items', {
+        id: it.id,
+        invoice_id: invoiceId,
+        shop_id: shop.id,          // ← add shop_id so getAll() works
+        designation: it.designation,
+        quantity: Number(it.quantity),
+        unit: it.unit,
+        unit_price: Number(it.unit_price),
+        total_price: it.total_price,
+        sort_order: i,
+      })
+    }
+
+    setStatus(newStatus)
+    toast.success(newStatus === 'finalized' ? 'Facture finalisée !' : 'Brouillon enregistré')
+  } catch (err) {
+    toast.error(err.message)
+  } finally {
+    setSaving(false)
   }
+}
 
   // ─── Print ────────────────────────────────────────────────────────────────
   function handlePrint() {

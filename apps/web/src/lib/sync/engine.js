@@ -26,45 +26,48 @@ export async function runSync(shopId) {
   try {
     const queue = await localDb.sync_queue.orderBy('created_at').toArray()
 
-    for (const item of queue) {
-      try {
-        const { table_name, operation, payload, record_id, _localId } = item
+let failCount = 0
 
-        if (operation === 'delete') {
-          const { error } = await supabase
-            .from(table_name)
-            .update({ deleted_at: payload.deleted_at })
-            .eq('id', payload.id)
+for (const item of queue) {
+  try {
+    const { table_name, operation, payload, record_id, _localId } = item
 
-          if (error) throw error
-        } else {
-          const { error } = await supabase
-            .from(table_name)
-            .upsert(payload, { onConflict: 'id' })
+    // Strip local-only fields before sending to Supabase (see Bug 2)
+    const { sync_status, _localId: _lid, ...cleanPayload } = payload
 
-          if (error) throw error
-        }
-
-        if (localDb[table_name]) {
-          await localDb[table_name]
-            .where('id')
-            .equals(record_id)
-            .modify({ sync_status: 'synced' })
-        }
-
-        await localDb.sync_queue.delete(_localId)
-
-        console.log('[sync push ok]', table_name, record_id)
-      } catch (err) {
-        console.error('[sync push failed]', {
-          table: item.table_name,
-          recordId: item.record_id,
-          operation: item.operation,
-          payload: item.payload,
-          message: err?.message,
-        })
-      }
+    if (operation === 'delete') {
+      const { error } = await supabase
+        .from(table_name)
+        .update({ deleted_at: cleanPayload.deleted_at })
+        .eq('id', cleanPayload.id)
+      if (error) throw error
+    } else {
+      const { error } = await supabase
+        .from(table_name)
+        .upsert(cleanPayload, { onConflict: 'id' })
+      if (error) throw error
     }
+
+    if (localDb[table_name]) {
+      await localDb[table_name]
+        .where('id').equals(record_id)
+        .modify({ sync_status: 'synced' })
+    }
+
+    await localDb.sync_queue.delete(_localId)
+  } catch (err) {
+    failCount++
+    console.error('[sync push failed]', {
+      table: item.table_name,
+      recordId: item.record_id,
+      message: err?.message,
+    })
+  }
+}
+
+if (failCount > 0) {
+  throw new Error(`${failCount} élément(s) n'ont pas pu être synchronisés. Vérifiez la console.`)
+}
 
     await pullFromRemote(shopId)
   } finally {
