@@ -14,6 +14,7 @@ import { useAppStore } from '@/context/store'
 import { getAll } from '@/lib/db/local'
 import { formatFCFA } from '@/lib/core/calculations'
 import { PageHeader, StatCard } from '@/components/ui'
+import { getAllIncludingDeleted } from '@/lib/db/local'
 
 export default function RentabilitePage() {
   const shop = useAppStore(s => s.shop)
@@ -23,15 +24,16 @@ export default function RentabilitePage() {
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState('month') // month | quarter | all
 
-  const load = useCallback(async () => {
+const load = useCallback(async () => {
     if (!shop?.id) return
     const [p, s, e] = await Promise.all([
       getAll('products', shop.id),
-      getAll('sales', shop.id),
-      getAll('expenses', shop.id),
+      getAllIncludingDeleted('sales', shop.id),   // ← includes soft-deleted
+      getAllIncludingDeleted('expenses', shop.id), // ← includes soft-deleted
     ])
     setProducts(p)
-    setSales(s)
+    // Include deleted sales but NOT cancelled ones for profitability (or mark them)
+    setSales(s.filter(sale => !sale.cancelled_at))
     setExpenses(e)
     setLoading(false)
   }, [shop?.id])

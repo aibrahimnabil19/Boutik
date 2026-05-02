@@ -18,7 +18,7 @@ import { useRouter } from 'next/navigation'
 export default function DashboardPage() {
   const shop = useAppStore(s => s.shop)
   const [loading, setLoading] = useState(true)
-  const [kpis, setKpis] = useState({ sales: 0, purchases: 0, expenses: 0, profit: 0 })
+  const [kpis, setKpis] = useState({ sales: 0, purchases: 0, expenses: 0, profit: 0, totalProducts: 0, totalDebt: 0 })
   const [chartData, setChartData] = useState([])
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
@@ -32,11 +32,13 @@ export default function DashboardPage() {
     if (!shop?.id) return
     async function load() {
       try {
-        const [sales, purchases, expenses, products] = await Promise.all([
+        const [sales, purchases, expenses, products, clientTx, supplierTx] = await Promise.all([
           getAll('sales', shop.id),
           getAll('purchases', shop.id),
           getAll('expenses', shop.id),
           getAll('products', shop.id),
+          getAll('client_transactions', shop.id),
+          getAll('supplier_transactions', shop.id),
         ])
 
         const now = new Date()
@@ -44,19 +46,43 @@ export default function DashboardPage() {
         const monthEnd = endOfMonth(now)
         const inMonth = (d) => isWithinInterval(new Date(d), { start: monthStart, end: monthEnd })
 
-        const monthSales = sales.filter(s => inMonth(s.date)).reduce((a, s) => a + (s.total_sale || 0), 0)
+        const monthSales = sales.filter(s => inMonth(s.date) && !s.cancelled_at).reduce((a, s) => a + (s.total_sale || 0), 0)
         const monthPurchases = purchases.filter(p => inMonth(p.date)).reduce((a, p) => a + (p.total_amount || 0), 0)
         const monthExpenses = expenses.filter(e => inMonth(e.date)).reduce((a, e) => a + (e.amount || 0), 0)
-        const monthProfit = sales.filter(s => inMonth(s.date)).reduce((a, s) => a + (s.profit || 0), 0) - monthExpenses
+        const monthProfit = sales.filter(s => inMonth(s.date) && !s.cancelled_at).reduce((a, s) => a + (s.profit || 0), 0) - monthExpenses
 
-        setKpis({ sales: monthSales, purchases: monthPurchases, expenses: monthExpenses, profit: monthProfit })
+        // Total client debt (positive amounts = clients owe us)
+        const totalClientDebt = clientTx
+          .filter(t => t.amount > 0)
+          .reduce((a, t) => a + t.amount, 0)
+        const totalClientPaid = clientTx
+          .filter(t => t.amount < 0)
+          .reduce((a, t) => a + Math.abs(t.amount), 0)
+        const netClientDebt = Math.max(0, totalClientDebt - totalClientPaid)
 
-        // Store raw data for the chart effect below
-        setRawSales(sales)
+        // Total supplier debt
+        const totalSupplierDebt = supplierTx
+          .filter(t => t.amount > 0)
+          .reduce((a, t) => a + t.amount, 0)
+        const totalSupplierPaid = supplierTx
+          .filter(t => t.amount < 0)
+          .reduce((a, t) => a + Math.abs(t.amount), 0)
+        const netSupplierDebt = Math.max(0, totalSupplierDebt - totalSupplierPaid)
+
+        setKpis({
+          sales: monthSales,
+          purchases: monthPurchases,
+          expenses: monthExpenses,
+          profit: monthProfit,
+          totalProducts: products.length,
+          totalDebt: netClientDebt + netSupplierDebt,
+        })
+
+        setRawSales(sales.filter(s => !s.cancelled_at))
         setRawPurchases(purchases)
         setRawExpenses(expenses)
 
-        setRecentSales([...sales].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
+        setRecentSales([...sales].filter(s => !s.cancelled_at).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
         setLowStock(products.filter(p => p.alert_threshold != null && computeStock(p, purchases, sales) <= p.alert_threshold))
       } catch (err) {
         console.error(err)
@@ -107,35 +133,13 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="Ventes du mois"
-          value={formatFCFA(kpis.sales)}
-          icon={TrendingUp}
-          color="blue"
-          loading={loading}
-        />
-        <KpiCard
-          label="Achats du mois"
-          value={formatFCFA(kpis.purchases)}
-          icon={ShoppingCart}
-          color="purple"
-          loading={loading}
-        />
-        <KpiCard
-          label="Dépenses"
-          value={formatFCFA(kpis.expenses)}
-          icon={Wallet}
-          color="amber"
-          loading={loading}
-        />
-        <KpiCard
-          label="Bénéfice net"
-          value={formatFCFA(kpis.profit)}
-          icon={kpis.profit >= 0 ? TrendingUp : TrendingDown}
-          color={kpis.profit >= 0 ? 'green' : 'red'}
-          loading={loading}
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <KpiCard label="Ventes du mois" value={formatFCFA(kpis.sales)} icon={TrendingUp} color="blue" loading={loading} />
+        <KpiCard label="Bénéfice net" value={formatFCFA(kpis.profit)} icon={kpis.profit >= 0 ? TrendingUp : TrendingDown} color={kpis.profit >= 0 ? 'green' : 'red'} loading={loading} />
+        <KpiCard label="Dépenses du mois" value={formatFCFA(kpis.expenses)} icon={Wallet} color="amber" loading={loading} />
+        <KpiCard label="Achats du mois" value={formatFCFA(kpis.purchases)} icon={ShoppingCart} color="purple" loading={loading} />
+        <KpiCard label="Produits en stock" value={kpis.totalProducts} icon={Package} color="blue" loading={loading} />
+        <KpiCard label="Total créances" value={formatFCFA(kpis.totalDebt)} icon={TrendingDown} color={kpis.totalDebt > 0 ? 'amber' : 'green'} loading={loading} />
       </div>
 
       {/* Selector */}

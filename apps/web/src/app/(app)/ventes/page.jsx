@@ -1,54 +1,56 @@
-// apps/web/src/app/(app)/ventes/page.jsx
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { TrendingUp, Plus, Trash2, ChevronDown } from 'lucide-react'
+import { TrendingUp, Plus, Trash2, XCircle, PlusCircle } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { getAll, localUpsert, localDelete } from '@/lib/db/local'
+import { getAll, localUpsert, localDelete, cancelSale } from '@/lib/db/local'
 import { formatFCFA } from '@/lib/core/calculations'
 import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
-  ConfirmDialog, Btn, StatCard, inputCls, selectCls
+  ConfirmDialog, Btn, StatCard, Badge, inputCls, selectCls
 } from '@/components/ui'
+
+function computeStock(product, purchases, sales) {
+  const bought = purchases
+    .filter((p) => p.product_id === product.id)
+    .reduce((a, p) => a + Number(p.quantity || 0), 0)
+  const sold = sales
+    .filter((s) => s.product_id === product.id && !s.cancelled_at)
+    .reduce((a, s) => a + Number(s.quantity || 0), 0)
+  return Number(product.stock_initial || 0) + bought - sold
+}
+
+const emptyLine = () => ({
+  _key: uuid(),
+  product_id: '',
+  product_name: '',
+  product_code: '',
+  unit_cost: 0,
+  quantity: 1,
+  unit_sale_price: '',
+})
 
 export default function VentesPage() {
   const shop = useAppStore(s => s.shop)
   const [sales, setSales] = useState([])
   const [products, setProducts] = useState([])
   const [purchases, setPurchases] = useState([])
+  const [clients, setClients] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
-  const [confirm, setConfirm] = useState(null)
+  const [confirm, setConfirm] = useState(null)      // { type: 'delete'|'cancel', id }
   const [loading, setLoading] = useState(true)
-  const [productId, setProductId] = useState('')
-  const [unitCost, setUnitCost] = useState(0)
-  const [clients, setClients] = useState([])
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_sale_price: '' }
-  })
-
-  function computeStock(product, purchases, sales) {
-    const bought = purchases
-      .filter((p) => p.product_id === product.id)
-      .reduce((a, p) => a + Number(p.quantity || 0), 0)
-
-    const sold = sales
-      .filter((s) => s.product_id === product.id)
-      .reduce((a, s) => a + Number(s.quantity || 0), 0)
-
-    return Number(product.stock_initial || 0) + bought - sold
-  }
-
-  const qty = Number(watch('quantity') || 0)
-  const price = Number(watch('unit_sale_price') || 0)
-  const total = qty * price
-  const profit = total - (qty * unitCost)
+  // Cart: list of sale lines
+  const [cart, setCart] = useState([emptyLine()])
+  const [saleDate, setSaleDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [saleStore, setSaleStore] = useState('')
+  const [saleClient, setSaleClient] = useState('')
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -58,96 +60,183 @@ export default function VentesPage() {
       getAll('purchases', shop.id),
       getAll('clients', shop.id),
     ])
-    setClients(c)
     setSales(s.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(p)
     setPurchases(pu)
+    setClients(c)
     setLoading(false)
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
 
-  function handleProductChange(e) {
-    const id = e.target.value
-    setProductId(id)
-    const prod = products.find(p => p.id === id)
-    if (prod) {
-      setUnitCost(prod.purchase_price || 0)
-      if (prod.sale_price) setValue('unit_sale_price', prod.sale_price)
+  // ─── Cart helpers ──────────────────────────────────────────────────────────
+  function updateLine(key, field, value) {
+    setCart(prev => prev.map(line =>
+      line._key === key ? { ...line, [field]: value } : line
+    ))
+  }
+
+  function selectProductForLine(key, productId) {
+    const prod = products.find(p => p.id === productId)
+    if (!prod) return
+    setCart(prev => prev.map(line =>
+      line._key === key ? {
+        ...line,
+        product_id: prod.id,
+        product_name: prod.name,
+        product_code: prod.code || '',
+        unit_cost: prod.purchase_price || 0,
+        unit_sale_price: prod.sale_price || '',
+      } : line
+    ))
+  }
+
+  function removeLine(key) {
+    if (cart.length === 1) return
+    setCart(prev => prev.filter(l => l._key !== key))
+  }
+
+  function addLine() {
+    setCart(prev => [...prev, emptyLine()])
+  }
+
+  // ─── Cart totals ──────────────────────────────────────────────────────────
+  const cartTotals = useMemo(() => cart.reduce((acc, line) => {
+    const qty = Number(line.quantity || 0)
+    const price = Number(line.unit_sale_price || 0)
+    const cost = Number(line.unit_cost || 0)
+    return {
+      revenue: acc.revenue + qty * price,
+      cost: acc.cost + qty * cost,
+      profit: acc.profit + (qty * price - qty * cost),
+    }
+  }, { revenue: 0, cost: 0, profit: 0 }), [cart])
+
+  // ─── Submit ────────────────────────────────────────────────────────────────
+  async function onSubmit(e) {
+    e.preventDefault()
+
+    // Validate all lines have product + price
+    for (const line of cart) {
+      if (!line.product_id) {
+        toast.error('Sélectionnez un produit pour chaque ligne')
+        return
+      }
+      if (!line.unit_sale_price || Number(line.unit_sale_price) <= 0) {
+        toast.error(`Prix manquant pour ${line.product_name}`)
+        return
+      }
+    }
+
+    // Stock check
+    for (const line of cart) {
+      const prod = products.find(p => p.id === line.product_id)
+      if (!prod) continue
+      const currentStock = computeStock(prod, purchases, sales)
+      if (Number(line.quantity) > currentStock) {
+        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${currentStock}`)
+        return
+      }
+    }
+
+    const sessionId = uuid()
+    const now = new Date().toISOString()
+
+    try {
+      for (const line of cart) {
+        const q = Number(line.quantity)
+        const price = Number(line.unit_sale_price)
+        const cost = Number(line.unit_cost)
+        await localUpsert('sales', {
+          id: uuid(),
+          shop_id: shop.id,
+          session_id: sessionId,
+          date: saleDate,
+          store: saleStore || '',
+          client_name: saleClient || '',
+          product_id: line.product_id,
+          product_code: line.product_code || '',
+          product_name: line.product_name,
+          quantity: q,
+          unit_sale_price: price,
+          total_sale: q * price,
+          unit_purchase_cost: cost,
+          total_purchase_cost: q * cost,
+          profit: q * price - q * cost,
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+      toast.success(`Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`)
+      setModal(false)
+      load()
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de l\'enregistrement')
     }
   }
 
-async function onSubmit(data) {
-  const prod = products.find(p => p.id === productId)
-  if (!prod) {
-    toast.error('Veuillez sélectionner un produit')
-    return
-  }
-
-  const q = Number(data.quantity)
-  const price = Number(data.unit_sale_price)
-  const cost = Number(prod.purchase_price || 0)
-
-  const currentStock = computeStock(prod, purchases, sales)
-  if (q > currentStock) {
-    toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${currentStock}`)
-    return
-  }
-
-  const now = new Date().toISOString()
-  await localUpsert('sales', {
-    id: uuid(),
-    shop_id: shop.id,
-    date: data.date,
-    store: data.store || '',
-    product_id: prod.id,
-    product_code: prod.code || '',
-    client_name: data.client_name || '',
-    product_name: data.product_name || prod.name,
-    quantity: q,
-    unit_sale_price: price,
-    total_sale: q * price,
-    unit_purchase_cost: cost,
-    total_purchase_cost: q * cost,
-    profit: q * price - q * cost,
-    created_at: now,
-    updated_at: now,
-    sync_status: 'pending',
-  })
-
-  toast.success('Vente enregistrée')
-  setModal(false)
-  load()
-}
-
   function openAdd() {
-    reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_sale_price: '' })
-    setProductId('')
-    setUnitCost(0)
+    setCart([emptyLine()])
+    setSaleDate(format(new Date(), 'yyyy-MM-dd'))
+    setSaleStore('')
+    setSaleClient('')
     setModal(true)
   }
 
-  const filtered = useMemo(() =>
-    sales.filter(s =>
+  // Group sales by session_id for display
+  const groupedSales = useMemo(() => {
+    const groups = {}
+    const filtered = sales.filter(s =>
       s.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-      s.store?.toLowerCase().includes(search.toLowerCase())
-    ), [sales, search])
+      s.store?.toLowerCase().includes(search.toLowerCase()) ||
+      s.client_name?.toLowerCase().includes(search.toLowerCase())
+    )
+    filtered.forEach(s => {
+      const key = s.session_id || s.id
+      if (!groups[key]) {
+        groups[key] = { key, date: s.date, store: s.store, client_name: s.client_name, items: [], cancelled: !!s.cancelled_at }
+      }
+      groups[key].items.push(s)
+      if (s.cancelled_at) groups[key].cancelled = true
+    })
+    return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [sales, search])
 
-  const totalRevenue = useMemo(() => sales.reduce((a, s) => a + (s.total_sale || 0), 0), [sales])
-  const totalProfit = useMemo(() => sales.reduce((a, s) => a + (s.profit || 0), 0), [sales])
+  const activeSales = useMemo(() => sales.filter(s => !s.cancelled_at), [sales])
+  const totalRevenue = useMemo(() => activeSales.reduce((a, s) => a + (s.total_sale || 0), 0), [activeSales])
+  const totalProfit = useMemo(() => activeSales.reduce((a, s) => a + (s.profit || 0), 0), [activeSales])
+
+  async function handleCancel(sessionId) {
+    const sessionSales = sales.filter(s => (s.session_id || s.id) === sessionId)
+    for (const s of sessionSales) {
+      await cancelSale(s.id, shop.id)
+    }
+    toast.success('Vente annulée — stock restauré')
+    load()
+  }
+
+  async function handleDelete(sessionId) {
+    const sessionSales = sales.filter(s => (s.session_id || s.id) === sessionId)
+    for (const s of sessionSales) {
+      await localDelete('sales', s.id)
+    }
+    toast.success('Vente supprimée')
+    load()
+  }
 
   return (
     <div className="p-6">
       <PageHeader
         title="Ventes"
-        subtitle={`${sales.length} transaction${sales.length !== 1 ? 's' : ''}`}
+        subtitle={`${activeSales.length} transaction${activeSales.length !== 1 ? 's' : ''}`}
         action={<Btn icon={Plus} onClick={openAdd}>Nouvelle vente</Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Chiffre d'affaires total" value={formatFCFA(totalRevenue)} color="blue" icon={TrendingUp} />
         <StatCard label="Bénéfice total" value={formatFCFA(totalProfit)} color="green" icon={TrendingUp} />
-        <StatCard label="Nombre de ventes" value={sales.length} color="purple" />
+        <StatCard label="Nombre de ventes" value={activeSales.length} color="purple" />
       </div>
 
       <div className="card overflow-hidden">
@@ -159,113 +248,188 @@ async function onSubmit(data) {
 
         {loading ? (
           <div className="p-10 text-center text-gray-400 text-sm">Chargement…</div>
-        ) : filtered.length === 0 ? (
+        ) : groupedSales.length === 0 ? (
           <EmptyState icon={TrendingUp} title="Aucune vente"
             description="Enregistrez vos premières ventes."
             action={<Btn icon={Plus} onClick={openAdd}>Nouvelle vente</Btn>}
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date', 'Produit', 'Magasin', 'Qté', 'Prix unit.', 'Total', 'Coût', 'Bénéfice', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {filtered.map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                      {format(new Date(s.date), 'dd MMM yy', { locale: fr })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900 max-w-[220px] truncate">{s.product_name}</p>
-                      {s.product_code && <p className="text-xs text-gray-400">{s.product_code}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">{s.store || '—'}</td>
-                    <td className="px-4 py-3 font-medium text-gray-700">{s.quantity}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatFCFA(s.unit_sale_price)}</td>
-                    <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(s.total_sale)}</td>
-                    <td className="px-4 py-3 text-gray-400">{formatFCFA(s.total_purchase_cost)}</td>
-                    <td className="px-4 py-3 font-semibold text-emerald-600">+{formatFCFA(s.profit)}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => setConfirm(s.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="divide-y divide-gray-50">
+            {groupedSales.map(group => {
+              const groupTotal = group.items.reduce((a, s) => a + (s.total_sale || 0), 0)
+              const groupProfit = group.items.reduce((a, s) => a + (s.profit || 0), 0)
+              return (
+                <div key={group.key} className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : 'hover:bg-gray-50'} transition-colors`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-gray-400">
+                          {format(new Date(group.date), 'dd MMM yyyy', { locale: fr })}
+                        </span>
+                        {group.store && <span className="text-xs text-gray-400">· {group.store}</span>}
+                        {group.client_name && <span className="text-xs font-medium text-blue-600">· {group.client_name}</span>}
+                        {group.cancelled && <Badge color="red">Annulée</Badge>}
+                        {group.items.length > 1 && (
+                          <Badge color="blue">{group.items.length} produits</Badge>
+                        )}
+                      </div>
+                      <div className="space-y-0.5">
+                        {group.items.map(s => (
+                          <div key={s.id} className="flex items-center gap-2 text-sm">
+                            <span className="font-medium text-gray-800 max-w-[200px] truncate">{s.product_name}</span>
+                            <span className="text-gray-400">×{s.quantity}</span>
+                            <span className="text-gray-500">{formatFCFA(s.total_sale)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right flex-none">
+                      <p className="font-bold text-gray-900">{formatFCFA(groupTotal)}</p>
+                      {!group.cancelled && (
+                        <p className="text-xs text-emerald-600">+{formatFCFA(groupProfit)}</p>
+                      )}
+                    </div>
+                    {!group.cancelled && (
+                      <div className="flex gap-1 flex-none">
+                        <button
+                          onClick={() => setConfirm({ type: 'cancel', id: group.key })}
+                          className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-500 transition-colors"
+                          title="Annuler la vente"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setConfirm({ type: 'delete', id: group.key })}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* Add Sale Modal */}
-      <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle vente" maxW="max-w-lg">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+      {/* New Sale Modal */}
+      <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle vente" maxW="max-w-2xl">
+        <form onSubmit={onSubmit} className="space-y-4">
+          {/* Header fields */}
+          <div className="grid grid-cols-3 gap-3">
             <FormField label="Date" required>
-              <input {...register('date', { required: true })} type="date" className={inputCls} />
+              <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)} className={inputCls} required />
             </FormField>
             <FormField label="Magasin / Point de vente">
-              <input {...register('store')} placeholder="Ex: Dar es salam" className={inputCls} />
+              <input value={saleStore} onChange={e => setSaleStore(e.target.value)} placeholder="Ex: Dar es salam" className={inputCls} />
+            </FormField>
+            <FormField label="Client">
+              <select value={saleClient} onChange={e => setSaleClient(e.target.value)} className={selectCls}>
+                <option value="">— Choisir —</option>
+                {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
             </FormField>
           </div>
 
-          <FormField label="Produit (catalogue)">
-            <select value={productId} onChange={handleProductChange} className={selectCls}>
-              <option value="">— Sélectionner un produit —</option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''}</option>
-              ))}
-            </select>
-          </FormField>
+          {/* Cart lines */}
+          <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Articles</span>
+              <Btn size="sm" icon={PlusCircle} onClick={addLine} variant="ghost">Ajouter une ligne</Btn>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {cart.map((line, idx) => {
+                const qty = Number(line.quantity || 0)
+                const price = Number(line.unit_sale_price || 0)
+                const lineTotal = qty * price
+                const lineProfit = qty * price - qty * line.unit_cost
+                const prod = products.find(p => p.id === line.product_id)
+                const availStock = prod ? computeStock(prod, purchases, sales) : null
 
-          <FormField label="Client">
-            <select {...register('client_name')} className={selectCls}>
-              <option value="">— Choisir un client —</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-          </FormField>
-
-          <FormField label="Désignation" required error={errors.product_name?.message}
-            hint="Modifiez si différent du catalogue">
-            <input {...register('product_name', { required: 'Désignation requise' })}
-              placeholder="Nom exact du produit vendu" className={inputCls} />
-          </FormField>
-
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Quantité" required>
-              <input {...register('quantity', { required: true, min: 0.001 })}
-                type="number" step="0.001" min="0.001" className={inputCls} />
-            </FormField>
-            <FormField label="Prix de vente unitaire (FCFA)" required>
-              <input {...register('unit_sale_price', { required: true, min: 0 })}
-                type="number" min="0" placeholder="0" className={inputCls} />
-            </FormField>
+                return (
+                  <div key={line._key} className="p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-400">Ligne {idx + 1}</span>
+                      <button type="button" onClick={() => removeLine(line._key)} className="text-gray-300 hover:text-red-500 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <select
+                      value={line.product_id}
+                      onChange={e => selectProductForLine(line._key, e.target.value)}
+                      className={selectCls}
+                    >
+                      <option value="">— Sélectionner un produit —</option>
+                      {products.map(p => {
+                        const stock = computeStock(p, purchases, sales)
+                        return <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''} — Stock: {stock}</option>
+                      })}
+                    </select>
+                    {line.product_id && availStock !== null && (
+                      <p className="text-xs text-gray-400">Stock disponible: <strong className={availStock <= 0 ? 'text-red-500' : 'text-emerald-600'}>{availStock}</strong></p>
+                    )}
+                    <input
+                      value={line.product_name}
+                      onChange={e => updateLine(line._key, 'product_name', e.target.value)}
+                      placeholder="Désignation"
+                      className={inputCls}
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-xs text-gray-400">Quantité</label>
+                        <input
+                          type="number" min="0.001" step="0.001"
+                          value={line.quantity}
+                          onChange={e => updateLine(line._key, 'quantity', e.target.value)}
+                          className={`${inputCls} mt-0.5`}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Prix vente (FCFA)</label>
+                        <input
+                          type="number" min="0"
+                          value={line.unit_sale_price}
+                          onChange={e => updateLine(line._key, 'unit_sale_price', e.target.value)}
+                          placeholder="0"
+                          className={`${inputCls} mt-0.5`}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Total ligne</label>
+                        <div className={`${inputCls} mt-0.5 bg-gray-50 flex items-center justify-between`}>
+                          <span className="text-gray-600">{formatFCFA(lineTotal)}</span>
+                          {lineTotal > 0 && (
+                            <span className={`text-xs font-semibold ml-1 ${lineProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                              +{formatFCFA(lineProfit)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
-          {/* Live preview */}
-          {total > 0 && (
-            <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 grid grid-cols-3 gap-3 text-center">
+          {/* Cart summary */}
+          {cartTotals.revenue > 0 && (
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-xs text-gray-400">Total vente</p>
-                <p className="font-bold text-gray-900 text-sm">{formatFCFA(total)}</p>
+                <p className="text-xs text-blue-500">Total vente</p>
+                <p className="font-bold text-blue-900">{formatFCFA(cartTotals.revenue)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Coût total</p>
-                <p className="font-bold text-gray-600 text-sm">{formatFCFA(qty * unitCost)}</p>
+                <p className="text-xs text-blue-500">Coût total</p>
+                <p className="font-bold text-blue-700">{formatFCFA(cartTotals.cost)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Bénéfice</p>
-                <p className={`font-bold text-sm ${profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {profit >= 0 ? '+' : ''}{formatFCFA(profit)}
+                <p className="text-xs text-blue-500">Bénéfice</p>
+                <p className={`font-bold ${cartTotals.profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {cartTotals.profit >= 0 ? '+' : ''}{formatFCFA(cartTotals.profit)}
                 </p>
               </div>
             </div>
@@ -273,14 +437,30 @@ async function onSubmit(data) {
 
           <div className="flex gap-3 justify-end pt-2">
             <Btn variant="secondary" onClick={() => setModal(false)}>Annuler</Btn>
-            <Btn type="submit">Enregistrer</Btn>
+            <Btn type="submit">Enregistrer la vente</Btn>
           </div>
         </form>
       </Modal>
 
-      <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
-        onConfirm={() => { localDelete('sales', confirm); load(); toast.success('Vente supprimée') }}
-        title="Supprimer la vente" message="Êtes-vous sûr de vouloir supprimer cette vente ?" />
+      {/* Confirm dialogs */}
+      <ConfirmDialog
+        open={!!confirm && confirm.type === 'cancel'}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => handleCancel(confirm.id)}
+        title="Annuler la vente"
+        message="La vente sera marquée comme annulée. Les produits seront remis en stock et les montants retirés des totaux. La vente restera visible dans l'historique."
+        confirmLabel="Annuler la vente"
+        danger={true}
+      />
+      <ConfirmDialog
+        open={!!confirm && confirm.type === 'delete'}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => handleDelete(confirm.id)}
+        title="Supprimer la vente"
+        message="La vente sera supprimée. Les données resteront dans l'analyse de rentabilité."
+        confirmLabel="Supprimer"
+        danger={true}
+      />
     </div>
   )
 }

@@ -10,38 +10,28 @@ import { getSetting } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
 import { startSyncListener, runSync, pullFromRemote } from '@/lib/sync/engine'
 import {
-  LayoutDashboard,
-  Package,
-  ShoppingCart,
-  TrendingUp,
-  FileText,
-  Users,
-  Truck,
-  PieChart,
-  Wallet,
-  Settings,
-  LogOut,
-  Menu,
-  X,
-  Wifi,
-  WifiOff,
-  ChevronRight,
+  LayoutDashboard, Package, ShoppingCart, TrendingUp,
+  FileText, Users, Truck, PieChart, Wallet,
+  Settings, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
+  Receipt,
 } from 'lucide-react'
 
 const NAV = [
   { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Ventes', href: '/ventes', icon: TrendingUp },
-  { label: 'Achats', href: '/achats', icon: ShoppingCart },
-  { label: 'Dépenses', href: '/depenses', icon: Wallet },
+  { separator: 'Opérations' },
+  { label: 'Ventes',    href: '/ventes',    icon: TrendingUp },
+  { label: 'Achats',    href: '/achats',    icon: ShoppingCart },
+  { label: 'Dépenses',  href: '/depenses',  icon: Wallet },
   { separator: 'Tiers' },
-  { label: 'Clients', href: '/clients', icon: Users },
+  { label: 'Clients',      href: '/clients',      icon: Users },
   { label: 'Fournisseurs', href: '/fournisseurs', icon: Truck },
   { separator: 'Documents' },
-  { label: 'Documents', href: '/documents', icon: FileText },
-  { separator: 'Catalogue & analyse' },
-  { label: 'Produits', href: '/produits', icon: Package },
-  { label: 'Stock', href: '/stock', icon: Package },
-  { label: 'Rentabilité', href: '/rentabilite', icon: PieChart },
+  { label: 'Factures',  href: '/factures',  icon: Receipt },
+  { label: 'Proformas', href: '/proformas', icon: FileText },
+  { separator: 'Catalogue & Analyse' },
+  { label: 'Produits',     href: '/produits',     icon: Package },
+  { label: 'Stock',        href: '/stock',        icon: Package },
+  { label: 'Rentabilité',  href: '/rentabilite',  icon: PieChart },
 ]
 
 export default function AppLayout({ children }) {
