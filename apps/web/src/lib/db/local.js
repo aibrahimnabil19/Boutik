@@ -6,20 +6,17 @@ import Dexie from 'dexie'
 export const localDb = new Dexie('BmSuiteDB')
 
 localDb.version(1).stores({
-  // Format: 'primary_key, indexed_field, ...'
   products:              '++_localId, id, shop_id, code, name, supplier, sync_status, deleted_at',
   purchases:             '++_localId, id, shop_id, date, supplier, product_id, sync_status, deleted_at',
-  sales: '++_localId, id, sale_batch_id, shop_id, date, product_id, sync_status, deleted_at',
+  sales:                 '++_localId, id, shop_id, date, product_id, sync_status, deleted_at',
   expenses:              '++_localId, id, shop_id, date, sync_status, deleted_at',
   clients:               '++_localId, id, shop_id, name',
   client_transactions:   '++_localId, id, shop_id, client_id, date, deleted_at',
   suppliers:             '++_localId, id, shop_id, name',
   supplier_transactions: '++_localId, id, shop_id, supplier_id, date, deleted_at',
   invoices:              '++_localId, id, shop_id, type, status, date, invoice_number',
-  invoice_items: '++_localId, id, invoice_id, deleted_at',
-  // Offline queue: records mutations that need to be pushed to Supabase
+  invoice_items:         '++_localId, id, invoice_id, deleted_at',
   sync_queue: '++_localId, table_name, record_id, operation, created_at',
-  // Local app settings
   app_settings: 'key',
 })
 
