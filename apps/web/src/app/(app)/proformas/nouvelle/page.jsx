@@ -1,17 +1,18 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { Plus, Trash2, Printer, Save, ArrowLeft, Check } from 'lucide-react'
+import { Plus, Trash2, Printer, Save, ArrowLeft } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
+import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
@@ -106,10 +107,8 @@ export default function NouvelleProformaPage() {
         updated_at: new Date().toISOString(),
       }
 
-      // Use localUpsert so proforma enters sync_queue
       await localUpsert('invoices', proforma)
 
-      // Delete existing items via localDelete so deletions are queued
       const existingItems = await localDb.invoice_items
         .where('invoice_id').equals(proformaId).toArray()
 
@@ -117,7 +116,6 @@ export default function NouvelleProformaPage() {
         await localDelete('invoice_items', item.id)
       }
 
-      // Insert new items via localUpsert
       for (let i = 0; i < computedItems.length; i++) {
         const it = computedItems[i]
         await localUpsert('invoice_items', {
@@ -141,19 +139,46 @@ export default function NouvelleProformaPage() {
     }
   }
 
+  // ─── Print via iframe (only the document, not the screen) ─────────────────
+  function handlePrint() {
+    const formValues = watch()
+    const html = renderToInvoiceHTML({
+      shop,
+      invoiceNumber: proformaNumber,
+      formValues,
+      items: computedItems,
+      grandTotal,
+      type: 'proforma',
+    })
+
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
+    document.body.appendChild(iframe)
+    iframe.contentDocument.open()
+    iframe.contentDocument.write(html)
+    iframe.contentDocument.close()
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus()
+        iframe.contentWindow.print()
+        setTimeout(() => document.body.removeChild(iframe), 1500)
+      }, 300)
+    }
+  }
+
   const formValues = watch()
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Top bar */}
-      <div className="no-print sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-3">
         <button onClick={() => router.push('/proformas')}
           className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <h1 className="font-display font-bold text-gray-900">Proforma {proformaNumber}</h1>
         <div className="ml-auto flex items-center gap-2">
-          <Btn variant="secondary" icon={Printer} onClick={() => window.print()}>Imprimer</Btn>
+          <Btn variant="secondary" icon={Printer} onClick={handlePrint}>Imprimer</Btn>
           <Btn icon={Save} onClick={handleSubmit(onSubmit)} disabled={saving}>
             {saving ? 'Enregistrement…' : 'Enregistrer'}
           </Btn>
@@ -161,7 +186,7 @@ export default function NouvelleProformaPage() {
       </div>
 
       {/* Two-column layout */}
-      <div className="no-print max-w-7xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
+      <div className="max-w-7xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
         {/* Form */}
         <div className="space-y-5">
           <div className="card p-5">
@@ -262,7 +287,7 @@ export default function NouvelleProformaPage() {
         </div>
 
         {/* Preview */}
-        <div className="no-print">
+        <div>
           <div className="card p-6 sticky top-24">
             <h3 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Aperçu</h3>
             <ProformaPreview shop={shop} proformaNumber={proformaNumber}
@@ -270,35 +295,17 @@ export default function NouvelleProformaPage() {
           </div>
         </div>
       </div>
-
-      {/* Print version */}
-      <div className="print-only">
-        <ProformaPreview shop={shop} proformaNumber={proformaNumber}
-          formValues={formValues} items={computedItems} grandTotal={grandTotal} full />
-      </div>
-
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          .print-only { display: block !important; }
-          body { background: white !important; }
-        }
-        @media screen {
-          .print-only { display: none !important; }
-        }
-      `}</style>
     </div>
   )
 }
 
-function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, full }) {
+function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), 'dd MMMM yyyy', { locale: fr }) : '—'
   const city = formValues.city || shop?.city || 'Niamey'
 
   return (
-    <div className={`bg-white font-sans text-gray-900 ${full ? 'p-10 min-h-screen' : 'p-5 text-xs border border-gray-100 rounded-xl'}`}
-      style={{ fontSize: full ? '12pt' : undefined }}>
+    <div className="bg-white font-sans text-gray-900 p-5 text-xs border border-gray-100 rounded-xl">
       <div className="flex justify-between items-start mb-8">
         <div className="flex items-start gap-4">
           {shop?.logo_url && (
@@ -364,26 +371,13 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, 
         </tfoot>
       </table>
 
-      <p className="text-gray-600 italic mb-8">{amountToWordsFCFA(grandTotal)}</p>
+      <p className="text-gray-600 italic mb-6">{amountToWordsFCFA(grandTotal)}</p>
 
-      <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 mb-6 text-sm text-amber-700">
+      <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 mb-4 text-xs text-amber-700">
         ⚠ Ce document est un devis / proforma et ne constitue pas une facture définitive.
       </div>
 
-      <div className="flex justify-between items-end mt-10">
-        <div />
-        <div className="text-center">
-          <p className="text-gray-600 mb-2">Signature</p>
-          {shop?.signature_url && (
-            <img src={shop.signature_url} alt="Signature" className="h-14 object-contain mx-auto" />
-          )}
-          {shop?.cachet_url && (
-            <img src={shop.cachet_url} alt="Cachet" className="h-14 object-contain mx-auto mt-2" />
-          )}
-        </div>
-      </div>
-
-      <div className="mt-10 pt-4 border-t border-gray-200 text-center text-gray-400 text-xs">
+      <div className="mt-8 pt-4 border-t border-gray-200 text-center text-gray-400 text-xs">
         {[shop?.phone && `Tél : ${shop.phone}`,
         shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,
         shop?.email && `Email : ${shop.email}`

@@ -1,4 +1,7 @@
 // Invoice builder: create/edit a facture, then print it with the shop's logo/signature.
+// Brouillon = saved as draft (not finalized, can still edit)
+// Finaliser = marks invoice as final/official
+// Print = opens a clean print dialog showing ONLY the invoice document
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -10,9 +13,10 @@ import { Plus, Trash2, Printer, Save, ArrowLeft, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { localDb, getAll, localUpsert, localDelete  } from '@/lib/db/local'
+import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
+import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
@@ -21,7 +25,6 @@ export default function NouvelleFacturePage() {
   const searchParams = useSearchParams()
   const existingId   = searchParams.get('id')
   const shop         = useAppStore(s => s.shop)
-  const printRef     = useRef()
 
   const [items, setItems] = useState([{ id: uuid(), designation: '', quantity: 1, unit: 'Pièces', unit_price: 0 }])
   const [products, setProducts] = useState([])
@@ -91,82 +94,111 @@ export default function NouvelleFacturePage() {
   const grandTotal = calculateInvoiceTotal(computedItems)
 
   // ─── Save ─────────────────────────────────────────────────────────────────
-async function onSubmit(data, newStatus = status) {
-  setSaving(true)
-  try {
-    const invoice = {
-      id: invoiceId,
-      shop_id: shop.id,
-      type: 'facture',
-      invoice_number: invoiceNumber,
-      date: data.date,
-      city: data.city || shop?.city || '',
-      client_name: data.client_name,
-      client_address: data.client_address,
-      client_phone: data.client_phone,
-      total_amount: grandTotal,
-      amount_in_words: amountToWordsFCFA(grandTotal),
-      status: newStatus,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+  async function onSubmit(data, newStatus = status) {
+    setSaving(true)
+    try {
+      const invoice = {
+        id: invoiceId,
+        shop_id: shop.id,
+        type: 'facture',
+        invoice_number: invoiceNumber,
+        date: data.date,
+        city: data.city || shop?.city || '',
+        client_name: data.client_name,
+        client_address: data.client_address,
+        client_phone: data.client_phone,
+        total_amount: grandTotal,
+        amount_in_words: amountToWordsFCFA(grandTotal),
+        status: newStatus,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      await localUpsert('invoices', invoice)
+
+      const existingItems = await localDb.invoice_items
+        .where('invoice_id').equals(invoiceId).toArray()
+      for (const item of existingItems) {
+        await localDelete('invoice_items', item.id)
+      }
+
+      for (let i = 0; i < computedItems.length; i++) {
+        const it = computedItems[i]
+        await localUpsert('invoice_items', {
+          id: it.id,
+          invoice_id: invoiceId,
+          shop_id: shop.id,
+          designation: it.designation,
+          quantity: Number(it.quantity),
+          unit: it.unit,
+          unit_price: Number(it.unit_price),
+          total_price: it.total_price,
+          sort_order: i,
+        })
+      }
+
+      setStatus(newStatus)
+      toast.success(newStatus === 'finalized' ? 'Facture finalisée !' : 'Brouillon enregistré — vous pourrez le modifier plus tard')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSaving(false)
     }
-
-    // Use localUpsert so invoice enters sync_queue
-    await localUpsert('invoices', invoice)
-
-    // Delete existing items via localDelete so deletions are queued
-    const existingItems = await localDb.invoice_items
-      .where('invoice_id').equals(invoiceId).toArray()
-    for (const item of existingItems) {
-      await localDelete('invoice_items', item.id)
-    }
-
-    // Insert new items via localUpsert
-    for (let i = 0; i < computedItems.length; i++) {
-      const it = computedItems[i]
-      await localUpsert('invoice_items', {
-        id: it.id,
-        invoice_id: invoiceId,
-        shop_id: shop.id,          // ← add shop_id so getAll() works
-        designation: it.designation,
-        quantity: Number(it.quantity),
-        unit: it.unit,
-        unit_price: Number(it.unit_price),
-        total_price: it.total_price,
-        sort_order: i,
-      })
-    }
-
-    setStatus(newStatus)
-    toast.success(newStatus === 'finalized' ? 'Facture finalisée !' : 'Brouillon enregistré')
-  } catch (err) {
-    toast.error(err.message)
-  } finally {
-    setSaving(false)
   }
-}
 
-  // ─── Print ────────────────────────────────────────────────────────────────
+  // ─── Print: renders ONLY the invoice into a hidden iframe ─────────────────
   function handlePrint() {
-    window.print()
+    const formValues = watch ? watch() : {}
+    const html = renderToInvoiceHTML({
+      shop,
+      invoiceNumber,
+      formValues,
+      items: computedItems,
+      grandTotal,
+      type: 'facture',
+    })
+
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
+    document.body.appendChild(iframe)
+
+    iframe.contentDocument.open()
+    iframe.contentDocument.write(html)
+    iframe.contentDocument.close()
+
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus()
+        iframe.contentWindow.print()
+        setTimeout(() => document.body.removeChild(iframe), 1000)
+      }, 300)
+    }
   }
 
   const formValues = watch()
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top bar - hidden on print */}
-      <div className="no-print sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-3">
+      {/* Top bar */}
+      <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-6 py-3 flex items-center gap-3">
         <button onClick={() => router.push('/factures')}
           className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <h1 className="font-display font-bold text-gray-900">
           Facture {invoiceNumber}
+          {status === 'draft' && <span className="ml-2 text-xs font-normal text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full">Brouillon</span>}
+          {status === 'finalized' && <span className="ml-2 text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Finalisée</span>}
         </h1>
         <div className="ml-auto flex items-center gap-2">
           <Btn variant="secondary" icon={Printer} onClick={handlePrint}>Imprimer</Btn>
-          <Btn variant="secondary" icon={Save} onClick={handleSubmit(d => onSubmit(d, 'draft'))} disabled={saving}>
+          <Btn
+            variant="secondary"
+            icon={Save}
+            onClick={handleSubmit(d => onSubmit(d, 'draft'))}
+            disabled={saving}
+            title="Enregistre sans finaliser — vous pourrez modifier cette facture plus tard"
+          >
             Brouillon
           </Btn>
           <Btn icon={Check} onClick={handleSubmit(d => onSubmit(d, 'finalized'))} disabled={saving}>
@@ -176,7 +208,7 @@ async function onSubmit(data, newStatus = status) {
       </div>
 
       {/* Two-column layout: form left, preview right */}
-      <div className="no-print max-w-7xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
+      <div className="max-w-7xl mx-auto p-6 grid lg:grid-cols-2 gap-6">
         {/* ── Form ── */}
         <div className="space-y-5">
           <div className="card p-5">
@@ -224,7 +256,6 @@ async function onSubmit(data, newStatus = status) {
                     </button>
                   </div>
 
-                  {/* Product picker shortcut */}
                   <select
                     className={`${inputCls} text-xs`}
                     onChange={e => fillFromProduct(item.id, e.target.value)}
@@ -284,7 +315,7 @@ async function onSubmit(data, newStatus = status) {
         </div>
 
         {/* ── Preview ── */}
-        <div className="no-print">
+        <div>
           <div className="card p-6 sticky top-24">
             <h3 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Aperçu</h3>
             <InvoicePreview
@@ -297,35 +328,12 @@ async function onSubmit(data, newStatus = status) {
           </div>
         </div>
       </div>
-
-      {/* ── PRINT VERSION (full page) ── */}
-      <div className="print-only">
-        <InvoicePreview
-          shop={shop}
-          invoiceNumber={invoiceNumber}
-          formValues={formValues}
-          items={computedItems}
-          grandTotal={grandTotal}
-          full
-        />
-      </div>
-
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          .print-only { display: block !important; }
-          body { background: white !important; }
-        }
-        @media screen {
-          .print-only { display: none !important; }
-        }
-      `}</style>
     </div>
   )
 }
 
 // ─── Invoice Preview Component ────────────────────────────────────────────────
-function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, full }) {
+export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, full }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), 'dd MMMM yyyy', { locale: fr })
     : '—'
@@ -336,7 +344,6 @@ function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, fu
     <div className={`bg-white font-sans text-gray-900 ${full ? 'p-10 min-h-screen' : 'p-5 text-xs border border-gray-100 rounded-xl'}`}
          style={{ fontSize: full ? '12pt' : undefined }}>
 
-      {/* Header: logo + company info */}
       <div className="flex justify-between items-start mb-8">
         <div className="flex items-start gap-4">
           {shop?.logo_url && (
@@ -355,7 +362,6 @@ function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, fu
         </div>
       </div>
 
-      {/* Invoice title */}
       <div className="text-center mb-6">
         <h1 className="font-display text-xl font-bold uppercase tracking-wide"
             style={{ color: shop?.color_primary || '#1a56db' }}>
@@ -363,7 +369,6 @@ function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, fu
         </h1>
       </div>
 
-      {/* Client info */}
       {(formValues.client_name || formValues.client_address || formValues.client_phone) && (
         <div className="border border-gray-200 rounded-lg p-4 mb-6 grid grid-cols-3 gap-4">
           {formValues.client_name    && <div><span className="text-gray-500">CLIENT : </span><strong>{formValues.client_name}</strong></div>}
@@ -372,7 +377,6 @@ function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, fu
         </div>
       )}
 
-      {/* Items table */}
       <table className="w-full border-collapse mb-4">
         <thead>
           <tr style={{ background: shop?.color_primary || '#1a56db' }} className="text-white">
@@ -402,10 +406,8 @@ function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, fu
         </tfoot>
       </table>
 
-      {/* Amount in words */}
       <p className="text-gray-600 italic mb-8">{amountToWordsFCFA(grandTotal)}</p>
 
-      {/* Signature area */}
       <div className="flex justify-between items-end mt-12">
         <div />
         <div className="text-center">
@@ -419,7 +421,6 @@ function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, fu
         </div>
       </div>
 
-      {/* Footer */}
       <div className="mt-12 pt-4 border-t border-gray-200 text-center text-gray-400 text-xs">
         {[shop?.phone && `Tél : ${shop.phone}`,
           shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,

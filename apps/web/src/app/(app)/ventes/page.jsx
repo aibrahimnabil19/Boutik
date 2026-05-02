@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { TrendingUp, Plus, Trash2, XCircle, PlusCircle } from 'lucide-react'
+import { TrendingUp, Plus, Trash2, XCircle, PlusCircle, FileText, Printer, Receipt, Truck } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -14,6 +14,7 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, Badge, inputCls, selectCls
 } from '@/components/ui'
+import { printSaleDocument } from '@/lib/core/invoicePrint'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -35,6 +36,13 @@ const emptyLine = () => ({
   unit_sale_price: '',
 })
 
+// Document types available after a sale
+const SALE_DOC_TYPES = [
+  { key: 'facture',       label: 'Facture de vente',  icon: Receipt, description: 'Document officiel de vente' },
+  { key: 'proforma',      label: 'Facture proforma',  icon: FileText, description: 'Devis / offre de prix' },
+  { key: 'bon_livraison', label: 'Bon de livraison',  icon: Truck, description: 'Document de remise des articles' },
+]
+
 export default function VentesPage() {
   const shop = useAppStore(s => s.shop)
   const [sales, setSales] = useState([])
@@ -43,10 +51,11 @@ export default function VentesPage() {
   const [clients, setClients] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
-  const [confirm, setConfirm] = useState(null)      // { type: 'delete'|'cancel', id }
+  const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Document modal
+  const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
 
-  // Cart: list of sale lines
   const [cart, setCart] = useState([emptyLine()])
   const [saleDate, setSaleDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [saleStore, setSaleStore] = useState('')
@@ -100,7 +109,6 @@ export default function VentesPage() {
     setCart(prev => [...prev, emptyLine()])
   }
 
-  // ─── Cart totals ──────────────────────────────────────────────────────────
   const cartTotals = useMemo(() => cart.reduce((acc, line) => {
     const qty = Number(line.quantity || 0)
     const price = Number(line.unit_sale_price || 0)
@@ -116,7 +124,6 @@ export default function VentesPage() {
   async function onSubmit(e) {
     e.preventDefault()
 
-    // Validate all lines have product + price
     for (const line of cart) {
       if (!line.product_id) {
         toast.error('Sélectionnez un produit pour chaque ligne')
@@ -128,7 +135,6 @@ export default function VentesPage() {
       }
     }
 
-    // Stock check
     for (const line of cart) {
       const prod = products.find(p => p.id === line.product_id)
       if (!prod) continue
@@ -143,11 +149,12 @@ export default function VentesPage() {
     const now = new Date().toISOString()
 
     try {
+      const savedSales = []
       for (const line of cart) {
         const q = Number(line.quantity)
         const price = Number(line.unit_sale_price)
         const cost = Number(line.unit_cost)
-        await localUpsert('sales', {
+        const saleRecord = {
           id: uuid(),
           shop_id: shop.id,
           session_id: sessionId,
@@ -166,10 +173,24 @@ export default function VentesPage() {
           created_at: now,
           updated_at: now,
           sync_status: 'pending',
-        })
+        }
+        await localUpsert('sales', saleRecord)
+        savedSales.push(saleRecord)
       }
+
       toast.success(`Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`)
       setModal(false)
+
+      // Show document modal after successful sale
+      const group = {
+        key: sessionId,
+        date: saleDate,
+        store: saleStore,
+        client_name: saleClient,
+        items: savedSales,
+      }
+      setDocModal(group)
+
       load()
     } catch (err) {
       toast.error(err.message || 'Erreur lors de l\'enregistrement')
@@ -225,6 +246,16 @@ export default function VentesPage() {
     load()
   }
 
+  function handlePrintDoc(group, docType) {
+    printSaleDocument({
+      shop,
+      type: docType,
+      saleGroup: group,
+      invoiceNumber: `VTE-${group.date}-${group.key.slice(0, 4).toUpperCase()}`,
+    })
+    setDocModal(null)
+  }
+
   return (
     <div className="p-6">
       <PageHeader
@@ -259,10 +290,14 @@ export default function VentesPage() {
               const groupTotal = group.items.reduce((a, s) => a + (s.total_sale || 0), 0)
               const groupProfit = group.items.reduce((a, s) => a + (s.profit || 0), 0)
               return (
-                <div key={group.key} className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : 'hover:bg-gray-50'} transition-colors`}>
+                <div
+                  key={group.key}
+                  className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : 'hover:bg-gray-50 cursor-pointer'} transition-colors`}
+                  onClick={() => !group.cancelled && setDocModal(group)}
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="text-xs text-gray-400">
                           {format(new Date(group.date), 'dd MMM yyyy', { locale: fr })}
                         </span>
@@ -271,6 +306,9 @@ export default function VentesPage() {
                         {group.cancelled && <Badge color="red">Annulée</Badge>}
                         {group.items.length > 1 && (
                           <Badge color="blue">{group.items.length} produits</Badge>
+                        )}
+                        {!group.cancelled && (
+                          <span className="text-xs text-gray-300 ml-1">· Cliquer pour imprimer un document</span>
                         )}
                       </div>
                       <div className="space-y-0.5">
@@ -290,7 +328,14 @@ export default function VentesPage() {
                       )}
                     </div>
                     {!group.cancelled && (
-                      <div className="flex gap-1 flex-none">
+                      <div className="flex gap-1 flex-none" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => setDocModal(group)}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Imprimer un document"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => setConfirm({ type: 'cancel', id: group.key })}
                           className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-500 transition-colors"
@@ -315,10 +360,40 @@ export default function VentesPage() {
         )}
       </div>
 
+      {/* ── Document Print Modal ── */}
+      <Modal open={!!docModal} onClose={() => setDocModal(null)} title="Imprimer un document" maxW="max-w-sm">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500 mb-4">
+            Choisissez le type de document à générer pour cette vente.
+          </p>
+          {docModal && SALE_DOC_TYPES.map(doc => {
+            const Icon = doc.icon
+            return (
+              <button
+                key={doc.key}
+                onClick={() => handlePrintDoc(docModal, doc.key)}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center flex-none transition-colors">
+                  <Icon className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">{doc.label}</p>
+                  <p className="text-xs text-gray-400">{doc.description}</p>
+                </div>
+                <Printer className="w-4 h-4 text-gray-300 group-hover:text-blue-400 ml-auto transition-colors" />
+              </button>
+            )
+          })}
+          <div className="pt-2">
+            <Btn variant="secondary" onClick={() => setDocModal(null)} className="w-full">Fermer</Btn>
+          </div>
+        </div>
+      </Modal>
+
       {/* New Sale Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle vente" maxW="max-w-2xl">
         <form onSubmit={onSubmit} className="space-y-4">
-          {/* Header fields */}
           <div className="grid grid-cols-3 gap-3">
             <FormField label="Date" required>
               <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)} className={inputCls} required />
@@ -334,7 +409,6 @@ export default function VentesPage() {
             </FormField>
           </div>
 
-          {/* Cart lines */}
           <div className="border border-gray-100 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Articles</span>
@@ -415,7 +489,6 @@ export default function VentesPage() {
             </div>
           </div>
 
-          {/* Cart summary */}
           {cartTotals.revenue > 0 && (
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-3 gap-3 text-center">
               <div>
@@ -442,7 +515,6 @@ export default function VentesPage() {
         </form>
       </Modal>
 
-      {/* Confirm dialogs */}
       <ConfirmDialog
         open={!!confirm && confirm.type === 'cancel'}
         onClose={() => setConfirm(null)}

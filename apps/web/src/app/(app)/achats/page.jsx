@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { ShoppingCart, Plus, Trash2 } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Printer, FileText, Package } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -15,6 +15,13 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, inputCls, selectCls
 } from '@/components/ui'
+import { printPurchaseDocument } from '@/lib/core/invoicePrint'
+
+// Document types for purchases
+const PURCHASE_DOC_TYPES = [
+  { key: 'bon_commande', label: 'Bon de commande', icon: FileText, description: 'Document de commande fournisseur' },
+  { key: 'bon_livraison', label: 'Bon de réception', icon: Package, description: 'Confirme la réception des marchandises' },
+]
 
 export default function AchatsPage() {
   const shop = useAppStore(s => s.shop)
@@ -26,6 +33,8 @@ export default function AchatsPage() {
   const [loading, setLoading]     = useState(true)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [suppliers, setSuppliers] = useState([])
+  // Document modal: holds the purchase to print
+  const [docModal, setDocModal]   = useState(null)
 
   const { register, handleSubmit, reset, watch, setValue } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 }
@@ -38,11 +47,11 @@ export default function AchatsPage() {
   const load = useCallback(async () => {
     if (!shop?.id) return
     const [p, pr, su] = await Promise.all([
-  getAll('purchases', shop.id),
-  getAll('products', shop.id),
-  getAll('suppliers', shop.id),
-])
-setSuppliers(su)
+      getAll('purchases', shop.id),
+      getAll('products', shop.id),
+      getAll('suppliers', shop.id),
+    ])
+    setSuppliers(su)
     setPurchases(p.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(pr)
     setLoading(false)
@@ -82,6 +91,9 @@ setSuppliers(su)
     await localUpsert('purchases', record)
     toast.success('Achat enregistré')
     setModal(false)
+
+    // Show document options after saving
+    setDocModal(record)
     load()
   }
 
@@ -89,6 +101,16 @@ setSuppliers(su)
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
     setSelectedProduct(null)
     setModal(true)
+  }
+
+  function handlePrintDoc(purchase, docType) {
+    printPurchaseDocument({
+      shop,
+      type: docType,
+      purchase,
+      invoiceNumber: `ACH-${purchase.date}-${purchase.id.slice(0, 4).toUpperCase()}`,
+    })
+    setDocModal(null)
   }
 
   const filtered = useMemo(() =>
@@ -140,7 +162,11 @@ setSuppliers(su)
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(p => (
-                  <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={p.id}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setDocModal(p)}
+                  >
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(p.date), 'dd MMM yy', { locale: fr })}
                     </td>
@@ -152,11 +178,18 @@ setSuppliers(su)
                     <td className="px-4 py-3 text-gray-700">{p.quantity}</td>
                     <td className="px-4 py-3 text-gray-600">{formatFCFA(p.unit_price)}</td>
                     <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(p.total_amount)}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => setConfirm(p.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-1">
+                        <button onClick={() => setDocModal(p)}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Imprimer document">
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setConfirm(p.id)}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -166,6 +199,37 @@ setSuppliers(su)
         )}
       </div>
 
+      {/* ── Document Print Modal ── */}
+      <Modal open={!!docModal} onClose={() => setDocModal(null)} title="Imprimer un document" maxW="max-w-sm">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-500 mb-4">
+            Choisissez le type de document à générer pour cet achat.
+          </p>
+          {docModal && PURCHASE_DOC_TYPES.map(doc => {
+            const Icon = doc.icon
+            return (
+              <button
+                key={doc.key}
+                onClick={() => handlePrintDoc(docModal, doc.key)}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center flex-none transition-colors">
+                  <Icon className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">{doc.label}</p>
+                  <p className="text-xs text-gray-400">{doc.description}</p>
+                </div>
+                <Printer className="w-4 h-4 text-gray-300 group-hover:text-blue-400 ml-auto transition-colors" />
+              </button>
+            )
+          })}
+          <div className="pt-2">
+            <Btn variant="secondary" onClick={() => setDocModal(null)} className="w-full">Fermer</Btn>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={modal} onClose={() => setModal(false)} title="Nouvel achat" maxW="max-w-lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -173,13 +237,13 @@ setSuppliers(su)
               <input {...register('date', { required: true })} type="date" className={inputCls} />
             </FormField>
             <FormField label="Fournisseur">
-  <select {...register('supplier')} className={selectCls}>
-    <option value="">— Choisir un fournisseur —</option>
-    {suppliers.map((s) => (
-      <option key={s.id} value={s.name}>{s.name}</option>
-    ))}
-  </select>
-</FormField>
+              <select {...register('supplier')} className={selectCls}>
+                <option value="">— Choisir un fournisseur —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </FormField>
           </div>
 
           <FormField label="Produit du catalogue" hint="Optionnel — remplit les champs ci-dessous">

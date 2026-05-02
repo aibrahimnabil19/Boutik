@@ -40,6 +40,7 @@ export default function AppLayout({ children }) {
   const { shop, setShop, setProfile, setUser, applyTheme, sidebarOpen, toggleSidebar } = useAppStore()
   const [online, setOnline] = useState(true)
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     let cleanupSync = null
@@ -48,9 +49,29 @@ export default function AppLayout({ children }) {
     async function init() {
       try {
         const supabase = getSupabaseClient()
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
+
+        // Add timeout so the app never hangs forever
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Session timeout')), 8000)
+        )
+
+        let session
+        try {
+          const { data } = await Promise.race([sessionPromise, timeoutPromise])
+          session = data?.session
+        } catch (err) {
+          // On timeout or network error, check if we have cached shop data
+          const shopId = await getSetting('shop_id')
+          if (!shopId) {
+            router.replace('/auth')
+            return
+          }
+          // Let the app load offline with cached data
+          if (!mounted) return
+          setLoaded(true)
+          return
+        }
 
         if (!session) {
           router.replace('/auth')
@@ -63,28 +84,48 @@ export default function AppLayout({ children }) {
           return
         }
 
-        const [profileRes, shopRes] = await Promise.all([
+        // Load profile + shop in parallel, with individual error handling
+        const [profileRes, shopRes] = await Promise.allSettled([
           supabase.from('profiles').select('*').eq('id', session.user.id).single(),
           supabase.from('shops').select('*').eq('id', shopId).single(),
         ])
 
         if (!mounted) return
 
-        if (profileRes.data) setProfile(profileRes.data)
-        if (shopRes.data) {
-          setShop(shopRes.data)
-          applyTheme(shopRes.data)
+        if (profileRes.status === 'fulfilled' && profileRes.value.data) {
+          setProfile(profileRes.value.data)
+        }
+        if (shopRes.status === 'fulfilled' && shopRes.value.data) {
+          setShop(shopRes.value.data)
+          applyTheme(shopRes.value.data)
         }
 
         setUser(session.user)
 
-        await pullFromRemote(shopId)
-        await runSync(shopId)
-        cleanupSync = startSyncListener(shopId)
-
+        // Mark as loaded BEFORE sync so the app shows immediately
         setLoaded(true)
+
+        // Run sync in background, don't block UI
+        if (navigator.onLine) {
+          Promise.resolve()
+            .then(() => pullFromRemote(shopId))
+            .then(() => runSync(shopId))
+            .catch(err => console.warn('[background sync failed]', err?.message))
+        }
+
+        cleanupSync = startSyncListener(shopId)
       } catch (err) {
         console.error('[layout init failed]', err)
+        if (!mounted) return
+        // Still try to show app if we have cached data
+        const shopId = await getSetting('shop_id').catch(() => null)
+        if (shopId) {
+          setLoaded(true)
+        } else {
+          setLoadError(err.message)
+          // Redirect after a moment
+          setTimeout(() => router.replace('/auth'), 2000)
+        }
       }
     }
 
@@ -96,38 +137,10 @@ export default function AppLayout({ children }) {
     }
   }, [router, setProfile, setShop, setUser, applyTheme])
 
-  // useEffect(() => {
-  //   return () => {
-  //     if (window.__boutikSyncCleanup) {
-  //       window.__boutikSyncCleanup()
-  //       window.__boutikSyncCleanup = null
-  //     }
-  //   }
-  // }, [])
-
   // Apply theme whenever shop changes
   useEffect(() => {
     if (shop) applyTheme()
   }, [shop, applyTheme])
-
-  // Sync listener
-  // useEffect(() => {
-  //   if (!shop?.id) return
-
-  //   let cleanup = () => { }
-
-  //   async function bootSync() {
-  //     const { pullFromRemote, runSync, startSyncListener } = await import('@/lib/sync/engine')
-
-  //     await pullFromRemote(shop.id)
-  //     await runSync(shop.id)
-  //     cleanup = startSyncListener(shop.id)
-  //   }
-
-  //   bootSync()
-
-  //   return () => cleanup()
-  // }, [shop?.id])
 
   // Online/offline indicator
   useEffect(() => {
@@ -138,6 +151,17 @@ export default function AppLayout({ children }) {
     window.addEventListener('offline', off)
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <p className="text-red-500 text-sm mb-2">Erreur de connexion</p>
+          <p className="text-gray-400 text-xs">Redirection en cours…</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!loaded) {
     return (
@@ -249,9 +273,7 @@ export default function AppLayout({ children }) {
           </button>
 
           <div className="flex items-center gap-3 ml-auto">
-            {/* Online indicator */}
-            <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${online ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
-              }`}>
+            <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${online ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
               {online ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {online ? 'En ligne' : 'Hors ligne'}
             </div>

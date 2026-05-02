@@ -1,8 +1,7 @@
 // apps/web/src/app/(app)/clients/page.jsx
-// Client management: list clients, track their credit/payment ledger (créances).
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
@@ -24,9 +23,11 @@ export default function ClientsPage() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
   const [txModal, setTxModal] = useState(false)
-  const [selected, setSelected] = useState(null) // viewing ledger for this client
+  const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Guard against double-submit
+  const submittingRef = useRef(false)
 
   const { register, handleSubmit, reset } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd') }
@@ -48,7 +49,6 @@ export default function ClientsPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Balance per client: positive = client owes us; negative = we owe client
   function clientBalance(clientId) {
     return transactions
       .filter(t => t.client_id === clientId)
@@ -56,31 +56,52 @@ export default function ClientsPage() {
   }
 
   async function onAddClient(data) {
-    const record = {
-      id: uuid(), shop_id: shop.id,
-      name: data.name, phone: data.phone || '', address: data.address || '',
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), sync_status: 'pending',
+    // Prevent double-submit
+    if (submittingRef.current) return
+    submittingRef.current = true
+
+    try {
+      const record = {
+        id: uuid(), shop_id: shop.id,
+        name: data.name.trim(), phone: data.phone || '', address: data.address || '',
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), sync_status: 'pending',
+      }
+      await localUpsert('clients', record)
+      toast.success('Client ajouté')
+      setModal(false)
+      reset()
+      // Reload after a short delay to let debounced sync settle
+      setTimeout(() => load(), 500)
+    } catch (err) {
+      toast.error(err.message || 'Erreur')
+    } finally {
+      submittingRef.current = false
     }
-    await localUpsert('clients', record)
-    toast.success('Client ajouté')
-    setModal(false)
-    load()
   }
 
   async function onAddTx(data) {
-    const amount = Number(data.amount)
-    // debit = client owes us (positive), credit = payment received (negative)
-    const signed = data.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
-    const record = {
-      id: uuid(), shop_id: shop.id, client_id: selected.id,
-      date: data.date, label: data.label, amount: signed,
-      type: data.type,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(), sync_status: 'pending',
+    if (submittingRef.current) return
+    submittingRef.current = true
+
+    try {
+      const amount = Number(data.amount)
+      const signed = data.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
+      const record = {
+        id: uuid(), shop_id: shop.id, client_id: selected.id,
+        date: data.date, label: data.label, amount: signed,
+        type: data.type,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(), sync_status: 'pending',
+      }
+      await localUpsert('client_transactions', record)
+      toast.success(data.type === 'credit' ? 'Paiement enregistré' : 'Créance ajoutée')
+      setTxModal(false)
+      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit' })
+      setTimeout(() => load(), 500)
+    } catch (err) {
+      toast.error(err.message || 'Erreur')
+    } finally {
+      submittingRef.current = false
     }
-    await localUpsert('client_transactions', record)
-    toast.success(data.type === 'credit' ? 'Paiement enregistré' : 'Créance ajoutée')
-    setTxModal(false)
-    load()
   }
 
   const filtered = useMemo(() =>
@@ -171,7 +192,6 @@ export default function ClientsPage() {
           )}
         </div>
 
-        {/* Add Transaction Modal */}
         <Modal open={txModal} onClose={() => setTxModal(false)} title="Nouvelle ligne" maxW="max-w-md">
           <form onSubmit={handleTxSubmit(onAddTx)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -206,7 +226,7 @@ export default function ClientsPage() {
       <PageHeader
         title="Clients"
         subtitle={`${clients.length} client${clients.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={() => { reset(); setModal(true) }}>Nouveau client</Btn>}
+        action={<Btn icon={Plus} onClick={() => { reset({ date: format(new Date(), 'yyyy-MM-dd') }); setModal(true) }}>Nouveau client</Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -264,7 +284,6 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {/* Add Client Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title="Nouveau client" maxW="max-w-md">
         <form onSubmit={handleSubmit(onAddClient)} className="space-y-4">
           <FormField label="Nom du client" required>

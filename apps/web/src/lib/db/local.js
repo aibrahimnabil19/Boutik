@@ -45,11 +45,15 @@ export async function queueSync(tableName, operation, recordId, payload) {
   });
 }
 
+// Debounce sync trigger to prevent it firing multiple times per save
+// (which caused pullFromRemote to re-bulkPut records creating apparent duplicates)
+let syncDebounceTimer = null;
+
 /** Generic upsert that also queues for sync */
 export async function localUpsert(table, record, operation = "upsert") {
   await localDb[table].put(record);
   await queueSync(table, operation, record.id, record);
-  await triggerSyncNow(record.shop_id);
+  scheduleSyncNow(record.shop_id);
   return record;
 }
 
@@ -64,7 +68,7 @@ export async function localDelete(table, id) {
     .modify({ deleted_at: now, sync_status: "pending" });
 
   await queueSync(table, "delete", id, { id, deleted_at: now });
-  await triggerSyncNow(existing?.shop_id);
+  scheduleSyncNow(existing?.shop_id);
 }
 
 /** Get all non-deleted records for a shop */
@@ -80,17 +84,26 @@ export async function getPendingSyncItems() {
   return localDb.sync_queue.orderBy("created_at").toArray();
 }
 
-async function triggerSyncNow(shopId) {
+/**
+ * Schedule a sync after a short delay to batch multiple writes together.
+ * This prevents the race condition where pullFromRemote runs mid-save
+ * and appears to create duplicate entries.
+ */
+function scheduleSyncNow(shopId) {
   if (typeof window === "undefined") return;
   if (!navigator.onLine) return;
   if (!shopId) return;
 
-  try {
-    const { runSync } = await import("@/lib/sync/engine");
-    await runSync(shopId);
-  } catch (err) {
-    console.error("[triggerSyncNow failed]", err?.message);
-  }
+  if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+  syncDebounceTimer = setTimeout(async () => {
+    syncDebounceTimer = null;
+    try {
+      const { runSync } = await import("@/lib/sync/engine");
+      await runSync(shopId);
+    } catch (err) {
+      console.warn("[scheduledSync failed]", err?.message);
+    }
+  }, 2000); // wait 2s after last write before syncing
 }
 
 /** Get all records INCLUDING soft-deleted (for analysis/history) */
@@ -106,5 +119,5 @@ export async function cancelSale(id, shopId) {
     .equals(id)
     .modify({ cancelled_at: now, sync_status: "pending" });
   await queueSync("sales", "upsert", id, { id, cancelled_at: now });
-  await triggerSyncNow(shopId);
+  scheduleSyncNow(shopId);
 }
