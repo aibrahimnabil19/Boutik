@@ -5,7 +5,7 @@ import Dexie from "dexie";
 
 export const localDb = new Dexie("BmSuiteDB");
 
-localDb.version(2).stores({
+localDb.version(3).stores({
   products: "id, shop_id, code, name, supplier, sync_status, deleted_at",
   purchases: "id, shop_id, date, supplier, product_id, sync_status, deleted_at",
   sales:
