@@ -11,6 +11,7 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll } from '@/lib/db/local'
 import { formatFCFA } from '@/lib/core/calculations'
 import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard } from '@/components/ui'
+import FrenchInput from '@/components/FrenchInput'
 
 export default function FacturesPage() {
   const router = useRouter()

@@ -13,6 +13,7 @@ import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
 import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
+import FrenchInput from '@/components/FrenchInput'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
@@ -249,7 +250,7 @@ export default function NouvelleProformaPage() {
                   <div className="grid grid-cols-4 gap-2">
                     <div>
                       <label className="text-xs text-gray-400">Qté</label>
-                      <input type="number" min="0.001" step="0.001" value={item.quantity}
+                      <FrenchInput min="0.001" step="0.001" value={item.quantity}
                         onChange={e => updateItem(item.id, 'quantity', e.target.value)}
                         className={`${inputCls} mt-0.5`} />
                     </div>
@@ -262,7 +263,7 @@ export default function NouvelleProformaPage() {
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Prix unit.</label>
-                      <input type="number" min="0" value={item.unit_price}
+                      <FrenchInput min="0" value={item.unit_price}
                         onChange={e => updateItem(item.id, 'unit_price', e.target.value)}
                         className={`${inputCls} mt-0.5`} />
                     </div>

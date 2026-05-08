@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import {
@@ -15,6 +15,7 @@ import {
   Printer,
   FileText,
   ShoppingBag,
+  Pencil,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -25,6 +26,7 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, Badge, inputCls
 } from '@/components/ui'
+import FrenchInput from '@/components/FrenchInput'
 
 export default function ClientsPage() {
   const shop = useAppStore(s => s.shop)
@@ -36,6 +38,7 @@ export default function ClientsPage() {
   const [txModal, setTxModal] = useState(false)
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
+  const [editingClient, setEditingClient] = useState(null)
   const [loading, setLoading] = useState(true)
   const submittingRef = useRef(false)
 
@@ -46,9 +49,10 @@ export default function ClientsPage() {
   const {
     register: registerTx,
     handleSubmit: handleTxSubmit,
-    reset: resetTx
+    reset: resetTx,
+    control: controlTx,
   } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), type: 'debit' }
+    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '' }
   })
 
   const load = useCallback(async () => {
@@ -104,20 +108,23 @@ export default function ClientsPage() {
     submittingRef.current = true
 
     try {
+      const now = new Date().toISOString()
+
       const record = {
-        id: uuid(),
+        id: editingClient?.id || uuid(),
         shop_id: shop.id,
         name: data.name.trim(),
         phone: data.phone || '',
         address: data.address || '',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: editingClient?.created_at || now,
+        updated_at: now,
         sync_status: 'pending',
       }
 
       await localUpsert('clients', record)
-      toast.success('Client ajouté')
+      toast.success(editingClient ? 'Client modifié' : 'Client ajouté')
       setModal(false)
+      setEditingClient(null)
       reset()
       setTimeout(() => load(), 500)
     } catch (err) {
@@ -186,6 +193,16 @@ export default function ClientsPage() {
     window.print()
   }
 
+  function openEditClient(client) {
+    setEditingClient(client)
+    reset({
+      name: client.name || '',
+      phone: client.phone || '',
+      address: client.address || '',
+    })
+    setModal(true)
+  }
+
   const filtered = useMemo(() =>
     clients.filter(c =>
       c.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -240,6 +257,13 @@ export default function ClientsPage() {
               setTxModal(true)
             }}>
               Nouvelle ligne
+            </Btn>
+            <Btn
+              variant="secondary"
+              icon={Pencil}
+              onClick={() => openEditClient(selected)}
+            >
+              Modifier
             </Btn>
             <Btn
               variant="secondary"
@@ -441,7 +465,21 @@ export default function ClientsPage() {
             </FormField>
 
             <FormField label="Montant (FCFA)" required>
-              <input {...registerTx('amount', { required: true, min: 1 })} type="number" min="1" className={inputCls} />
+              <Controller
+                name="amount"
+                control={controlTx}
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="0"
+                    required
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
 
             <div className="flex gap-3 justify-end pt-2">
@@ -479,7 +517,8 @@ export default function ClientsPage() {
         title="Clients"
         subtitle={`${clients.length} client${clients.length !== 1 ? 's' : ''}`}
         action={<Btn icon={Plus} onClick={() => {
-          reset({ date: format(new Date(), 'yyyy-MM-dd') })
+          setEditingClient(null)
+          reset({ name: '', phone: '', address: '' })
           setModal(true)
         }}>
           Nouveau client
@@ -548,6 +587,17 @@ export default function ClientsPage() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    openEditClient(c)
+                  }}
+                  className="p-2 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors"
+                  title="Modifier"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setConfirm(c)
                   }}
                   className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
@@ -563,7 +613,15 @@ export default function ClientsPage() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nouveau client" maxW="max-w-md">
+      <Modal
+        open={modal}
+        onClose={() => {
+          setModal(false)
+          setEditingClient(null)
+        }}
+        title={editingClient ? 'Modifier le client' : 'Nouveau client'}
+        maxW="max-w-md"
+      >
         <form onSubmit={handleSubmit(onAddClient)} className="space-y-4">
           <FormField label="Nom du client" required>
             <input {...register('name', { required: 'Requis' })} placeholder="Ex: Energie Plus" className={inputCls} />
@@ -580,7 +638,7 @@ export default function ClientsPage() {
 
           <div className="flex gap-3 justify-end pt-2">
             <Btn variant="secondary" onClick={() => setModal(false)}>Annuler</Btn>
-            <Btn type="submit">Ajouter</Btn>
+            <Btn type="submit">{editingClient ? 'Enregistrer' : 'Ajouter'}</Btn>
           </div>
         </form>
       </Modal>

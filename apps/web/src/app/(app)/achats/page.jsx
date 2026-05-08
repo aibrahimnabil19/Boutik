@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import { ShoppingCart, Plus, Trash2, Printer, FileText, Package } from 'lucide-react'
@@ -16,6 +16,7 @@ import {
   ConfirmDialog, Btn, StatCard, inputCls, selectCls
 } from '@/components/ui'
 import { printPurchaseDocument } from '@/lib/core/invoicePrint'
+import FrenchInput from '@/components/FrenchInput'
 
 // Document types for purchases
 const PURCHASE_DOC_TYPES = [
@@ -38,8 +39,8 @@ export default function AchatsPage() {
   const [paymentMode, setPaymentMode] = useState('paid')
   const [paidAmount, setPaidAmount] = useState('')
 
-  const { register, handleSubmit, reset, watch, setValue } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 }
+  const { register, handleSubmit, reset, watch, setValue, control } = useForm({
+    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
   })
 
   const qty = Number(watch('quantity') || 0)
@@ -139,11 +140,11 @@ export default function AchatsPage() {
     load()
   }
 
-  function openAdd() {
-    reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
-    setSelectedProduct(null)
-    setModal(true)
-  }
+  // function openAdd() {
+  //   reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
+  //   setSelectedProduct(null)
+  //   setModal(true)
+  // }
 
   function openAdd() {
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
@@ -312,12 +313,37 @@ export default function AchatsPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Quantité" required>
-              <input {...register('quantity', { required: true, min: 0.001 })}
-                type="number" step="0.001" min="0.001" className={inputCls} />
+              <Controller
+                name="quantity"
+                control={control}
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    required
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
             <FormField label="Prix unitaire (FCFA)" required>
-              <input {...register('unit_price', { required: true, min: 0 })}
-                type="number" min="0" placeholder="0" className={inputCls} />
+              <Controller
+                name="unit_price"
+                control={control}
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="0"
+                    required
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
           </div>
 
@@ -331,11 +357,9 @@ export default function AchatsPage() {
 
             {paymentMode === 'credit' && (
               <FormField label="Montant payé">
-                <input
-                  type="number"
-                  min="0"
+                <FrenchInput
                   value={paidAmount}
-                  onChange={e => setPaidAmount(e.target.value)}
+                  onChange={setPaidAmount}
                   placeholder="0"
                   className={inputCls}
                 />

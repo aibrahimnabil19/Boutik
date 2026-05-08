@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import { Package, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react'
@@ -14,6 +14,7 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, Badge, inputCls, StatCard
 } from '@/components/ui'
+import FrenchInput from '@/components/FrenchInput'
 
 export default function ProduitsPage() {
   const shop = useAppStore(s => s.shop)
@@ -27,7 +28,7 @@ export default function ProduitsPage() {
   const [loading, setLoading] = useState(true)
   const [suppliers, setSuppliers] = useState([])
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm()
+  const { register, handleSubmit, reset, setValue, control, formState: { errors } } = useForm()
 
   async function load() {
     if (!shop?.id) return
@@ -223,19 +224,67 @@ export default function ProduitsPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Prix d'achat (FCFA)">
-              <input {...register('purchase_price')} type="number" min="0" placeholder="0" className={inputCls} />
+              <Controller
+                name="purchase_price"
+                control={control}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="0"
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
             <FormField label="Prix de vente (FCFA)" hint="Optionnel">
-              <input {...register('sale_price')} type="number" min="0" placeholder="0" className={inputCls} />
+              <Controller
+                name="sale_price"
+                control={control}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="0"
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Stock initial">
-              <input {...register('stock_initial')} type="number" min="0" defaultValue={0} className={inputCls} />
+              <Controller
+                name="stock_initial"
+                control={control}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="0"
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
             <FormField label="Seuil d'alerte" hint="Optionnel">
-              <input {...register('alert_threshold')} type="number" min="0" placeholder="—" className={inputCls} />
+              <Controller
+                name="alert_threshold"
+                control={control}
+                render={({ field }) => (
+                  <FrenchInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="0"
+                    className={inputCls}
+                  />
+                )}
+              />
             </FormField>
           </div>
 
