@@ -15,6 +15,7 @@ import {
   ConfirmDialog, Btn, StatCard, Badge, inputCls, selectCls
 } from '@/components/ui'
 import { printSaleDocument } from '@/lib/core/invoicePrint'
+import FrenchInput from '@/components/FrenchInput'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -515,11 +516,9 @@ export default function VentesPage() {
 
             {paymentMode === 'credit' && (
               <FormField label="Montant payé">
-                <input
-                  type="number"
-                  min="0"
+                <FrenchInput
                   value={paidAmount}
-                  onChange={e => setPaidAmount(e.target.value)}
+                  onChange={setPaidAmount}
                   placeholder="0"
                   className={inputCls}
                 />
@@ -573,21 +572,18 @@ export default function VentesPage() {
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         <label className="text-xs text-gray-400">Quantité</label>
-                        <input
-                          type="number" min="0.001" step="0.001"
+                        <FrenchInput
                           value={line.quantity}
-                          onChange={e => updateLine(line._key, 'quantity', e.target.value)}
-                          className={`${inputCls} mt-0.5`}
+                          onChange={(value) => updateLine(line._key, 'quantity', value)}
+                          className={inputCls}
                         />
                       </div>
                       <div>
                         <label className="text-xs text-gray-400">Prix vente (FCFA)</label>
-                        <input
-                          type="number" min="0"
+                        <FrenchInput
                           value={line.unit_sale_price}
-                          onChange={e => updateLine(line._key, 'unit_sale_price', e.target.value)}
-                          placeholder="0"
-                          className={`${inputCls} mt-0.5`}
+                          onChange={(value) => updateLine(line._key, 'unit_sale_price', value)}
+                          className={inputCls}
                         />
                       </div>
                       <div>
