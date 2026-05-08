@@ -24,14 +24,14 @@ const docs = [
   },
   {
     title: 'Bon de livraison',
-    description: 'Générer un bon de livraison depuis l’historique des ventes.',
-    href: '/ventes',
+    description: 'Créer et imprimer les bons de livraison depuis les ventes.',
+    href: '/bons-livraison',
     icon: Truck,
   },
   {
     title: 'Bon de commande',
-    description: 'Générer un bon de commande depuis les achats ou les ventes.',
-    href: '/achats',
+    description: 'Créer et imprimer les bons de commande depuis les achats.',
+    href: '/bons-commande',
     icon: ShoppingBag,
   },
 ]

@@ -22,25 +22,25 @@ import FrenchInput from '@/components/FrenchInput'
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
 export default function NouvelleFacturePage() {
-  const router       = useRouter()
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const existingId   = searchParams.get('id')
-  const shop         = useAppStore(s => s.shop)
+  const existingId = searchParams.get('id')
+  const shop = useAppStore(s => s.shop)
 
   const [items, setItems] = useState([{ id: uuid(), designation: '', quantity: 1, unit: 'Pièces', unit_price: 0 }])
   const [products, setProducts] = useState([])
-  const [saving, setSaving]     = useState(false)
-  const [status, setStatus]     = useState('draft')
-  const [invoiceId]             = useState(existingId || uuid())
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState('draft')
+  const [invoiceId] = useState(existingId || uuid())
   const [invoiceNumber, setInvoiceNumber] = useState('')
 
-  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm({
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
-      date:           format(new Date(), 'yyyy-MM-dd'),
-      city:           shop?.city || '',
-      client_name:    '',
+      date: format(new Date(), 'yyyy-MM-dd'),
+      city: shop?.city || '',
+      client_name: '',
       client_address: '',
-      client_phone:   '',
+      client_phone: '',
     }
   })
 
@@ -53,7 +53,7 @@ export default function NouvelleFacturePage() {
     setProducts(prods)
 
     if (existingId) {
-      const inv   = await localDb.invoices.get(existingId)
+      const inv = await localDb.invoices.get(existingId)
       const lines = await localDb.invoice_items.where('invoice_id').equals(existingId).toArray()
       if (inv) {
         reset({
@@ -235,7 +235,12 @@ export default function NouvelleFacturePage() {
                   <input {...register('client_address')} placeholder="Ex: Niamey 200" className={inputCls} />
                 </FormField>
                 <FormField label="Téléphone">
-                  <input {...register('client_phone')} placeholder="Ex: 92 00 00 00" className={inputCls} />
+                  <FrenchInput
+                    value={watch('client_phone')}
+                    onChange={(value) => setValue('client_phone', value)}
+                    placeholder="Ex: 92 00 00 00"
+                    className={inputCls}
+                  />
                 </FormField>
               </div>
             </div>
@@ -276,10 +281,11 @@ export default function NouvelleFacturePage() {
                   <div className="grid grid-cols-4 gap-2">
                     <div>
                       <label className="text-xs text-gray-400">Qté</label>
-                      <FrenchInput min="0.001" step="0.001"
+                      <FrenchInput
                         value={item.quantity}
-                        onChange={e => updateItem(item.id, 'quantity', e.target.value)}
-                        className={`${inputCls} mt-0.5`} />
+                        onChange={(value) => updateItem(item.id, 'quantity', value)}
+                        className={`${inputCls} mt-0.5`}
+                      />
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Unité</label>
@@ -290,10 +296,11 @@ export default function NouvelleFacturePage() {
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Prix unit.</label>
-                      <FrenchInput min="0"
+                      <FrenchInput
                         value={item.unit_price}
-                        onChange={e => updateItem(item.id, 'unit_price', e.target.value)}
-                        className={`${inputCls} mt-0.5`} />
+                        onChange={(value) => updateItem(item.id, 'unit_price', value)}
+                        className={`${inputCls} mt-0.5`}
+                      />
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Total</label>
@@ -343,7 +350,7 @@ export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTo
 
   return (
     <div className={`bg-white font-sans text-gray-900 ${full ? 'p-10 min-h-screen' : 'p-5 text-xs border border-gray-100 rounded-xl'}`}
-         style={{ fontSize: full ? '12pt' : undefined }}>
+      style={{ fontSize: full ? '12pt' : undefined }}>
 
       <div className="flex justify-between items-start mb-8">
         <div className="flex items-start gap-4">
@@ -365,16 +372,16 @@ export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTo
 
       <div className="text-center mb-6">
         <h1 className="font-display text-xl font-bold uppercase tracking-wide"
-            style={{ color: shop?.color_primary || '#1a56db' }}>
+          style={{ color: shop?.color_primary || '#1a56db' }}>
           FACTURE DE VENTE N°{invoiceNumber}
         </h1>
       </div>
 
       {(formValues.client_name || formValues.client_address || formValues.client_phone) && (
         <div className="border border-gray-200 rounded-lg p-4 mb-6 grid grid-cols-3 gap-4">
-          {formValues.client_name    && <div><span className="text-gray-500">CLIENT : </span><strong>{formValues.client_name}</strong></div>}
+          {formValues.client_name && <div><span className="text-gray-500">CLIENT : </span><strong>{formValues.client_name}</strong></div>}
           {formValues.client_address && <div><span className="text-gray-500">ADRESSE : </span>{formValues.client_address}</div>}
-          {formValues.client_phone   && <div><span className="text-gray-500">Tél : </span>{formValues.client_phone}</div>}
+          {formValues.client_phone && <div><span className="text-gray-500">Tél : </span>{formValues.client_phone}</div>}
         </div>
       )}
 
@@ -424,8 +431,8 @@ export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTo
 
       <div className="mt-12 pt-4 border-t border-gray-200 text-center text-gray-400 text-xs">
         {[shop?.phone && `Tél : ${shop.phone}`,
-          shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,
-          shop?.email && `Email : ${shop.email}`
+        shop?.whatsapp && `WhatsApp : ${shop.whatsapp}`,
+        shop?.email && `Email : ${shop.email}`
         ].filter(Boolean).join('   ·   ')}
       </div>
     </div>

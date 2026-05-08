@@ -29,7 +29,7 @@ export default function NouvelleProformaPage() {
   const [proformaId] = useState(existingId || uuid())
   const [proformaNumber, setProformaNumber] = useState('')
 
-  const { register, handleSubmit, reset, watch } = useForm({
+  const { register, handleSubmit, reset, watch, setValue } = useForm({
     defaultValues: {
       date: format(new Date(), 'yyyy-MM-dd'),
       city: shop?.city || '',
@@ -218,7 +218,12 @@ export default function NouvelleProformaPage() {
                   <input {...register('client_address')} placeholder="Ex: Niamey" className={inputCls} />
                 </FormField>
                 <FormField label="Téléphone">
-                  <input {...register('client_phone')} placeholder="92 00 00 00" className={inputCls} />
+                  <FrenchInput
+                    value={watch('client_phone')}
+                    onChange={(value) => setValue('client_phone', value)}
+                    placeholder="92 00 00 00"
+                    className={inputCls}
+                  />
                 </FormField>
               </div>
             </div>
@@ -250,9 +255,11 @@ export default function NouvelleProformaPage() {
                   <div className="grid grid-cols-4 gap-2">
                     <div>
                       <label className="text-xs text-gray-400">Qté</label>
-                      <FrenchInput min="0.001" step="0.001" value={item.quantity}
-                        onChange={e => updateItem(item.id, 'quantity', e.target.value)}
-                        className={`${inputCls} mt-0.5`} />
+                      <FrenchInput
+                        value={item.quantity}
+                        onChange={(value) => updateItem(item.id, 'quantity', value)}
+                        className={`${inputCls} mt-0.5`}
+                      />
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Unité</label>
@@ -263,9 +270,11 @@ export default function NouvelleProformaPage() {
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Prix unit.</label>
-                      <FrenchInput min="0" value={item.unit_price}
-                        onChange={e => updateItem(item.id, 'unit_price', e.target.value)}
-                        className={`${inputCls} mt-0.5`} />
+                      <FrenchInput
+                        value={item.unit_price}
+                        onChange={(value) => updateItem(item.id, 'unit_price', value)}
+                        className={`${inputCls} mt-0.5`}
+                      />
                     </div>
                     <div>
                       <label className="text-xs text-gray-400">Total</label>

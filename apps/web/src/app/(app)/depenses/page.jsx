@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
 import { Wallet, Plus, Trash2 } from 'lucide-react'
@@ -15,19 +15,20 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, inputCls, selectCls
 } from '@/components/ui'
+import FrenchInput from '@/components/FrenchInput'
 
-const CATEGORIES = ['Transport','Salaire','Loyer','Eau / Électricité','Recharge téléphone','Maintenance','Publicité','Autre']
+const CATEGORIES = ['Transport', 'Salaire', 'Loyer', 'Eau / Électricité', 'Recharge téléphone', 'Maintenance', 'Publicité', 'Autre']
 
 export default function DepensesPage() {
   const shop = useAppStore(s => s.shop)
   const [expenses, setExpenses] = useState([])
-  const [search, setSearch]     = useState('')
-  const [modal, setModal]       = useState(false)
-  const [confirm, setConfirm]   = useState(null)
-  const [loading, setLoading]   = useState(true)
+  const [search, setSearch] = useState('')
+  const [modal, setModal] = useState(false)
+  const [confirm, setConfirm] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  const { register, handleSubmit, reset } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd') }
+  const { register, handleSubmit, reset, control } = useForm({
+    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), amount: '' }
   })
 
   const load = useCallback(async () => {
@@ -41,14 +42,14 @@ export default function DepensesPage() {
 
   async function onSubmit(data) {
     const record = {
-      id:          uuid(),
-      shop_id:     shop.id,
-      date:        data.date,
+      id: uuid(),
+      shop_id: shop.id,
+      date: data.date,
       description: data.description,
-      amount:      Number(data.amount),
-      category:    data.category || 'Autre',
-      created_at:  new Date().toISOString(),
-      updated_at:  new Date().toISOString(),
+      amount: Number(data.amount),
+      category: data.category || 'Autre',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
       sync_status: 'pending',
     }
     await localUpsert('expenses', record)
@@ -63,7 +64,7 @@ export default function DepensesPage() {
       e.category?.toLowerCase().includes(search.toLowerCase())
     ), [expenses, search])
 
-  const total   = useMemo(() => expenses.reduce((a, e) => a + (e.amount || 0), 0), [expenses])
+  const total = useMemo(() => expenses.reduce((a, e) => a + (e.amount || 0), 0), [expenses])
   const byMonth = useMemo(() => {
     const now = new Date()
     return expenses
@@ -81,8 +82,8 @@ export default function DepensesPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Total dépenses" value={formatFCFA(total)} color="red" icon={Wallet} />
-        <StatCard label="Ce mois-ci"     value={formatFCFA(byMonth)} color="amber" />
-        <StatCard label="Nombre"         value={expenses.length} color="blue" />
+        <StatCard label="Ce mois-ci" value={formatFCFA(byMonth)} color="amber" />
+        <StatCard label="Nombre" value={expenses.length} color="blue" />
       </div>
 
       <div className="card overflow-hidden">
@@ -103,7 +104,7 @@ export default function DepensesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date','Description','Catégorie','Montant',''].map(h => (
+                  {['Date', 'Description', 'Catégorie', 'Montant', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -157,8 +158,21 @@ export default function DepensesPage() {
               placeholder="Ex: Transport sur vente" className={inputCls} />
           </FormField>
           <FormField label="Montant (FCFA)" required>
-            <input {...register('amount', { required: 'Requis', min: 0 })}
-              type="number" min="0" placeholder="0" className={inputCls} />
+            <Controller
+              name="amount"
+              control={control}
+              rules={{ required: 'Requis' }}
+              render={({ field }) => (
+                <FrenchInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  placeholder="0"
+                  required
+                  className={inputCls}
+                />
+              )}
+            />
           </FormField>
           <div className="flex gap-3 justify-end pt-2">
             <Btn variant="secondary" onClick={() => setModal(false)}>Annuler</Btn>

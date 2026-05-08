@@ -52,6 +52,7 @@ export default function FournisseursPage() {
     register,
     handleSubmit,
     reset,
+    control,
   } = useForm()
 
   const {
@@ -216,8 +217,8 @@ export default function FournisseursPage() {
   const supplierTx = useMemo(() =>
     selected
       ? transactions
-          .filter(t => t.supplier_id === selected.id)
-          .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .filter(t => t.supplier_id === selected.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
       : [],
     [selected, transactions]
   )
@@ -358,6 +359,7 @@ export default function FournisseursPage() {
           onSaveSupplier={onSaveSupplier}
           register={register}
           reset={reset}
+          control={control}
         />
 
         <Modal open={txModal} onClose={() => setTxModal(false)} title="Nouvelle ligne fournisseur" maxW="max-w-md">
@@ -526,6 +528,7 @@ export default function FournisseursPage() {
         onSaveSupplier={onSaveSupplier}
         register={register}
         reset={reset}
+        control={control}
       />
 
       <ConfirmDialog
@@ -548,6 +551,7 @@ function SupplierModal({
   onSaveSupplier,
   register,
   reset,
+  control,
 }) {
   return (
     <Modal
@@ -566,7 +570,19 @@ function SupplierModal({
 
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Téléphone">
-            <input {...register('phone')} placeholder="96 87 75 88" className={inputCls} />
+            <Controller
+              name="phone"
+              control={control}
+              render={({ field }) => (
+                <FrenchInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  placeholder="96 87 75 88"
+                  className={inputCls}
+                />
+              )}
+            />
           </FormField>
           <FormField label="Adresse">
             <input {...register('address')} placeholder="Ex: Niamey" className={inputCls} />

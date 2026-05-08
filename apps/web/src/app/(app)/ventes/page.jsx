@@ -425,14 +425,14 @@ export default function VentesPage() {
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
-                        <button
+                        {/* <button
                           onClick={() => setDocModal(group)}
                           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors text-xs font-medium"
                           title="Documents"
                         >
                           <Printer className="w-3.5 h-3.5" />
                           Documents
-                        </button>
+                        </button> */}
                         <button
                           onClick={() => setConfirm({ type: 'cancel', id: group.key })}
                           className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-500 transition-colors"
