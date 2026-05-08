@@ -213,13 +213,13 @@ export default function ProduitsPage() {
           </FormField>
 
           <FormField label="Fournisseur">
-  <select {...register('supplier')} className={inputCls}>
-    <option value="">— Choisir un fournisseur —</option>
-    {suppliers.map((s) => (
-      <option key={s.id} value={s.name}>{s.name}</option>
-    ))}
-  </select>
-</FormField>
+            <select {...register('supplier')} className={inputCls}>
+              <option value="">— Choisir un fournisseur —</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+          </FormField>
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Prix d'achat (FCFA)">

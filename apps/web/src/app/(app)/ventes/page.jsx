@@ -9,7 +9,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete, cancelSale } from '@/lib/db/local'
-import { formatFCFA } from '@/lib/core/calculations'
+import { formatFCFA, formatNumber } from '@/lib/core/calculations'
 import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, Badge, inputCls, selectCls
@@ -38,9 +38,10 @@ const emptyLine = () => ({
 
 // Document types available after a sale
 const SALE_DOC_TYPES = [
-  { key: 'facture',       label: 'Facture de vente',  icon: Receipt, description: 'Document officiel de vente' },
-  { key: 'proforma',      label: 'Facture proforma',  icon: FileText, description: 'Devis / offre de prix' },
-  { key: 'bon_livraison', label: 'Bon de livraison',  icon: Truck, description: 'Document de remise des articles' },
+  { key: 'proforma', label: 'Facture proforma', icon: FileText, description: 'Devis / offre de prix' },
+  { key: 'facture', label: 'Facture définitive', icon: Receipt, description: 'Document officiel de vente' },
+  { key: 'bon_livraison', label: 'Bon de livraison', icon: Truck, description: 'Document de remise des articles' },
+  { key: 'bon_commande', label: 'Bon de commande', icon: FileText, description: 'Document de commande lié à la vente' },
 ]
 
 export default function VentesPage() {
@@ -59,7 +60,9 @@ export default function VentesPage() {
   const [cart, setCart] = useState([emptyLine()])
   const [saleDate, setSaleDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [saleStore, setSaleStore] = useState('')
-  const [saleClient, setSaleClient] = useState('')
+  const [saleClientId, setSaleClientId] = useState('')
+  const [paymentMode, setPaymentMode] = useState('paid')
+  const [paidAmount, setPaidAmount] = useState('')
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -120,6 +123,12 @@ export default function VentesPage() {
     }
   }, { revenue: 0, cost: 0, profit: 0 }), [cart])
 
+  const paidPreview = paymentMode === 'credit'
+    ? Math.max(0, Number(paidAmount || 0))
+    : cartTotals.revenue
+
+  const remainingPreview = Math.max(0, cartTotals.revenue - paidPreview)
+
   // ─── Submit ────────────────────────────────────────────────────────────────
   async function onSubmit(e) {
     e.preventDefault()
@@ -135,14 +144,49 @@ export default function VentesPage() {
       }
     }
 
+    const requestedByProduct = new Map()
+
     for (const line of cart) {
-      const prod = products.find(p => p.id === line.product_id)
-      if (!prod) continue
-      const currentStock = computeStock(prod, purchases, sales)
-      if (Number(line.quantity) > currentStock) {
-        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${currentStock}`)
+      const q = Number(line.quantity || 0)
+
+      if (q <= 0) {
+        toast.error(`Quantité invalide pour ${line.product_name}`)
         return
       }
+
+      requestedByProduct.set(
+        line.product_id,
+        (requestedByProduct.get(line.product_id) || 0) + q
+      )
+    }
+
+    for (const [productId, requestedQty] of requestedByProduct.entries()) {
+      const prod = products.find(p => p.id === productId)
+      if (!prod) continue
+
+      const currentStock = computeStock(prod, purchases, sales)
+
+      if (requestedQty > currentStock) {
+        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${formatNumber(currentStock)}`)
+        return
+      }
+    }
+
+    const selectedClient = clients.find(c => c.id === saleClientId) || null
+    const totalPaid = paymentMode === 'credit'
+      ? Math.max(0, Number(paidAmount || 0))
+      : cartTotals.revenue
+    const remainingAmount = Math.max(0, cartTotals.revenue - totalPaid)
+    const paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
+
+    if (paymentStatus === 'credit' && !selectedClient) {
+      toast.error('Choisissez un client pour enregistrer une vente à crédit.')
+      return
+    }
+
+    if (totalPaid > cartTotals.revenue) {
+      toast.error('Le montant payé ne peut pas dépasser le total de la vente.')
+      return
     }
 
     const sessionId = uuid()
@@ -154,19 +198,28 @@ export default function VentesPage() {
         const q = Number(line.quantity)
         const price = Number(line.unit_sale_price)
         const cost = Number(line.unit_cost)
+        const lineTotal = q * price
+        const linePaid = cartTotals.revenue > 0
+          ? Math.round((lineTotal / cartTotals.revenue) * totalPaid)
+          : 0
+        const lineRemaining = Math.max(0, lineTotal - linePaid)
         const saleRecord = {
           id: uuid(),
           shop_id: shop.id,
           session_id: sessionId,
           date: saleDate,
           store: saleStore || '',
-          client_name: saleClient || '',
+          client_id: selectedClient?.id || null,
+          client_name: selectedClient?.name || '',
+          payment_status: paymentStatus,
+          paid_amount: linePaid,
+          remaining_amount: lineRemaining,
           product_id: line.product_id,
           product_code: line.product_code || '',
           product_name: line.product_name,
           quantity: q,
           unit_sale_price: price,
-          total_sale: q * price,
+          total_sale: lineTotal,
           unit_purchase_cost: cost,
           total_purchase_cost: q * cost,
           profit: q * price - q * cost,
@@ -178,6 +231,20 @@ export default function VentesPage() {
         savedSales.push(saleRecord)
       }
 
+      if (remainingAmount > 0 && selectedClient) {
+        await localUpsert('client_transactions', {
+          id: uuid(),
+          shop_id: shop.id,
+          client_id: selectedClient.id,
+          date: saleDate,
+          label: `Vente à crédit — ${sessionId.slice(0, 8).toUpperCase()}`,
+          amount: remainingAmount,
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+
       toast.success(`Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`)
       setModal(false)
 
@@ -186,7 +253,10 @@ export default function VentesPage() {
         key: sessionId,
         date: saleDate,
         store: saleStore,
-        client_name: saleClient,
+        client_name: selectedClient?.name || '',
+        payment_status: paymentStatus,
+        paid_amount: totalPaid,
+        remaining_amount: remainingAmount,
         items: savedSales,
       }
       setDocModal(group)
@@ -201,7 +271,9 @@ export default function VentesPage() {
     setCart([emptyLine()])
     setSaleDate(format(new Date(), 'yyyy-MM-dd'))
     setSaleStore('')
-    setSaleClient('')
+    setSaleClientId('')
+    setPaymentMode('paid')
+    setPaidAmount('')
     setModal(true)
   }
 
@@ -216,9 +288,22 @@ export default function VentesPage() {
     filtered.forEach(s => {
       const key = s.session_id || s.id
       if (!groups[key]) {
-        groups[key] = { key, date: s.date, store: s.store, client_name: s.client_name, items: [], cancelled: !!s.cancelled_at }
+        groups[key] = {
+          key,
+          date: s.date,
+          store: s.store,
+          client_name: s.client_name,
+          payment_status: s.payment_status || 'paid',
+          paid_amount: 0,
+          remaining_amount: 0,
+          items: [],
+          cancelled: !!s.cancelled_at,
+        }
       }
       groups[key].items.push(s)
+      groups[key].paid_amount += Number(s.paid_amount || 0)
+      groups[key].remaining_amount += Number(s.remaining_amount || 0)
+      if (Number(s.remaining_amount || 0) > 0) groups[key].payment_status = 'credit'
       if (s.cancelled_at) groups[key].cancelled = true
     })
     return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date))
@@ -304,6 +389,9 @@ export default function VentesPage() {
                         {group.store && <span className="text-xs text-gray-400">· {group.store}</span>}
                         {group.client_name && <span className="text-xs font-medium text-blue-600">· {group.client_name}</span>}
                         {group.cancelled && <Badge color="red">Annulée</Badge>}
+                        {group.payment_status === 'credit' && (
+                          <Badge color="amber">Crédit : {formatFCFA(group.remaining_amount)}</Badge>
+                        )}
                         {group.items.length > 1 && (
                           <Badge color="blue">{group.items.length} produits</Badge>
                         )}
@@ -335,6 +423,14 @@ export default function VentesPage() {
                           title="Imprimer un document"
                         >
                           <Printer className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDocModal(group)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors text-xs font-medium"
+                          title="Documents"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          Documents
                         </button>
                         <button
                           onClick={() => setConfirm({ type: 'cancel', id: group.key })}
@@ -402,11 +498,33 @@ export default function VentesPage() {
               <input value={saleStore} onChange={e => setSaleStore(e.target.value)} placeholder="Ex: Dar es salam" className={inputCls} />
             </FormField>
             <FormField label="Client">
-              <select value={saleClient} onChange={e => setSaleClient(e.target.value)} className={selectCls}>
+              <select value={saleClientId} onChange={e => setSaleClientId(e.target.value)} className={selectCls}>
                 <option value="">— Choisir —</option>
-                {clients.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </FormField>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Paiement">
+              <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className={selectCls}>
+                <option value="paid">Payé comptant</option>
+                <option value="credit">Vente à crédit</option>
+              </select>
+            </FormField>
+
+            {paymentMode === 'credit' && (
+              <FormField label="Montant payé">
+                <input
+                  type="number"
+                  min="0"
+                  value={paidAmount}
+                  onChange={e => setPaidAmount(e.target.value)}
+                  placeholder="0"
+                  className={inputCls}
+                />
+              </FormField>
+            )}
           </div>
 
           <div className="border border-gray-100 rounded-xl overflow-hidden">
@@ -439,18 +557,19 @@ export default function VentesPage() {
                       <option value="">— Sélectionner un produit —</option>
                       {products.map(p => {
                         const stock = computeStock(p, purchases, sales)
-                        return <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''} — Stock: {stock}</option>
+                        return <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(stock)}</option>
                       })}
                     </select>
                     {line.product_id && availStock !== null && (
-                      <p className="text-xs text-gray-400">Stock disponible: <strong className={availStock <= 0 ? 'text-red-500' : 'text-emerald-600'}>{availStock}</strong></p>
+                      <p className="text-xs text-gray-400">Stock disponible: <strong className={availStock <= 0 ? 'text-red-500' : 'text-emerald-600'}>{formatNumber(availStock)}</strong></p>
                     )}
-                    <input
-                      value={line.product_name}
-                      onChange={e => updateLine(line._key, 'product_name', e.target.value)}
-                      placeholder="Désignation"
-                      className={inputCls}
-                    />
+                    {line.product_id && (
+                      <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2">
+                        <p className="text-xs text-gray-400">Désignation automatique</p>
+                        <p className="text-sm font-medium text-gray-800">{line.product_name}</p>
+                        {line.product_code && <p className="text-xs text-gray-400">{line.product_code}</p>}
+                      </div>
+                    )}
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         <label className="text-xs text-gray-400">Quantité</label>
@@ -490,7 +609,7 @@ export default function VentesPage() {
           </div>
 
           {cartTotals.revenue > 0 && (
-            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
               <div>
                 <p className="text-xs text-blue-500">Total vente</p>
                 <p className="font-bold text-blue-900">{formatFCFA(cartTotals.revenue)}</p>
@@ -503,6 +622,12 @@ export default function VentesPage() {
                 <p className="text-xs text-blue-500">Bénéfice</p>
                 <p className={`font-bold ${cartTotals.profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                   {cartTotals.profit >= 0 ? '+' : ''}{formatFCFA(cartTotals.profit)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-blue-500">Reste à payer</p>
+                <p className={`font-bold ${remainingPreview > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {formatFCFA(remainingPreview)}
                 </p>
               </div>
             </div>

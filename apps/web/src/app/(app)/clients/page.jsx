@@ -207,8 +207,8 @@ export default function ClientsPage() {
   const clientTx = useMemo(() =>
     selected
       ? transactions
-          .filter(t => t.client_id === selected.id)
-          .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .filter(t => t.client_id === selected.id)
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
       : [],
     [selected, transactions]
   )

@@ -4,7 +4,6 @@ import Link from 'next/link'
 import {
   FileText,
   Receipt,
-  ScrollText,
   Truck,
   ShoppingBag,
   ArrowRight,
@@ -12,32 +11,26 @@ import {
 
 const docs = [
   {
-    title: 'Factures',
-    description: 'Créer, consulter et gérer les factures.',
-    href: '/factures',
-    icon: Receipt,
-  },
-  {
-    title: 'Proformas',
-    description: 'Créer des proformas avant validation en vente réelle.',
+    title: 'Facture proforma',
+    description: 'Créer ou consulter les factures proformas avant validation.',
     href: '/proformas',
     icon: FileText,
   },
   {
-    title: 'Reçus',
-    description: 'Retrouver les reçus liés aux ventes et paiements.',
+    title: 'Facture définitive',
+    description: 'Créer ou consulter les factures finales de vente.',
     href: '/factures',
-    icon: ScrollText,
+    icon: Receipt,
   },
   {
-    title: 'Bons de livraison',
-    description: 'Préparer et imprimer les bons de livraison.',
-    href: '/factures',
+    title: 'Bon de livraison',
+    description: 'Générer un bon de livraison depuis l’historique des ventes.',
+    href: '/ventes',
     icon: Truck,
   },
   {
-    title: 'Bons de commande',
-    description: 'Préparer et suivre les bons de commande.',
+    title: 'Bon de commande',
+    description: 'Générer un bon de commande depuis les achats ou les ventes.',
     href: '/achats',
     icon: ShoppingBag,
   },
@@ -49,11 +42,11 @@ export default function DocumentsPage() {
       <div>
         <h1 className="font-display text-2xl font-bold text-gray-900">Documents</h1>
         <p className="text-gray-500 text-sm mt-1">
-          Tous les documents commerciaux regroupés au même endroit.
+          Choisissez le type de document commercial à créer ou à imprimer.
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {docs.map(({ title, description, href, icon: Icon }) => (
           <Link
             key={title}

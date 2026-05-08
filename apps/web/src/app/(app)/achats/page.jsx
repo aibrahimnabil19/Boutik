@@ -26,21 +26,23 @@ const PURCHASE_DOC_TYPES = [
 export default function AchatsPage() {
   const shop = useAppStore(s => s.shop)
   const [purchases, setPurchases] = useState([])
-  const [products, setProducts]   = useState([])
-  const [search, setSearch]       = useState('')
-  const [modal, setModal]         = useState(false)
-  const [confirm, setConfirm]     = useState(null)
-  const [loading, setLoading]     = useState(true)
+  const [products, setProducts] = useState([])
+  const [search, setSearch] = useState('')
+  const [modal, setModal] = useState(false)
+  const [confirm, setConfirm] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   // Document modal: holds the purchase to print
-  const [docModal, setDocModal]   = useState(null)
+  const [docModal, setDocModal] = useState(null)
+  const [paymentMode, setPaymentMode] = useState('paid')
+  const [paidAmount, setPaidAmount] = useState('')
 
   const { register, handleSubmit, reset, watch, setValue } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 }
   })
 
-  const qty   = Number(watch('quantity') || 0)
+  const qty = Number(watch('quantity') || 0)
   const price = Number(watch('unit_price') || 0)
   const total = qty * price
 
@@ -72,27 +74,67 @@ export default function AchatsPage() {
   async function onSubmit(data) {
     const q = Number(data.quantity)
     const up = Number(data.unit_price)
+    const totalAmount = q * up
+    const supplier = suppliers.find(s => s.name === data.supplier) || null
+
+    const totalPaid = paymentMode === 'credit'
+      ? Math.max(0, Number(paidAmount || 0))
+      : totalAmount
+
+    const remainingAmount = Math.max(0, totalAmount - totalPaid)
+    const paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
+
+    if (paymentStatus === 'credit' && !supplier) {
+      toast.error('Choisissez un fournisseur pour enregistrer un achat à crédit.')
+      return
+    }
+
+    if (totalPaid > totalAmount) {
+      toast.error('Le montant payé ne peut pas dépasser le total de l’achat.')
+      return
+    }
+
+    const now = new Date().toISOString()
+
     const record = {
-      id:           uuid(),
-      shop_id:      shop.id,
-      date:         data.date,
-      supplier:     data.supplier || '',
-      product_id:   selectedProduct?.id || null,
+      id: uuid(),
+      shop_id: shop.id,
+      date: data.date,
+      supplier_id: supplier?.id || null,
+      supplier: data.supplier || '',
+      product_id: selectedProduct?.id || null,
       product_code: selectedProduct?.code || '',
       product_name: data.product_name,
-      quantity:     q,
-      unit_price:   up,
-      total_amount: q * up,
-      notes:        data.notes || '',
-      created_at:   new Date().toISOString(),
-      updated_at:   new Date().toISOString(),
-      sync_status:  'pending',
+      quantity: q,
+      unit_price: up,
+      total_amount: totalAmount,
+      payment_status: paymentStatus,
+      paid_amount: totalPaid,
+      remaining_amount: remainingAmount,
+      notes: data.notes || '',
+      created_at: now,
+      updated_at: now,
+      sync_status: 'pending',
     }
+
     await localUpsert('purchases', record)
+
+    if (remainingAmount > 0 && supplier) {
+      await localUpsert('supplier_transactions', {
+        id: uuid(),
+        shop_id: shop.id,
+        supplier_id: supplier.id,
+        date: data.date,
+        label: `Achat à crédit — ${record.id.slice(0, 8).toUpperCase()}`,
+        amount: remainingAmount,
+        created_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
+    }
+
     toast.success('Achat enregistré')
     setModal(false)
-
-    // Show document options after saving
     setDocModal(record)
     load()
   }
@@ -100,6 +142,14 @@ export default function AchatsPage() {
   function openAdd() {
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
     setSelectedProduct(null)
+    setModal(true)
+  }
+
+  function openAdd() {
+    reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
+    setSelectedProduct(null)
+    setPaymentMode('paid')
+    setPaidAmount('')
     setModal(true)
   }
 
@@ -133,7 +183,7 @@ export default function AchatsPage() {
         <StatCard label="Total dépensé" value={formatFCFA(totalSpent)} color="purple" icon={ShoppingCart} />
         <StatCard label="Nombre d'achats" value={purchases.length} color="blue" />
         <StatCard label="Fournisseurs distincts"
-          value={new Set(purchases.map(p=>p.supplier).filter(Boolean)).size} color="amber" />
+          value={new Set(purchases.map(p => p.supplier).filter(Boolean)).size} color="amber" />
       </div>
 
       <div className="card overflow-hidden">
@@ -155,7 +205,7 @@ export default function AchatsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date','Fournisseur','Produit','Quantité','Prix unit.','Total',''].map(h => (
+                  {['Date', 'Fournisseur', 'Produit', 'Quantité', 'Prix unit.', 'Total', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -271,10 +321,39 @@ export default function AchatsPage() {
             </FormField>
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Paiement">
+              <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className={selectCls}>
+                <option value="paid">Payé comptant</option>
+                <option value="credit">Achat à crédit</option>
+              </select>
+            </FormField>
+
+            {paymentMode === 'credit' && (
+              <FormField label="Montant payé">
+                <input
+                  type="number"
+                  min="0"
+                  value={paidAmount}
+                  onChange={e => setPaidAmount(e.target.value)}
+                  placeholder="0"
+                  className={inputCls}
+                />
+              </FormField>
+            )}
+          </div>
+
           {total > 0 && (
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 flex items-center justify-between">
               <span className="text-sm text-blue-700 font-medium">Montant total</span>
-              <span className="font-bold text-blue-800">{formatFCFA(total)}</span>
+              <div className="text-right">
+                <span className="font-bold text-blue-800 block">{formatFCFA(total)}</span>
+                {paymentMode === 'credit' && (
+                  <span className="text-xs text-amber-700">
+                    Reste : {formatFCFA(Math.max(0, total - Number(paidAmount || 0)))}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

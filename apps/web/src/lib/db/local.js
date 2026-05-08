@@ -5,11 +5,11 @@ import Dexie from "dexie";
 
 export const localDb = new Dexie("BmSuiteDB");
 
-localDb.version(3).stores({
+localDb.version(4).stores({
   products: "id, shop_id, code, name, supplier, sync_status, deleted_at",
-  purchases: "id, shop_id, date, supplier, product_id, sync_status, deleted_at",
+  purchases: "id, shop_id, supplier_id, date, supplier, product_id, payment_status, sync_status, deleted_at",
   sales:
-    "id, sale_batch_id, shop_id, date, product_id, sync_status, deleted_at",
+    "id, session_id, sale_batch_id, shop_id, client_id, date, product_id, payment_status, sync_status, deleted_at, cancelled_at",
   expenses: "id, shop_id, date, sync_status, deleted_at",
   clients: "id, shop_id, name",
   client_transactions: "id, shop_id, client_id, date, deleted_at",

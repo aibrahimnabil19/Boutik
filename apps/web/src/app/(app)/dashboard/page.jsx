@@ -12,7 +12,7 @@ import { fr } from 'date-fns/locale'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
-import { TrendingUp, TrendingDown, ShoppingCart, Wallet, Package, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, ShoppingCart, Wallet, Package, AlertTriangle, Plus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 export default function DashboardPage() {
@@ -114,21 +114,21 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="flex flex-wrap gap-3">
         <button
           onClick={() => router.push('/ventes')}
-          className="rounded-2xl bg-blue-600 text-white p-5 text-left shadow-sm hover:bg-blue-700 transition"
+          className="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 transition"
         >
-          <p className="text-sm opacity-90">Accès rapide</p>
-          <p className="text-xl font-bold mt-1">Nouvelle vente</p>
+          <Plus className="w-4 h-4" />
+          Nouvelle vente
         </button>
 
         <button
           onClick={() => router.push('/achats')}
-          className="rounded-2xl bg-emerald-600 text-white p-5 text-left shadow-sm hover:bg-emerald-700 transition"
+          className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-sm font-semibold shadow-sm hover:bg-emerald-700 transition"
         >
-          <p className="text-sm opacity-90">Accès rapide</p>
-          <p className="text-xl font-bold mt-1">Nouvel achat</p>
+          <Plus className="w-4 h-4" />
+          Nouvel achat
         </button>
       </div>
 
