@@ -66,4 +66,7 @@ Thumbs.db
 .vscode/*
 !.vscode/settings.json
 
+#dumps
 project_dump.txt
+web_dump.txt
+desktop_dump.txt
