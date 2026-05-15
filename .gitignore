@@ -9,6 +9,8 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+/apps/web/node_modules/
+/apps/desktop/node_modules/
 
 # testing
 /coverage
@@ -16,6 +18,8 @@
 # next.js
 /.next/
 /out/
+apps/web/.next/
+apps/web/out/
 
 # production
 /build
@@ -32,6 +36,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.env.local
+.env.*.local
+apps/web/.env
+apps/web/.env.local
+apps/web/.env.*.local
 
 # vercel
 .vercel
@@ -39,3 +48,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Tauri / Rust build output
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json

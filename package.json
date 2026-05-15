@@ -7,7 +7,9 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
     "db:push": "supabase db push",
-    "db:reset": "supabase db reset"
+    "db:reset": "supabase db reset",
+    "desktop:dev": "pnpm --dir apps/desktop dev",
+    "desktop:build": "pnpm --dir apps/desktop build"
   },
   "workspaces": [
     "apps/*",
