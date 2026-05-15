@@ -31,8 +31,7 @@ const NAV = [
   { label: 'Documents', href: '/documents', icon: FileText },
 
   { separator: 'Catalogue & Analyse' },
-  { label: 'Produits', href: '/produits', icon: Package },
-  { label: 'Stock', href: '/stock', icon: Package },
+  { label: 'Catalogue / Stock', href: '/produits', icon: Package },
   { label: 'Rentabilité', href: '/rentabilite', icon: PieChart },
 ]
 

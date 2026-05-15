@@ -10,13 +10,14 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete } from '@/lib/db/local'
-import { formatFCFA } from '@/lib/core/calculations'
+import { formatFCFA, formatNumber, calculateStock } from '@/lib/core/calculations'
 import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, inputCls, selectCls
 } from '@/components/ui'
 import { printPurchaseDocument } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 // Document types for purchases
 const PURCHASE_DOC_TYPES = [
@@ -26,8 +27,12 @@ const PURCHASE_DOC_TYPES = [
 
 export default function AchatsPage() {
   const shop = useAppStore(s => s.shop)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const action = searchParams.get('action')
   const [purchases, setPurchases] = useState([])
   const [products, setProducts] = useState([])
+  const [sales, setSales] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
   const [confirm, setConfirm] = useState(null)
@@ -38,6 +43,8 @@ export default function AchatsPage() {
   const [docModal, setDocModal] = useState(null)
   const [paymentMode, setPaymentMode] = useState('paid')
   const [paidAmount, setPaidAmount] = useState('')
+  const [supplierModal, setSupplierModal] = useState(false)
+  const [quickSupplier, setQuickSupplier] = useState({ name: '', phone: '', address: '' })
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -49,18 +56,27 @@ export default function AchatsPage() {
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [p, pr, su] = await Promise.all([
+    const [p, pr, su, sa] = await Promise.all([
       getAll('purchases', shop.id),
       getAll('products', shop.id),
       getAll('suppliers', shop.id),
+      getAll('sales', shop.id),
     ])
     setSuppliers(su)
     setPurchases(p.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(pr)
+    setSales(sa)
     setLoading(false)
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (action !== 'new') return
+
+    openAdd()
+    router.replace('/achats', { scroll: false })
+  }, [action, router])
 
   function handleProductSelect(e) {
     const prod = products.find(p => p.id === e.target.value)
@@ -70,6 +86,36 @@ export default function AchatsPage() {
       setValue('unit_price', prod.purchase_price || '')
       setValue('supplier', prod.supplier || '')
     }
+  }
+
+  async function handleQuickSupplierSubmit(e) {
+    e.preventDefault()
+
+    const name = quickSupplier.name.trim()
+    if (!name) {
+      toast.error('Nom du fournisseur requis.')
+      return
+    }
+
+    const now = new Date().toISOString()
+    const record = {
+      id: uuid(),
+      shop_id: shop.id,
+      name,
+      phone: quickSupplier.phone || '',
+      address: quickSupplier.address || '',
+      created_at: now,
+      updated_at: now,
+      sync_status: 'pending',
+    }
+
+    await localUpsert('suppliers', record)
+
+    setSuppliers(prev => [...prev, record].sort((a, b) => a.name.localeCompare(b.name)))
+    setValue('supplier', record.name)
+    setSupplierModal(false)
+    setQuickSupplier({ name: '', phone: '', address: '' })
+    toast.success('Fournisseur ajouté')
   }
 
   async function onSubmit(data) {
@@ -148,12 +194,6 @@ export default function AchatsPage() {
     setDocModal(record)
     load()
   }
-
-  // function openAdd() {
-  //   reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
-  //   setSelectedProduct(null)
-  //   setModal(true)
-  // }
 
   function openAdd() {
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
@@ -297,16 +337,27 @@ export default function AchatsPage() {
               <input {...register('date', { required: true })} type="date" className={inputCls} />
             </FormField>
             <FormField label="Fournisseur" required>
-              <select
-                {...register('supplier', { required: true })}
-                className={selectCls}
-                required
-              >
-                <option value="">— Choisir un fournisseur —</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.name}>{s.name}</option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  {...register('supplier', { required: true })}
+                  className={selectCls}
+                  required
+                >
+                  <option value="">— Choisir un fournisseur —</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setSupplierModal(true)}
+                  className="h-11 w-11 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition"
+                  title="Ajouter un fournisseur"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
             </FormField>
           </div>
 
@@ -323,6 +374,37 @@ export default function AchatsPage() {
               ))}
             </select>
           </FormField>
+
+          {selectedProduct && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 grid sm:grid-cols-3 gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
+                  ID du produit
+                </p>
+                <p className="font-mono text-xs text-blue-900 break-all">
+                  {selectedProduct.id}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
+                  Code produit
+                </p>
+                <p className="font-mono text-sm font-bold text-blue-900">
+                  {selectedProduct.code || '—'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
+                  Stock restant actuel
+                </p>
+                <p className="text-lg font-bold text-blue-900">
+                  {formatNumber(calculateStock(selectedProduct, purchases, sales))}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Quantité" required>
@@ -401,6 +483,54 @@ export default function AchatsPage() {
           <div className="flex gap-3 justify-end pt-2">
             <Btn variant="secondary" onClick={() => setModal(false)}>Annuler</Btn>
             <Btn type="submit">Enregistrer</Btn>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={supplierModal}
+        onClose={() => setSupplierModal(false)}
+        title="Nouveau fournisseur"
+        maxW="max-w-md"
+      >
+        <form onSubmit={handleQuickSupplierSubmit} className="space-y-4">
+          <FormField label="Nom du fournisseur" required>
+            <input
+              value={quickSupplier.name}
+              onChange={e => setQuickSupplier(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="Ex: Fournisseur principal"
+              className={inputCls}
+              required
+            />
+          </FormField>
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Téléphone">
+              <FrenchInput
+                value={quickSupplier.phone}
+                onChange={value => setQuickSupplier(prev => ({ ...prev, phone: value }))}
+                placeholder="96 87 75 88"
+                className={inputCls}
+              />
+            </FormField>
+
+            <FormField label="Adresse">
+              <input
+                value={quickSupplier.address}
+                onChange={e => setQuickSupplier(prev => ({ ...prev, address: e.target.value }))}
+                placeholder="Ex: Niamey"
+                className={inputCls}
+              />
+            </FormField>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Btn variant="secondary" onClick={() => setSupplierModal(false)}>
+              Annuler
+            </Btn>
+            <Btn type="submit">
+              Ajouter
+            </Btn>
           </div>
         </form>
       </Modal>

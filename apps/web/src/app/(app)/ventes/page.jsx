@@ -16,6 +16,7 @@ import {
 } from '@/components/ui'
 import { printSaleDocument } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -47,6 +48,9 @@ const SALE_DOC_TYPES = [
 
 export default function VentesPage() {
   const shop = useAppStore(s => s.shop)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const action = searchParams.get('action')
   const [sales, setSales] = useState([])
   const [products, setProducts] = useState([])
   const [purchases, setPurchases] = useState([])
@@ -81,6 +85,13 @@ export default function VentesPage() {
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (action !== 'new') return
+
+    openAdd()
+    router.replace('/ventes', { scroll: false })
+  }, [action, router])
 
   useEffect(() => {
     if (!newLineKey) return
@@ -583,14 +594,35 @@ export default function VentesPage() {
                         return <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(stock)}</option>
                       })}
                     </select>
-                    {line.product_id && availStock !== null && (
-                      <p className="text-xs text-gray-400">Stock disponible: <strong className={availStock <= 0 ? 'text-red-500' : 'text-emerald-600'}>{formatNumber(availStock)}</strong></p>
-                    )}
                     {line.product_id && (
-                      <div className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2">
-                        <p className="text-xs text-gray-400">Désignation automatique</p>
-                        <p className="text-sm font-medium text-gray-800">{line.product_name}</p>
-                        {line.product_code && <p className="text-xs text-gray-400">{line.product_code}</p>}
+                      <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-3 grid sm:grid-cols-3 gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                            Produit
+                          </p>
+                          <p className="text-sm font-medium text-gray-800">{line.product_name}</p>
+                        </div>
+
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                            ID / Code
+                          </p>
+                          <p className="font-mono text-xs text-gray-700 break-all">
+                            ID: {line.product_id}
+                          </p>
+                          <p className="font-mono text-xs text-gray-400">
+                            Code: {line.product_code || '—'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                            Stock restant actuel
+                          </p>
+                          <p className={`text-lg font-bold ${availStock <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {formatNumber(availStock)}
+                          </p>
+                        </div>
                       </div>
                     )}
                     <div className="grid grid-cols-3 gap-2">

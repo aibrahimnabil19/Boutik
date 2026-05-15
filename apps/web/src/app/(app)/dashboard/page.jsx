@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react'
 import { getAll } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
-import { formatFCFA, getMonthlyTotals } from '@/lib/core/calculations'
+import { formatFCFA, formatNumber, getMonthlyTotals } from '@/lib/core/calculations'
 import { format, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import {
@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState([])
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
+  const [productSummary, setProductSummary] = useState([])
   const [period, setPeriod] = useState('6m')
   const [rawSales, setRawSales] = useState([])
   const [rawPurchases, setRawPurchases] = useState([])
@@ -84,6 +85,31 @@ export default function DashboardPage() {
 
         setRecentSales([...sales].filter(s => !s.cancelled_at).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5))
         setLowStock(products.filter(p => p.alert_threshold != null && computeStock(p, purchases, sales) <= p.alert_threshold))
+        setProductSummary(
+          products.map(p => {
+            const bought = purchases
+              .filter(pu => pu.product_id === p.id || pu.product_code === p.code)
+              .reduce((sum, pu) => sum + Number(pu.quantity || 0), 0)
+
+            const sold = sales
+              .filter(s => (s.product_id === p.id || s.product_code === p.code) && !s.cancelled_at)
+              .reduce((sum, s) => sum + Number(s.quantity || 0), 0)
+
+            const stockLeft = Number(p.stock_initial || 0) + bought - sold
+
+            return {
+              id: p.id,
+              code: p.code || '',
+              name: p.name,
+              stockInitial: Number(p.stock_initial || 0),
+              bought,
+              sold,
+              stockLeft,
+              purchaseValue: bought * Number(p.purchase_price || 0),
+              stockValue: stockLeft * Number(p.purchase_price || 0),
+            }
+          }).sort((a, b) => a.name.localeCompare(b.name))
+        )
       } catch (err) {
         console.error(err)
       } finally {
@@ -116,7 +142,7 @@ export default function DashboardPage() {
 
       <div className="flex flex-wrap gap-3">
         <button
-          onClick={() => router.push('/ventes')}
+          onClick={() => router.push('/ventes?action=new')}
           className="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-4 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 transition"
         >
           <Plus className="w-4 h-4" />
@@ -124,7 +150,7 @@ export default function DashboardPage() {
         </button>
 
         <button
-          onClick={() => router.push('/achats')}
+          onClick={() => router.push('/achats?action=new')}
           className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 text-white px-4 py-2.5 text-sm font-semibold shadow-sm hover:bg-emerald-700 transition"
         >
           <Plus className="w-4 h-4" />
@@ -194,6 +220,63 @@ export default function DashboardPage() {
               <Area type="monotone" dataKey="benefice" name="Bénéfice" stroke={accentColor} fill="url(#gProfit)" strokeWidth={2} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-gray-800 flex items-center gap-2">
+              <Package className="w-4 h-4 text-blue-500" />
+              Résumé des produits
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Nom, ID/code, stock restant et quantité achetée.
+            </p>
+          </div>
+        </div>
+
+        {productSummary.length === 0 ? (
+          <div className="p-6 text-sm text-gray-400">
+            Aucun produit enregistré.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {['Produit', 'ID / Code', 'Stock initial', 'Acheté', 'Vendu', 'Stock restant', 'Valeur achetée', 'Valeur stock'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {productSummary.map(p => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {p.name}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-mono text-xs text-gray-700">{p.code || '—'}</p>
+                      <p className="font-mono text-[10px] text-gray-400 truncate max-w-[160px]" title={p.id}>
+                        ID: {p.id}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{formatNumber(p.stockInitial)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatNumber(p.bought)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatNumber(p.sold)}</td>
+                    <td className={`px-4 py-3 font-bold ${p.stockLeft <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatNumber(p.stockLeft)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{formatFCFA(p.purchaseValue)}</td>
+                    <td className="px-4 py-3 font-semibold text-gray-900">{formatFCFA(p.stockValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
