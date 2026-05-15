@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { getSetting } from '@/lib/db/local'
+import { getSetting, setSetting } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
 import { startSyncListener, runSync, pullFromRemote } from '@/lib/sync/engine'
 import {
@@ -75,6 +75,21 @@ export default function AppLayout({ children }) {
         }
 
         if (!session) {
+          const shopId = await getSetting('shop_id')
+          const cachedShop = await getSetting('cached_shop')
+          const offlineReady = await getSetting('offline_ready')
+
+          if (!navigator.onLine && offlineReady && shopId) {
+            if (cachedShop) {
+              setShop(cachedShop)
+              applyTheme(cachedShop)
+            }
+
+            setLoaded(true)
+            cleanupSync = startSyncListener(shopId)
+            return
+          }
+
           router.replace('/auth')
           return
         }
@@ -99,6 +114,8 @@ export default function AppLayout({ children }) {
         if (shopRes.status === 'fulfilled' && shopRes.value.data) {
           setShop(shopRes.value.data)
           applyTheme(shopRes.value.data)
+          await setSetting('cached_shop', shopRes.value.data)
+          await setSetting('offline_ready', true)
         }
 
         setUser(session.user)

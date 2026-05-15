@@ -14,12 +14,12 @@ import {
 import Image from 'next/image'
 
 const THEMES = [
-  { name: 'Bleu océan',   primary: '#1a56db', accent: '#e3a008' },
-  { name: 'Vert nature',  primary: '#057a55', accent: '#e3a008' },
-  { name: 'Rouge rubis',  primary: '#c81e1e', accent: '#fbbf24' },
+  { name: 'Bleu océan', primary: '#1a56db', accent: '#e3a008' },
+  { name: 'Vert nature', primary: '#057a55', accent: '#e3a008' },
+  { name: 'Rouge rubis', primary: '#c81e1e', accent: '#fbbf24' },
   { name: 'Violet royal', primary: '#6c2bd9', accent: '#f59e0b' },
-  { name: 'Ardoise',      primary: '#374151', accent: '#10b981' },
-  { name: 'Orange vif',   primary: '#c05621', accent: '#1a56db' },
+  { name: 'Ardoise', primary: '#374151', accent: '#10b981' },
+  { name: 'Orange vif', primary: '#c05621', accent: '#1a56db' },
 ]
 
 const STEPS = ['Infos boutique', 'Contact', 'Documents', 'Thème']
@@ -61,10 +61,10 @@ function FileUploadBox({ label, file, onPick }) {
 
 function darkenHex(hex) {
   try {
-    const r = Math.max(0, parseInt(hex.slice(1,3),16) - 30)
-    const g = Math.max(0, parseInt(hex.slice(3,5),16) - 30)
-    const b = Math.max(0, parseInt(hex.slice(5,7),16) - 30)
-    return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`
+    const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - 30)
+    const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - 30)
+    const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - 30)
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
   } catch { return hex }
 }
 
@@ -133,6 +133,9 @@ export default function SetupPage() {
 
       await supabase.from('profiles').update({ shop_id: shopId }).eq('id', user.id)
       await setSetting('shop_id', shopId)
+      await setSetting('cached_shop', shopData)
+      await setSetting('offline_ready', true)
+
       setShop(shopData)
       applyTheme()
 
@@ -269,10 +272,9 @@ export default function SetupPage() {
                   {THEMES.map((theme) => (
                     <button key={theme.name} type="button"
                       onClick={() => { setSelectedTheme(theme); setCustomPrimary('') }}
-                      className={`relative p-3 rounded-xl border-2 transition-all ${
-                        selectedTheme.name === theme.name && !customPrimary
+                      className={`relative p-3 rounded-xl border-2 transition-all ${selectedTheme.name === theme.name && !customPrimary
                           ? 'border-white/60 scale-105' : 'border-white/10 hover:border-white/30'
-                      }`}
+                        }`}
                       style={{ background: theme.primary + '33' }}
                     >
                       <div className="flex gap-1 mb-2">

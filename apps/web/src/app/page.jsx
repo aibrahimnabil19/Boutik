@@ -10,31 +10,43 @@ export default function RootPage() {
 
   useEffect(() => {
     async function redirect() {
-      // 1. Has the user entered an access code on this device?
       const accessGranted = await getSetting('access_granted')
+      const shopId = await getSetting('shop_id')
+      const offlineReady = await getSetting('offline_ready')
+
       if (!accessGranted) {
         router.replace('/access-code')
         return
       }
 
-      // 2. Is the user logged in?
-      const supabase = getSupabaseClient()
-      const { data: { session } } = await supabase.auth.getSession()
+      let session = null
+
+      try {
+        const supabase = getSupabaseClient()
+        const { data } = await supabase.auth.getSession()
+        session = data?.session || null
+      } catch {
+        session = null
+      }
+
       if (!session) {
+        if (!navigator.onLine && offlineReady && shopId) {
+          router.replace('/dashboard')
+          return
+        }
+
         router.replace('/auth')
         return
       }
 
-      // 3. Does the user have a shop set up?
-      const shopId = await getSetting('shop_id')
       if (!shopId) {
         router.replace('/setup')
         return
       }
 
-      // 4. All good — go to the dashboard
       router.replace('/dashboard')
     }
+
     redirect()
   }, [router])
 

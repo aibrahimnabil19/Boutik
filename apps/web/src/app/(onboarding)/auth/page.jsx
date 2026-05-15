@@ -59,6 +59,7 @@ export default function AuthPage() {
 
         await setSetting('pending_code', null)
         await setSetting('user_id', authData.user.id)
+        await setSetting('offline_ready', true)
 
         toast.success('Compte créé ! Configurez votre boutique.')
         router.push('/setup')
@@ -70,6 +71,7 @@ export default function AuthPage() {
         if (error) throw error
 
         await setSetting('user_id', authData.user.id)
+        await setSetting('offline_ready', true)
 
         const { data: profile } = await supabase
           .from('profiles')
@@ -79,6 +81,7 @@ export default function AuthPage() {
 
         if (profile?.shop_id) {
           await setSetting('shop_id', profile.shop_id)
+          await setSetting('offline_ready', true)
           toast.success('Connexion réussie !')
           router.push('/dashboard')
         } else {
@@ -115,8 +118,8 @@ export default function AuthPage() {
                 key={key}
                 onClick={() => { setMode(key); reset() }}
                 className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${mode === key
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25'
-                    : 'text-slate-400 hover:text-white'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25'
+                  : 'text-slate-400 hover:text-white'
                   }`}
               >
                 <Icon className="w-4 h-4" />
