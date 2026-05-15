@@ -65,3 +65,5 @@ yarn-debug.log*
 Thumbs.db
 .vscode/*
 !.vscode/settings.json
+
+project_dump.txt
