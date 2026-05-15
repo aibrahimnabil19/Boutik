@@ -65,8 +65,8 @@ export default function AchatsPage() {
   function handleProductSelect(e) {
     const prod = products.find(p => p.id === e.target.value)
     setSelectedProduct(prod || null)
+
     if (prod) {
-      setValue('product_name', prod.name)
       setValue('unit_price', prod.purchase_price || '')
       setValue('supplier', prod.supplier || '')
     }
@@ -77,6 +77,15 @@ export default function AchatsPage() {
     const up = Number(data.unit_price)
     const totalAmount = q * up
     const supplier = suppliers.find(s => s.name === data.supplier) || null
+    if (!supplier) {
+      toast.error('Choisissez un fournisseur.')
+      return
+    }
+
+    if (!selectedProduct) {
+      toast.error('Choisissez un produit du catalogue.')
+      return
+    }
 
     const totalPaid = paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
@@ -102,10 +111,10 @@ export default function AchatsPage() {
       shop_id: shop.id,
       date: data.date,
       supplier_id: supplier?.id || null,
-      supplier: data.supplier || '',
-      product_id: selectedProduct?.id || null,
-      product_code: selectedProduct?.code || '',
-      product_name: data.product_name,
+      supplier: supplier.name,
+      product_id: selectedProduct.id,
+      product_code: selectedProduct.code || '',
+      product_name: selectedProduct.name,
       quantity: q,
       unit_price: up,
       total_amount: totalAmount,
@@ -287,8 +296,12 @@ export default function AchatsPage() {
             <FormField label="Date" required>
               <input {...register('date', { required: true })} type="date" className={inputCls} />
             </FormField>
-            <FormField label="Fournisseur">
-              <select {...register('supplier')} className={selectCls}>
+            <FormField label="Fournisseur" required>
+              <select
+                {...register('supplier', { required: true })}
+                className={selectCls}
+                required
+              >
                 <option value="">— Choisir un fournisseur —</option>
                 {suppliers.map((s) => (
                   <option key={s.id} value={s.name}>{s.name}</option>
@@ -297,18 +310,18 @@ export default function AchatsPage() {
             </FormField>
           </div>
 
-          <FormField label="Produit du catalogue" hint="Optionnel — remplit les champs ci-dessous">
-            <select onChange={handleProductSelect} className={selectCls} defaultValue="">
+          <FormField label="Produit du catalogue" required>
+            <select
+              onChange={handleProductSelect}
+              className={selectCls}
+              value={selectedProduct?.id || ''}
+              required
+            >
               <option value="">— Choisir un produit —</option>
               {products.map(p => (
                 <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''}</option>
               ))}
             </select>
-          </FormField>
-
-          <FormField label="Désignation du produit" required>
-            <input {...register('product_name', { required: 'Requis' })}
-              placeholder="Nom exact du produit acheté" className={inputCls} />
           </FormField>
 
           <div className="grid grid-cols-2 gap-4">

@@ -192,11 +192,11 @@ export default function AppLayout({ children }) {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         {/* Logo area */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 min-h-[64px]">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 min-h-[76px]">
           {shop?.logo_url ? (
-            <img src={shop.logo_url} alt="Logo" className="w-8 h-8 rounded-lg object-contain flex-none" />
+            <img src={shop.logo_url} alt="Logo" className="w-12 h-12 rounded-xl object-contain flex-none" />
           ) : (
-            <div className="w-8 h-8 rounded-lg flex-none flex items-center justify-center text-white text-xs font-bold"
+            <div className="w-12 h-12 rounded-xl flex-none flex items-center justify-center text-white text-base font-bold"
               style={{ background: 'var(--color-primary)' }}>
               {(shop?.name || 'B')[0]}
             </div>

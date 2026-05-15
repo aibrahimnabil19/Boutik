@@ -319,7 +319,7 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal }
       <div className="flex justify-between items-start mb-8">
         <div className="flex items-start gap-4">
           {shop?.logo_url && (
-            <img src={shop.logo_url} alt="Logo" className="w-16 h-16 object-contain" />
+            <img src={shop.logo_url} alt="Logo" className="w-24 h-24 object-contain" />
           )}
           <div>
             <h2 className="font-display font-bold text-lg" style={{ color: shop?.color_primary || '#1a56db' }}>

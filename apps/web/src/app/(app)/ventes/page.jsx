@@ -59,8 +59,8 @@ export default function VentesPage() {
   const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
 
   const [cart, setCart] = useState([emptyLine()])
+  const [newLineKey, setNewLineKey] = useState(null)
   const [saleDate, setSaleDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [saleStore, setSaleStore] = useState('')
   const [saleClientId, setSaleClientId] = useState('')
   const [paymentMode, setPaymentMode] = useState('paid')
   const [paidAmount, setPaidAmount] = useState('')
@@ -81,6 +81,16 @@ export default function VentesPage() {
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!newLineKey) return
+
+    const timer = setTimeout(() => {
+      setNewLineKey(null)
+    }, 1800)
+
+    return () => clearTimeout(timer)
+  }, [newLineKey])
 
   // ─── Cart helpers ──────────────────────────────────────────────────────────
   function updateLine(key, field, value) {
@@ -110,7 +120,9 @@ export default function VentesPage() {
   }
 
   function addLine() {
-    setCart(prev => [...prev, emptyLine()])
+    const line = emptyLine()
+    setCart(prev => [...prev, line])
+    setNewLineKey(line._key)
   }
 
   const cartTotals = useMemo(() => cart.reduce((acc, line) => {
@@ -209,7 +221,7 @@ export default function VentesPage() {
           shop_id: shop.id,
           session_id: sessionId,
           date: saleDate,
-          store: saleStore || '',
+          store: '',
           client_id: selectedClient?.id || null,
           client_name: selectedClient?.name || '',
           payment_status: paymentStatus,
@@ -253,7 +265,7 @@ export default function VentesPage() {
       const group = {
         key: sessionId,
         date: saleDate,
-        store: saleStore,
+        store: '',
         client_name: selectedClient?.name || '',
         payment_status: paymentStatus,
         paid_amount: totalPaid,
@@ -271,7 +283,6 @@ export default function VentesPage() {
   function openAdd() {
     setCart([emptyLine()])
     setSaleDate(format(new Date(), 'yyyy-MM-dd'))
-    setSaleStore('')
     setSaleClientId('')
     setPaymentMode('paid')
     setPaidAmount('')
@@ -491,12 +502,15 @@ export default function VentesPage() {
       {/* New Sale Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle vente" maxW="max-w-2xl">
         <form onSubmit={onSubmit} className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <FormField label="Date" required>
-              <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)} className={inputCls} required />
-            </FormField>
-            <FormField label="Magasin / Point de vente">
-              <input value={saleStore} onChange={e => setSaleStore(e.target.value)} placeholder="Ex: Dar es salam" className={inputCls} />
+              <input
+                type="date"
+                value={saleDate}
+                onChange={e => setSaleDate(e.target.value)}
+                className={inputCls}
+                required
+              />
             </FormField>
             <FormField label="Client">
               <select value={saleClientId} onChange={e => setSaleClientId(e.target.value)} className={selectCls}>
@@ -527,9 +541,8 @@ export default function VentesPage() {
           </div>
 
           <div className="border border-gray-100 rounded-xl overflow-hidden">
-            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Articles</span>
-              <Btn size="sm" icon={PlusCircle} onClick={addLine} variant="ghost">Ajouter une ligne</Btn>
             </div>
             <div className="divide-y divide-gray-50">
               {cart.map((line, idx) => {
@@ -541,9 +554,20 @@ export default function VentesPage() {
                 const availStock = prod ? computeStock(prod, purchases, sales) : null
 
                 return (
-                  <div key={line._key} className="p-3 space-y-2">
+                  <div
+                    key={line._key}
+                    className={`p-3 space-y-2 rounded-xl transition-all duration-500 ${line._key === newLineKey
+                      ? 'bg-blue-50 ring-2 ring-blue-200 shadow-sm animate-pulse'
+                      : 'bg-white'
+                      }`}
+                  >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-gray-400">Ligne {idx + 1}</span>
+                      <span className="text-xs font-semibold text-gray-400">
+                        Ligne {idx + 1}
+                        {line._key === newLineKey && (
+                          <span className="ml-2 text-blue-600 font-bold">Nouvelle ligne</span>
+                        )}
+                      </span>
                       <button type="button" onClick={() => removeLine(line._key)} className="text-gray-300 hover:text-red-500 transition-colors">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -601,6 +625,17 @@ export default function VentesPage() {
                   </div>
                 )
               })}
+
+              <div className="p-3 bg-gray-50">
+                <button
+                  type="button"
+                  onClick={addLine}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-blue-300 bg-white px-4 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  Ajouter une ligne
+                </button>
+              </div>
             </div>
           </div>
 
