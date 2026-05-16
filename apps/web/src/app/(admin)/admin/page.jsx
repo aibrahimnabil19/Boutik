@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { Upload, FileSpreadsheet } from 'lucide-react'
+import { parseGestionExcelFile } from '@/lib/import/gestionExcelImport'
 import {
   Users,
   Key,
@@ -24,6 +26,8 @@ import {
   Rocket,
   Send,
   Building2,
+  Upload,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -71,6 +75,11 @@ export default function AdminPage() {
   const [selectedReleaseId, setSelectedReleaseId] = useState('')
   const [selectedShopIds, setSelectedShopIds] = useState([])
   const [sendingUpdate, setSendingUpdate] = useState(false)
+  const [importShopId, setImportShopId] = useState('')
+  const [importMode, setImportMode] = useState('auto')
+  const [importFile, setImportFile] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [importSummary, setImportSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [newCodeLabel, setNewCodeLabel] = useState('')
@@ -365,6 +374,65 @@ export default function AdminPage() {
     )
   }
 
+  async function upsertMany(table, rows) {
+    if (!rows?.length) return
+
+    const { error } = await supabase
+      .from(table)
+      .upsert(rows, { onConflict: 'id' })
+
+    if (error) throw error
+  }
+
+  async function handleExcelImport(e) {
+    e.preventDefault()
+
+    if (!importShopId) {
+      toast.error('Choisissez une boutique.')
+      return
+    }
+
+    if (!importFile) {
+      toast.error('Choisissez un fichier Excel.')
+      return
+    }
+
+    setImporting(true)
+    setImportSummary(null)
+
+    try {
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('id, code, name')
+        .eq('shop_id', importShopId)
+
+      if (productsError) throw productsError
+
+      const parsed = await parseGestionExcelFile(
+        importFile,
+        importShopId,
+        productsData || [],
+        importMode
+      )
+
+      await upsertMany('products', parsed.products)
+      await upsertMany('suppliers', parsed.suppliers)
+      await upsertMany('clients', parsed.clients)
+      await upsertMany('purchases', parsed.purchases)
+      await upsertMany('sales', parsed.sales)
+      await upsertMany('expenses', parsed.expenses)
+      await upsertMany('client_transactions', parsed.client_transactions)
+      await upsertMany('supplier_transactions', parsed.supplier_transactions)
+
+      setImportSummary(parsed.summary)
+      toast.success('Import Excel terminé')
+    } catch (err) {
+      toast.error(err.message || 'Erreur pendant l’import Excel')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   function copyCode(code) {
     navigator.clipboard.writeText(formatCode(code))
     toast.success('Code copié')
@@ -536,6 +604,7 @@ export default function AdminPage() {
               { key: 'users', label: 'Utilisateurs', icon: Users },
               { key: 'shops', label: 'Boutiques', icon: Store },
               { key: 'updates', label: 'Mises à jour', icon: Rocket },
+              { key: 'import', label: 'Import Excel', icon: FileSpreadsheet },
             ]
           ].map(({ key, label, icon: Icon }) => (
             <button
@@ -866,8 +935,8 @@ export default function AdminPage() {
                     <label
                       key={shop.id}
                       className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all ${selectedShopIds.includes(shop.id)
-                          ? 'bg-blue-500/10 border-blue-500/40'
-                          : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        ? 'bg-blue-500/10 border-blue-500/40'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
                         }`}
                     >
                       <input
@@ -895,6 +964,96 @@ export default function AdminPage() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {tab === 'import' && (
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+            <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              Importer anciennes données Excel
+            </h3>
+
+            <p className="text-sm text-slate-400 mb-5">
+              Choisissez une boutique, puis importez un fichier Excel de type Gestion Comptable.
+              Vous pouvez importer le fichier complet ou un fichier contenant seulement une feuille.
+            </p>
+
+            <form onSubmit={handleExcelImport} className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    Boutique cible
+                  </label>
+                  <select
+                    value={importShopId}
+                    onChange={(e) => setImportShopId(e.target.value)}
+                    className="w-full h-10 px-4 bg-slate-900 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  >
+                    <option value="">— Choisir une boutique —</option>
+                    {shops.map(shop => (
+                      <option key={shop.id} value={shop.id}>
+                        {shop.name} {shop.city ? `— ${shop.city}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                    Type de données
+                  </label>
+                  <select
+                    value={importMode}
+                    onChange={(e) => setImportMode(e.target.value)}
+                    className="w-full h-10 px-4 bg-slate-900 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  >
+                    <option value="auto">Auto / fichier complet</option>
+                    <option value="produits">Produits</option>
+                    <option value="achats">Entrées de stock</option>
+                    <option value="ventes">Ventes</option>
+                    <option value="charges">Charges</option>
+                    <option value="creances">Créances clients</option>
+                    <option value="dettes">Dettes fournisseurs</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                  Fichier Excel
+                </label>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-slate-300 file:mr-4 file:rounded-xl file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:text-white file:font-semibold hover:file:bg-blue-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={importing}
+                className="h-11 px-5 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-sm font-semibold disabled:opacity-50 transition-all"
+              >
+                <Upload className="w-4 h-4" />
+                {importing ? 'Import en cours…' : 'Importer dans la boutique'}
+              </button>
+            </form>
+
+            {importSummary && (
+              <div className="mt-5 rounded-xl bg-white/5 border border-white/10 p-4">
+                <h4 className="font-semibold text-white mb-2">Résumé importé</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                  {Object.entries(importSummary).map(([key, value]) => (
+                    <div key={key} className="rounded-lg bg-slate-900/70 p-3">
+                      <p className="text-slate-500 text-xs">{key}</p>
+                      <p className="text-white font-bold">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

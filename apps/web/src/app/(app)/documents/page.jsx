@@ -12,14 +12,14 @@ import {
 const docs = [
   {
     title: 'Facture proforma',
-    description: 'Choisir une vente existante puis générer une proforma.',
-    href: '/ventes?document=proforma',
+    description: 'Créer une proforma ou choisir une vente existante.',
+    href: '/proformas',
     icon: FileText,
   },
   {
     title: 'Facture définitive',
-    description: 'Choisir une vente existante puis générer une facture.',
-    href: '/ventes?document=facture',
+    description: 'Créer une facture ou choisir une vente existante.',
+    href: '/factures',
     icon: Receipt,
   },
   {

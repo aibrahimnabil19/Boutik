@@ -8,23 +8,29 @@ import { Receipt, Plus, Printer, Eye, Trash2, FileCheck, FileClock } from 'lucid
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { localDb, getAll } from '@/lib/db/local'
-import { formatFCFA } from '@/lib/core/calculations'
+import { localDb, getAll, localUpsert } from '@/lib/db/local'
+import { formatFCFA, amountToWordsFCFA } from '@/lib/core/calculations'
+import { v4 as uuid } from 'uuid'
 import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard } from '@/components/ui'
 import FrenchInput from '@/components/FrenchInput'
 
 export default function FacturesPage() {
   const router = useRouter()
-  const shop   = useAppStore(s => s.shop)
-  const [invoices, setInvoices] = useState([])
-  const [search, setSearch]     = useState('')
-  const [confirm, setConfirm]   = useState(null)
-  const [loading, setLoading]   = useState(true)
+  const shop = useAppStore(s => s.shop)
+  const [sales, setSales] = useState([])
+  const [search, setSearch] = useState('')
+  const [confirm, setConfirm] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const inv = await getAll('invoices', shop.id)
+    const [inv, saleRows] = await Promise.all([
+      getAll('invoices', shop.id),
+      getAll('sales', shop.id),
+    ])
+
     setInvoices(inv.filter(i => i.type === 'facture').sort((a, b) => new Date(b.date) - new Date(a.date)))
+    setSales(saleRows.filter(s => !s.cancelled_at).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)))
     setLoading(false)
   }, [shop?.id])
 
@@ -38,6 +44,77 @@ export default function FacturesPage() {
 
   const totalRevenue = useMemo(() => invoices.reduce((a, i) => a + (i.total_amount || 0), 0), [invoices])
 
+  const saleGroups = useMemo(() => {
+    const groups = {}
+
+    for (const s of sales) {
+      const key = s.session_id || s.sale_batch_id || s.id
+
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          date: s.date,
+          created_at: s.created_at,
+          client_name: s.client_name || '',
+          client_phone: s.client_phone || '',
+          items: [],
+        }
+      }
+
+      groups[key].items.push(s)
+    }
+
+    return Object.values(groups).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date))
+  }, [sales])
+
+  async function createFactureFromSale(group) {
+    const now = new Date().toISOString()
+    const invoiceId = uuid()
+    const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
+
+    const invoiceNumber = `FAC-${String(group.date).replaceAll('-', '')}-${String(group.key).slice(0, 4).toUpperCase()}`
+
+    await localUpsert('invoices', {
+      id: invoiceId,
+      shop_id: shop.id,
+      invoice_number: invoiceNumber,
+      type: 'facture',
+      client_name: group.client_name || '',
+      client_phone: group.client_phone || '',
+      client_address: '',
+      date: group.date,
+      city: shop?.city || 'Niamey',
+      total_amount: total,
+      amount_in_words: amountToWordsFCFA(total),
+      status: 'draft',
+      created_at: now,
+      updated_at: now,
+      sync_status: 'pending',
+    })
+
+    for (let i = 0; i < group.items.length; i++) {
+      const item = group.items[i]
+
+      await localUpsert('invoice_items', {
+        id: uuid(),
+        invoice_id: invoiceId,
+        shop_id: shop.id,
+        designation: item.product_name,
+        quantity: Number(item.quantity || 0),
+        unit: 'Pièces',
+        unit_price: Number(item.unit_sale_price || 0),
+        total_price: Number(item.total_sale || 0),
+        sort_order: i,
+        created_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
+    }
+
+    toast.success('Facture créée depuis la vente')
+    await load()
+  }
+
   async function handleDelete(id) {
     await localDb.invoice_items.where('invoice_id').equals(id).delete()
     await localDb.invoices.delete(id)
@@ -49,8 +126,8 @@ export default function FacturesPage() {
     return status === 'finalized'
       ? <Badge color="green">Finalisée</Badge>
       : status === 'cancelled'
-      ? <Badge color="red">Annulée</Badge>
-      : <Badge color="amber">Brouillon</Badge>
+        ? <Badge color="red">Annulée</Badge>
+        : <Badge color="amber">Brouillon</Badge>
   }
 
   return (
@@ -64,7 +141,7 @@ export default function FacturesPage() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Chiffre d'affaires factures" value={formatFCFA(totalRevenue)} color="blue" icon={Receipt} />
         <StatCard label="Finalisées" value={invoices.filter(i => i.status === 'finalized').length} color="green" />
-        <StatCard label="Brouillons"  value={invoices.filter(i => i.status === 'draft').length}     color="amber" />
+        <StatCard label="Brouillons" value={invoices.filter(i => i.status === 'draft').length} color="amber" />
       </div>
 
       <div className="card overflow-hidden">
@@ -86,7 +163,7 @@ export default function FacturesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['N° Facture','Date','Client','Montant','Statut',''].map(h => (
+                  {['N° Facture', 'Date', 'Client', 'Montant', 'Statut', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -127,6 +204,53 @@ export default function FacturesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card overflow-hidden mt-6">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900">Ventes disponibles pour facture</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Choisissez une vente existante pour générer une facture définitive.
+            </p>
+          </div>
+        </div>
+
+        {saleGroups.length === 0 ? (
+          <div className="p-6 text-sm text-gray-400">Aucune vente disponible.</div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {saleGroups.map(group => {
+              const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
+
+              return (
+                <div key={group.key} className="px-5 py-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {group.client_name || 'Client non renseigné'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {format(new Date(group.date), 'dd MMM yyyy', { locale: fr })}
+                      {group.created_at ? ` · ${format(new Date(group.created_at), 'HH:mm', { locale: fr })}` : ''}
+                      {' · '}
+                      {group.items.length} ligne{group.items.length > 1 ? 's' : ''}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {group.items.map(i => i.product_name).filter(Boolean).join(', ')}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="font-bold text-gray-900">{formatFCFA(total)}</p>
+                    <Btn size="sm" icon={Plus} onClick={() => createFactureFromSale(group)} className="mt-2">
+                      Créer facture
+                    </Btn>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
