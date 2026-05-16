@@ -295,7 +295,11 @@ export default function DashboardPage() {
                 <div key={s.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                   <div>
                     <p className="text-sm font-medium text-gray-800 truncate max-w-50">{s.product_name}</p>
-                    <p className="text-xs text-gray-400">{format(new Date(s.date), 'dd MMM', { locale: fr })} · Qté: {s.quantity}</p>
+                    <p className="text-xs text-gray-400">
+                      {format(new Date(s.date), 'dd MMM yyyy', { locale: fr })}
+                      {s.created_at && ` · ${format(new Date(s.created_at), 'HH:mm', { locale: fr })}`}
+                      · Qté: {s.quantity}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-gray-900">{formatFCFA(s.total_sale)}</p>

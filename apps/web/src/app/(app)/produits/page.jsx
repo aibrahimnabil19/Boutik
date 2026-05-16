@@ -88,12 +88,16 @@ export default function ProduitsPage() {
     load()
   }
 
-  const filtered = useMemo(() =>
-    products.filter(p =>
-      p.name?.toLowerCase().includes(search.toLowerCase()) ||
-      p.code?.toLowerCase().includes(search.toLowerCase()) ||
-      p.supplier?.toLowerCase().includes(search.toLowerCase())
-    ), [products, search])
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim()
+
+    return products.filter(p =>
+      p.name?.toLowerCase().includes(q) ||
+      p.code?.toLowerCase().includes(q) ||
+      p.id?.toLowerCase().includes(q) ||
+      p.unit?.toLowerCase().includes(q)
+    )
+  }, [products, search])
 
   const withStock = useMemo(() =>
     filtered.map(p => {
@@ -154,12 +158,6 @@ export default function ProduitsPage() {
 
       {/* Table */}
       <div className="card overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
-          <div className="flex-1 max-w-xs">
-            <SearchBar value={search} onChange={setSearch} placeholder="Rechercher un produit…" />
-          </div>
-        </div>
-
         <div className="flex flex-wrap items-center gap-3 px-5 py-4 border-b border-gray-100">
           <div className="flex-1 min-w-48 max-w-xs">
             <SearchBar value={search} onChange={setSearch} placeholder="Produit, code…" />

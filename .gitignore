@@ -66,11 +66,15 @@ apps/desktop/src-tauri/gen/
 apps/desktop/dist/
 apps/desktop/build/
 
+#Tauri updater private keys
 *.key
 *.key.pub
 .tauri/
 apps/desktop/src-tauri/*.key
 apps/desktop/src-tauri/*.key.pub
+
+# Tauri update signatures/artifacts
+*.sig
 
 # Generated installers / binaries
 *.msi

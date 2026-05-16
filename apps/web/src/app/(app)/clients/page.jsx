@@ -27,6 +27,7 @@ import {
   ConfirmDialog, Btn, StatCard, Badge, inputCls
 } from '@/components/ui'
 import FrenchInput from '@/components/FrenchInput'
+import PhoneInput from '@/components/PhoneInput'
 
 export default function ClientsPage() {
   const shop = useAppStore(s => s.shop)
@@ -628,9 +629,19 @@ export default function ClientsPage() {
           </FormField>
 
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Téléphone">
-              <input {...register('phone')} placeholder="96 87 75 88" className={inputCls} />
-            </FormField>
+            <Controller
+              name="phone"
+              control={control}
+              render={({ field }) => (
+                <PhoneInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  placeholder="99 12 34 56"
+                  className={inputCls}
+                />
+              )}
+            />
             <FormField label="Adresse">
               <input {...register('address')} placeholder="Ex: Niamey" className={inputCls} />
             </FormField>

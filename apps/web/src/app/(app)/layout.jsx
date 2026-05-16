@@ -21,7 +21,7 @@ const NAV = [
 
   { separator: 'Opérations' },
   { label: 'Ventes', href: '/ventes', icon: TrendingUp },
-  { label: 'Achats', href: '/achats', icon: ShoppingCart },
+  { label: 'Entrées de stock', href: '/achats', icon: ShoppingCart },
   { label: 'Dépenses', href: '/depenses', icon: Wallet },
 
   { separator: 'Tiers' },

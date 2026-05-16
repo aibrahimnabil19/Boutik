@@ -12,25 +12,25 @@ import {
 const docs = [
   {
     title: 'Facture proforma',
-    description: 'Créer ou consulter les factures proformas avant validation.',
-    href: '/proformas',
+    description: 'Choisir une vente existante puis générer une proforma.',
+    href: '/ventes?document=proforma',
     icon: FileText,
   },
   {
     title: 'Facture définitive',
-    description: 'Créer ou consulter les factures finales de vente.',
-    href: '/factures',
+    description: 'Choisir une vente existante puis générer une facture.',
+    href: '/ventes?document=facture',
     icon: Receipt,
   },
   {
     title: 'Bon de livraison',
-    description: 'Créer et imprimer les bons de livraison depuis les ventes.',
+    description: 'Choisir une vente existante puis imprimer le bon de livraison.',
     href: '/bons-livraison',
     icon: Truck,
   },
   {
     title: 'Bon de commande',
-    description: 'Créer et imprimer les bons de commande depuis les achats.',
+    description: 'Choisir une entrée de stock existante puis imprimer le bon de commande.',
     href: '/bons-commande',
     icon: ShoppingBag,
   },

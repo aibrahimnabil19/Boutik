@@ -32,6 +32,7 @@ import {
   inputCls,
 } from '@/components/ui'
 import FrenchInput from '@/components/FrenchInput'
+import PhoneInput from '@/components/PhoneInput'
 
 export default function FournisseursPage() {
   const shop = useAppStore(s => s.shop)
@@ -574,11 +575,11 @@ function SupplierModal({
               name="phone"
               control={control}
               render={({ field }) => (
-                <FrenchInput
+                <PhoneInput
                   value={field.value}
                   onChange={field.onChange}
                   onBlur={field.onBlur}
-                  placeholder="96 87 75 88"
+                  placeholder="99 12 34 56"
                   className={inputCls}
                 />
               )}

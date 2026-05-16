@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { ShoppingCart, Plus, Trash2, Printer, FileText, Package } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Printer, FileText, Package, Wallet, } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui'
 import { printPurchaseDocument } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
+import PhoneInput from '@/components/PhoneInput'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // Document types for purchases
@@ -41,10 +42,12 @@ export default function AchatsPage() {
   const [suppliers, setSuppliers] = useState([])
   // Document modal: holds the purchase to print
   const [docModal, setDocModal] = useState(null)
-  const [paymentMode, setPaymentMode] = useState('paid')
+  const [paymentMode, setPaymentMode] = useState('')
   const [paidAmount, setPaidAmount] = useState('')
   const [supplierModal, setSupplierModal] = useState(false)
   const [quickSupplier, setQuickSupplier] = useState({ name: '', phone: '', address: '' })
+  const [paymentModal, setPaymentModal] = useState(null)
+  const [paymentAmount, setPaymentAmount] = useState('')
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -86,6 +89,63 @@ export default function AchatsPage() {
       setValue('unit_price', prod.purchase_price || '')
       setValue('supplier', prod.supplier || '')
     }
+  }
+
+  function openPayment(purchase) {
+    if (!purchase || Number(purchase.remaining_amount || 0) <= 0) return
+    setPaymentModal(purchase)
+    setPaymentAmount('')
+  }
+
+  async function handleCreditPayment(e) {
+    e.preventDefault()
+
+    if (!paymentModal) return
+
+    const amount = Number(paymentAmount || 0)
+    const remaining = Number(paymentModal.remaining_amount || 0)
+
+    if (amount <= 0) {
+      toast.error('Montant invalide.')
+      return
+    }
+
+    if (amount > remaining) {
+      toast.error('Le paiement dépasse le reste à payer.')
+      return
+    }
+
+    const now = new Date().toISOString()
+    const newRemaining = remaining - amount
+    const newPaid = Number(paymentModal.paid_amount || 0) + amount
+
+    await localUpsert('purchases', {
+      ...paymentModal,
+      paid_amount: newPaid,
+      remaining_amount: newRemaining,
+      payment_status: newRemaining <= 0 ? 'paid' : 'credit',
+      updated_at: now,
+      sync_status: 'pending',
+    })
+
+    if (paymentModal.supplier_id) {
+      await localUpsert('supplier_transactions', {
+        id: uuid(),
+        shop_id: shop.id,
+        supplier_id: paymentModal.supplier_id,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        label: `Paiement fournisseur — ${paymentModal.id.slice(0, 8).toUpperCase()}`,
+        amount: -amount,
+        created_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
+    }
+
+    toast.success('Paiement fournisseur enregistré')
+    setPaymentModal(null)
+    setPaymentAmount('')
+    await load()
   }
 
   async function handleQuickSupplierSubmit(e) {
@@ -141,7 +201,7 @@ export default function AchatsPage() {
     const paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
 
     if (paymentStatus === 'credit' && !supplier) {
-      toast.error('Choisissez un fournisseur pour enregistrer un achat à crédit.')
+      toast.error('Choisissez un fournisseur pour enregistrer un Entrée de stock à crédit.')
       return
     }
 
@@ -181,7 +241,7 @@ export default function AchatsPage() {
         shop_id: shop.id,
         supplier_id: supplier.id,
         date: data.date,
-        label: `Achat à crédit — ${record.id.slice(0, 8).toUpperCase()}`,
+        label: `Entrée de stock à crédit — ${record.id.slice(0, 8).toUpperCase()}`,
         amount: remainingAmount,
         created_at: now,
         updated_at: now,
@@ -189,7 +249,12 @@ export default function AchatsPage() {
       })
     }
 
-    toast.success('Achat enregistré')
+    if (!paymentMode) {
+      toast.error('Choisissez le mode de paiement.')
+      return
+    }
+
+    toast.success('Entrée de stock enregistrée')
     setModal(false)
     setDocModal(record)
     load()
@@ -198,7 +263,7 @@ export default function AchatsPage() {
   function openAdd() {
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
     setSelectedProduct(null)
-    setPaymentMode('paid')
+    setPaymentMode('')
     setPaidAmount('')
     setModal(true)
   }
@@ -224,14 +289,13 @@ export default function AchatsPage() {
   return (
     <div className="p-6">
       <PageHeader
-        title="Achats"
+        action={<Btn icon={Plus} onClick={openAdd}>Nouvelle entrée</Btn>}
         subtitle={`${purchases.length} achat${purchases.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={openAdd}>Nouvel achat</Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Total dépensé" value={formatFCFA(totalSpent)} color="purple" icon={ShoppingCart} />
-        <StatCard label="Nombre d'achats" value={purchases.length} color="blue" />
+        <StatCard label="Nombre d'entrées" value={purchases.length} color="blue" />
         <StatCard label="Fournisseurs distincts"
           value={new Set(purchases.map(p => p.supplier).filter(Boolean)).size} color="amber" />
       </div>
@@ -269,6 +333,11 @@ export default function AchatsPage() {
                   >
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(p.date), 'dd MMM yy', { locale: fr })}
+                      {p.created_at && (
+                        <span className="block text-[11px] text-gray-400">
+                          {format(new Date(p.created_at), 'HH:mm', { locale: fr })}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-800">{p.supplier || '—'}</td>
                     <td className="px-4 py-3">
@@ -285,6 +354,19 @@ export default function AchatsPage() {
                           title="Imprimer document">
                           <Printer className="w-3.5 h-3.5" />
                         </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openPayment(p)
+                          }}
+                          disabled={Number(p.remaining_amount || 0) <= 0}
+                          className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Payer le crédit"
+                        >
+                          <Wallet className="w-3.5 h-3.5" />
+                        </button>
+
                         <button onClick={() => setConfirm(p.id)}
                           className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
                           <Trash2 className="w-3.5 h-3.5" />
@@ -330,7 +412,7 @@ export default function AchatsPage() {
         </div>
       </Modal>
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nouvel achat" maxW="max-w-lg">
+      <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle entrée de stock" maxW="max-w-lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Date" required>
@@ -443,10 +525,16 @@ export default function AchatsPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Paiement">
-              <select value={paymentMode} onChange={e => setPaymentMode(e.target.value)} className={selectCls}>
+            <FormField label="Paiement" required>
+              <select
+                value={paymentMode}
+                onChange={e => setPaymentMode(e.target.value)}
+                className={selectCls}
+                required
+              >
+                <option value="">— Choisir le mode de paiement —</option>
                 <option value="paid">Payé comptant</option>
-                <option value="credit">Achat à crédit</option>
+                <option value="credit">Entrée de stock à crédit</option>
               </select>
             </FormField>
 
@@ -506,10 +594,10 @@ export default function AchatsPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Téléphone">
-              <FrenchInput
+              <PhoneInput
                 value={quickSupplier.phone}
                 onChange={value => setQuickSupplier(prev => ({ ...prev, phone: value }))}
-                placeholder="96 87 75 88"
+                placeholder="99 12 34 56"
                 className={inputCls}
               />
             </FormField>
@@ -533,6 +621,43 @@ export default function AchatsPage() {
             </Btn>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={!!paymentModal}
+        onClose={() => setPaymentModal(null)}
+        title="Paiement fournisseur"
+        maxW="max-w-md"
+      >
+        {paymentModal && (
+          <form onSubmit={handleCreditPayment} className="space-y-4">
+            <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
+              <p className="text-xs text-amber-600">Total entrée de stock</p>
+              <p className="font-bold text-gray-900">{formatFCFA(paymentModal.total_amount)}</p>
+
+              <p className="text-xs text-amber-600 mt-2">Déjà payé</p>
+              <p className="font-bold text-gray-900">{formatFCFA(paymentModal.paid_amount)}</p>
+
+              <p className="text-xs text-amber-600 mt-2">Reste à payer</p>
+              <p className="font-bold text-amber-700">{formatFCFA(paymentModal.remaining_amount)}</p>
+            </div>
+
+            <FormField label="Montant payé maintenant" required>
+              <FrenchInput
+                value={paymentAmount}
+                onChange={setPaymentAmount}
+                placeholder="0"
+                required
+                className={inputCls}
+              />
+            </FormField>
+
+            <div className="flex gap-3 justify-end">
+              <Btn variant="secondary" onClick={() => setPaymentModal(null)}>Annuler</Btn>
+              <Btn type="submit">Enregistrer paiement</Btn>
+            </div>
+          </form>
+        )}
       </Modal>
 
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
