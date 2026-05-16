@@ -17,6 +17,7 @@ import FrenchInput from '@/components/FrenchInput'
 export default function FacturesPage() {
   const router = useRouter()
   const shop = useAppStore(s => s.shop)
+  const [invoices, setInvoices] = useState([])
   const [sales, setSales] = useState([])
   const [search, setSearch] = useState('')
   const [confirm, setConfirm] = useState(null)

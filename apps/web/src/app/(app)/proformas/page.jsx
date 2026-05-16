@@ -28,7 +28,7 @@ export default function ProformasPage() {
       getAll('sales', shop.id),
     ])
 
-    setInvoices(inv.filter(i => i.type === 'facture').sort((a, b) => new Date(b.date) - new Date(a.date)))
+    setInvoices(inv.filter(i => i.type === 'proforma').sort((a, b) => new Date(b.date) - new Date(a.date)))
     setSales(saleRows.filter(s => !s.cancelled_at).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date)))
     setLoading(false)
   }, [shop?.id])
