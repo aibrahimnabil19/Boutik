@@ -14,6 +14,7 @@ import {
   FileText, Users, Truck, PieChart, Wallet,
   Settings, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
 } from 'lucide-react'
+import AppUpdatePrompt from '@/components/AppUpdatePrompt'
 
 const NAV = [
   { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
@@ -302,6 +303,8 @@ export default function AppLayout({ children }) {
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>
+
+        <AppUpdatePrompt />
       </div>
     </div>
   )

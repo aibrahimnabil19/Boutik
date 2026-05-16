@@ -66,6 +66,12 @@ apps/desktop/src-tauri/gen/
 apps/desktop/dist/
 apps/desktop/build/
 
+*.key
+*.key.pub
+.tauri/
+apps/desktop/src-tauri/*.key
+apps/desktop/src-tauri/*.key.pub
+
 # Generated installers / binaries
 *.msi
 *.msix
@@ -102,3 +108,8 @@ supabase/.temp/
 .vscode/*
 !.vscode/settings.json
 .idea/
+
+# Xcode local files
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/

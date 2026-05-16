@@ -46,5 +46,16 @@
         "language": "fr-FR"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://YOUR_UPDATE_ENDPOINT/latest.json"
+      ],
+      "pubkey": "PASTE_YOUR_TAURI_PUBLIC_KEY_HERE",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

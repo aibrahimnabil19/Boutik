@@ -20,6 +20,10 @@ import {
   Loader2,
   Lock,
   User,
+  Store,
+  Rocket,
+  Send,
+  Building2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -54,6 +58,19 @@ export default function AdminPage() {
   const [tab, setTab] = useState('codes')
   const [codes, setCodes] = useState([])
   const [users, setUsers] = useState([])
+  const [shops, setShops] = useState([])
+  const [releases, setReleases] = useState([])
+  const [releaseForm, setReleaseForm] = useState({
+    version: '',
+    title: '',
+    notes: '',
+    download_url: '',
+    updater_url: '',
+    mandatory: false,
+  })
+  const [selectedReleaseId, setSelectedReleaseId] = useState('')
+  const [selectedShopIds, setSelectedShopIds] = useState([])
+  const [sendingUpdate, setSendingUpdate] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [newCodeLabel, setNewCodeLabel] = useState('')
@@ -63,25 +80,43 @@ export default function AdminPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [codesRes, usersRes] = await Promise.all([
+      const [codesRes, usersRes, shopsRes, releasesRes] = await Promise.all([
         supabase
           .from('access_codes')
           .select('*, creator:created_by(email), user:used_by(email)')
           .order('created_at', { ascending: false }),
+
         supabase
           .from('profiles')
           .select('*, shop:shop_id(name, city, color_primary)')
+          .order('created_at', { ascending: false }),
+
+        supabase
+          .from('shops')
+          .select('*')
+          .order('created_at', { ascending: false }),
+
+        supabase
+          .from('app_releases')
+          .select('*')
           .order('created_at', { ascending: false }),
       ])
 
       if (codesRes.error) throw codesRes.error
       if (usersRes.error) throw usersRes.error
+      if (shopsRes.error) throw shopsRes.error
+      if (releasesRes.error) throw releasesRes.error
 
       const codesData = codesRes.data || []
       const usersData = usersRes.data || []
+      const shopsData = shopsRes.data || []
+      const releasesData = releasesRes.data || []
 
       setCodes(codesData)
       setUsers(usersData)
+      setShops(shopsData)
+      setReleases(releasesData)
+
       setStats({
         total: usersData.length,
         active: usersData.filter((u) => u.shop_id).length,
@@ -221,6 +256,113 @@ export default function AdminPage() {
     } catch (err) {
       toast.error(err.message || 'Erreur lors de la suppression')
     }
+  }
+
+  async function handleDeleteShop(shopId) {
+    const shop = shops.find(s => s.id === shopId)
+
+    const ok = confirm(
+      `Supprimer la boutique "${shop?.name || shopId}" ?\n\nAttention: cela peut supprimer ses données liées.`
+    )
+
+    if (!ok) return
+
+    try {
+      const { error } = await supabase.rpc('admin_delete_shop', {
+        p_shop_id: shopId,
+      })
+
+      if (error) throw error
+
+      toast.success('Boutique supprimée')
+      await fetchData()
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de la suppression de la boutique')
+    }
+  }
+
+  async function handleCreateRelease(e) {
+    e.preventDefault()
+
+    if (!releaseForm.version.trim() || !releaseForm.title.trim()) {
+      toast.error('Version et titre requis.')
+      return
+    }
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      const { error } = await supabase.from('app_releases').insert({
+        version: releaseForm.version.trim(),
+        title: releaseForm.title.trim(),
+        notes: releaseForm.notes.trim() || null,
+        download_url: releaseForm.download_url.trim() || null,
+        updater_url: releaseForm.updater_url.trim() || null,
+        mandatory: releaseForm.mandatory,
+        created_by: user?.id || null,
+      })
+
+      if (error) throw error
+
+      toast.success('Mise à jour créée')
+      setReleaseForm({
+        version: '',
+        title: '',
+        notes: '',
+        download_url: '',
+        updater_url: '',
+        mandatory: false,
+      })
+      await fetchData()
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de la création')
+    }
+  }
+
+  async function handleSendUpdate() {
+    if (!selectedReleaseId) {
+      toast.error('Choisissez une mise à jour.')
+      return
+    }
+
+    if (!selectedShopIds.length) {
+      toast.error('Choisissez au moins une boutique.')
+      return
+    }
+
+    setSendingUpdate(true)
+
+    try {
+      const rows = selectedShopIds.map(shopId => ({
+        release_id: selectedReleaseId,
+        shop_id: shopId,
+        status: 'pending',
+      }))
+
+      const { error } = await supabase
+        .from('app_update_targets')
+        .upsert(rows, { onConflict: 'release_id,shop_id' })
+
+      if (error) throw error
+
+      toast.success('Notification de mise à jour envoyée')
+      setSelectedShopIds([])
+      await fetchData()
+    } catch (err) {
+      toast.error(err.message || 'Envoi impossible')
+    } finally {
+      setSendingUpdate(false)
+    }
+  }
+
+  function toggleShopSelection(shopId) {
+    setSelectedShopIds(prev =>
+      prev.includes(shopId)
+        ? prev.filter(id => id !== shopId)
+        : [...prev, shopId]
+    )
   }
 
   function copyCode(code) {
@@ -366,18 +508,18 @@ export default function AdminPage() {
             <div key={label} className="bg-white/5 border border-white/10 rounded-2xl p-5">
               <div
                 className={`w-8 h-8 rounded-lg mb-3 flex items-center justify-center ${color === 'blue'
-                    ? 'bg-blue-500/20'
-                    : color === 'green'
-                      ? 'bg-emerald-500/20'
-                      : 'bg-amber-500/20'
+                  ? 'bg-blue-500/20'
+                  : color === 'green'
+                    ? 'bg-emerald-500/20'
+                    : 'bg-amber-500/20'
                   }`}
               >
                 <Icon
                   className={`w-4 h-4 ${color === 'blue'
-                      ? 'text-blue-400'
-                      : color === 'green'
-                        ? 'text-emerald-400'
-                        : 'text-amber-400'
+                    ? 'text-blue-400'
+                    : color === 'green'
+                      ? 'text-emerald-400'
+                      : 'text-amber-400'
                     }`}
                 />
               </div>
@@ -389,8 +531,12 @@ export default function AdminPage() {
 
         <div className="flex gap-1 bg-white/5 border border-white/10 rounded-xl p-1 mb-6 w-fit">
           {[
-            { key: 'codes', label: "Codes d'accès", icon: Key },
-            { key: 'users', label: 'Utilisateurs', icon: Users },
+            [
+              { key: 'codes', label: "Codes d'accès", icon: Key },
+              { key: 'users', label: 'Utilisateurs', icon: Users },
+              { key: 'shops', label: 'Boutiques', icon: Store },
+              { key: 'updates', label: 'Mises à jour', icon: Rocket },
+            ]
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -556,8 +702,8 @@ export default function AdminPage() {
                     <div className="flex-none">
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin'
-                            ? 'bg-blue-500/20 text-blue-400'
-                            : 'bg-white/5 text-slate-500'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-white/5 text-slate-500'
                           }`}
                       >
                         {u.role}
@@ -567,6 +713,188 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'shops' && (
+          <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/10">
+              <h3 className="font-semibold text-sm">Boutiques ({shops.length})</h3>
+            </div>
+
+            {loading ? (
+              <div className="p-8 text-center text-slate-500 text-sm">Chargement…</div>
+            ) : shops.length === 0 ? (
+              <div className="p-8 text-center text-slate-600 text-sm">Aucune boutique</div>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {shops.map((shop) => {
+                  const shopUsers = users.filter(u => u.shop_id === shop.id)
+
+                  return (
+                    <div key={shop.id} className="px-5 py-4 flex items-start gap-4">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-none"
+                        style={{ background: shop.color_primary || '#2563eb' }}
+                      >
+                        {(shop.name || '?')[0].toUpperCase()}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-white">{shop.name || 'Sans nom'}</p>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
+                            {shopUsers.length} utilisateur{shopUsers.length > 1 ? 's' : ''}
+                          </span>
+                        </div>
+
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {shop.city || 'Ville non renseignée'} {shop.address ? `· ${shop.address}` : ''}
+                        </p>
+
+                        <p className="text-[11px] text-slate-600 mt-1 font-mono">
+                          ID: {shop.id}
+                        </p>
+
+                        {shopUsers.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {shopUsers.map(u => (
+                              <span key={u.id} className="text-xs px-2 py-1 rounded-lg bg-white/5 text-slate-400">
+                                {u.full_name || u.email}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteShop(shop.id)}
+                        className="p-2 rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-colors"
+                        title="Supprimer la boutique"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'updates' && (
+          <div className="space-y-5">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+              <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+                <Rocket className="w-4 h-4 text-blue-400" />
+                Créer une mise à jour
+              </h3>
+
+              <form onSubmit={handleCreateRelease} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    value={releaseForm.version}
+                    onChange={(e) => setReleaseForm(prev => ({ ...prev, version: e.target.value }))}
+                    placeholder="Version ex: 0.1.1"
+                    className="h-10 px-4 bg-white/10 border border-white/15 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  />
+
+                  <input
+                    value={releaseForm.title}
+                    onChange={(e) => setReleaseForm(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Titre ex: Nouvelle version disponible"
+                    className="h-10 px-4 bg-white/10 border border-white/15 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                  />
+                </div>
+
+                <textarea
+                  value={releaseForm.notes}
+                  onChange={(e) => setReleaseForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Notes de version"
+                  rows={3}
+                  className="w-full px-4 py-3 bg-white/10 border border-white/15 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+
+                <input
+                  value={releaseForm.download_url}
+                  onChange={(e) => setReleaseForm(prev => ({ ...prev, download_url: e.target.value }))}
+                  placeholder="Lien de téléchargement manuel optionnel"
+                  className="w-full h-10 px-4 bg-white/10 border border-white/15 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+
+                <label className="flex items-center gap-2 text-sm text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={releaseForm.mandatory}
+                    onChange={(e) => setReleaseForm(prev => ({ ...prev, mandatory: e.target.checked }))}
+                  />
+                  Mise à jour obligatoire
+                </label>
+
+                <button
+                  type="submit"
+                  className="h-10 px-5 flex items-center gap-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-semibold transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  Créer
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+              <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+                <Send className="w-4 h-4 text-emerald-400" />
+                Envoyer une mise à jour aux boutiques
+              </h3>
+
+              <div className="space-y-4">
+                <select
+                  value={selectedReleaseId}
+                  onChange={(e) => setSelectedReleaseId(e.target.value)}
+                  className="w-full h-10 px-4 bg-slate-900 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                >
+                  <option value="">— Choisir une mise à jour —</option>
+                  {releases.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.version} — {r.title}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {shops.map(shop => (
+                    <label
+                      key={shop.id}
+                      className={`flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all ${selectedShopIds.includes(shop.id)
+                          ? 'bg-blue-500/10 border-blue-500/40'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedShopIds.includes(shop.id)}
+                        onChange={() => toggleShopSelection(shop.id)}
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-white">{shop.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {users.filter(u => u.shop_id === shop.id).length} utilisateur(s)
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleSendUpdate}
+                  disabled={sendingUpdate}
+                  className="h-11 px-5 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-sm font-semibold disabled:opacity-50 transition-all"
+                >
+                  <Send className="w-4 h-4" />
+                  {sendingUpdate ? 'Envoi…' : 'Envoyer aux boutiques sélectionnées'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
