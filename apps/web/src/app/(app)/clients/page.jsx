@@ -43,8 +43,13 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true)
   const submittingRef = useRef(false)
 
-  const { register, handleSubmit, reset } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd') }
+  const { register, handleSubmit, reset, control } = useForm({
+    defaultValues: {
+      name: '',
+      phone: '',
+      address: '',
+      date: format(new Date(), 'yyyy-MM-dd'),
+    },
   })
 
   const {
