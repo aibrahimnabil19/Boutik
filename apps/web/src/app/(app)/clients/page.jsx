@@ -634,21 +634,28 @@ export default function ClientsPage() {
           </FormField>
 
           <div className="grid grid-cols-2 gap-4">
-            <Controller
-              name="phone"
-              control={control}
-              render={({ field }) => (
-                <PhoneInput
-                  value={field.value}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                  placeholder="99 12 34 56"
-                  className={inputCls}
-                />
-              )}
-            />
+            <FormField label="Téléphone">
+              <Controller
+                name="phone"
+                control={control}
+                render={({ field }) => (
+                  <PhoneInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="99 12 34 56"
+                    className={inputCls}
+                  />
+                )}
+              />
+            </FormField>
+
             <FormField label="Adresse">
-              <input {...register('address')} placeholder="Ex: Niamey" className={inputCls} />
+              <input
+                {...register('address')}
+                placeholder="Ex: Niamey"
+                className={inputCls}
+              />
             </FormField>
           </div>
 

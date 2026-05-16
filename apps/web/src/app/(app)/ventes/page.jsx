@@ -28,78 +28,6 @@ function computeStock(product, purchases, sales) {
   return Number(product.stock_initial || 0) + bought - sold
 }
 
-function openPayment(group) {
-  if (!group || Number(group.remaining_amount || 0) <= 0) return
-  setPaymentModal(group)
-  setPaymentAmount('')
-}
-
-async function handleCreditPayment(e) {
-  e.preventDefault()
-
-  if (!paymentModal) return
-
-  const amount = Number(paymentAmount || 0)
-  const remaining = Number(paymentModal.remaining_amount || 0)
-
-  if (amount <= 0) {
-    toast.error('Montant invalide.')
-    return
-  }
-
-  if (amount > remaining) {
-    toast.error('Le paiement dépasse le reste à payer.')
-    return
-  }
-
-  const now = new Date().toISOString()
-  const groupItems = paymentModal.items || []
-  const clientId = groupItems[0]?.client_id
-
-  if (!clientId) {
-    toast.error('Client introuvable pour cette vente à crédit.')
-    return
-  }
-
-  let leftToApply = amount
-
-  for (const item of groupItems) {
-    const itemRemaining = Number(item.remaining_amount || 0)
-    if (itemRemaining <= 0) continue
-
-    const applied = Math.min(leftToApply, itemRemaining)
-    leftToApply -= applied
-
-    await localUpsert('sales', {
-      ...item,
-      paid_amount: Number(item.paid_amount || 0) + applied,
-      remaining_amount: itemRemaining - applied,
-      payment_status: itemRemaining - applied <= 0 ? 'paid' : 'credit',
-      updated_at: now,
-      sync_status: 'pending',
-    })
-
-    if (leftToApply <= 0) break
-  }
-
-  await localUpsert('client_transactions', {
-    id: uuid(),
-    shop_id: shop.id,
-    client_id: clientId,
-    date: format(new Date(), 'yyyy-MM-dd'),
-    label: `Paiement vente — ${paymentModal.key.slice(0, 8).toUpperCase()}`,
-    amount: -amount,
-    created_at: now,
-    updated_at: now,
-    sync_status: 'pending',
-  })
-
-  toast.success('Paiement enregistré')
-  setPaymentModal(null)
-  setPaymentAmount('')
-  await load()
-}
-
 const emptyLine = () => ({
   _key: uuid(),
   product_id: '',
@@ -157,6 +85,117 @@ export default function VentesPage() {
     setClients(c)
     setLoading(false)
   }, [shop?.id])
+
+  function openPayment(group) {
+  if (!group || Number(group.remaining_amount || 0) <= 0) {
+    toast.error('Cette vente est déjà entièrement payée.')
+    return
+  }
+
+  setPaymentModal(group)
+  setPaymentAmount('')
+}
+
+async function handleCreditPayment(e) {
+  e.preventDefault()
+
+  if (!paymentModal) return
+
+  const amount = Number(paymentAmount || 0)
+  const remaining = Number(paymentModal.remaining_amount || 0)
+
+  if (amount <= 0) {
+    toast.error('Montant invalide.')
+    return
+  }
+
+  if (amount > remaining) {
+    toast.error('Le paiement dépasse le reste à payer.')
+    return
+  }
+
+  const now = new Date().toISOString()
+  const groupItems = paymentModal.items || []
+
+  if (!groupItems.length) {
+    toast.error('Aucune ligne de vente trouvée.')
+    return
+  }
+
+  const firstItem = groupItems[0]
+  let clientId = firstItem.client_id || null
+
+  // Fallback for old sales that have client_name but no client_id
+  if (!clientId && firstItem.client_name) {
+    const existingClient = clients.find(
+      c => String(c.name || '').trim().toLowerCase() === String(firstItem.client_name || '').trim().toLowerCase()
+    )
+
+    if (existingClient) {
+      clientId = existingClient.id
+    } else {
+      const newClient = {
+        id: uuid(),
+        shop_id: shop.id,
+        name: firstItem.client_name,
+        phone: firstItem.client_phone || '',
+        address: '',
+        created_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      }
+
+      await localUpsert('clients', newClient)
+      clientId = newClient.id
+    }
+  }
+
+  if (!clientId) {
+    toast.error('Client introuvable pour cette vente à crédit.')
+    return
+  }
+
+  let leftToApply = amount
+
+  for (const item of groupItems) {
+    const itemRemaining = Number(item.remaining_amount || 0)
+    if (itemRemaining <= 0) continue
+
+    const applied = Math.min(leftToApply, itemRemaining)
+    const newRemaining = Math.max(0, itemRemaining - applied)
+
+    leftToApply -= applied
+
+    await localUpsert('sales', {
+      ...item,
+      client_id: item.client_id || clientId,
+      paid_amount: Number(item.paid_amount || 0) + applied,
+      remaining_amount: newRemaining,
+      payment_status: newRemaining <= 0 ? 'paid' : 'credit',
+      updated_at: now,
+      sync_status: 'pending',
+    })
+
+    if (leftToApply <= 0) break
+  }
+
+  await localUpsert('client_transactions', {
+    id: uuid(),
+    shop_id: shop.id,
+    client_id: clientId,
+    date: format(new Date(), 'yyyy-MM-dd'),
+    label: `Paiement vente — ${String(paymentModal.key).slice(0, 8).toUpperCase()}`,
+    amount: -amount,
+    created_at: now,
+    updated_at: now,
+    sync_status: 'pending',
+  })
+
+  toast.success('Paiement enregistré')
+  setPaymentModal(null)
+  setPaymentAmount('')
+  await load()
+}
 
   useEffect(() => { load() }, [load])
 

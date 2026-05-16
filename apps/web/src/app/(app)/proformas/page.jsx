@@ -81,7 +81,7 @@ export default function ProformasPage() {
     return Object.values(groups).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date))
   }, [sales])
 
-  async function createFactureFromSale(group) {
+  async function createProformaFromSale(group) {
     const now = new Date().toISOString()
     const invoiceId = uuid()
     const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
@@ -125,8 +125,8 @@ export default function ProformasPage() {
       })
     }
 
-    toast.success('Facture créée depuis la vente')
-    await load()
+    toast.success('Proforma créé depuis la vente')
+    router.push(`/proformas/nouvelle?id=${invoiceId}`)
   }
 
   async function handleConvertToSale(inv) {
@@ -230,9 +230,17 @@ export default function ProformasPage() {
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{inv.client_name || '—'}</td>
                     <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(inv.total_amount)}</td>
-                    {inv.status === 'converted' && (
-                      <td className="px-4 py-3"><Badge color="green">Converti</Badge></td>
-                    )}
+                    <td className="px-4 py-3">
+                      {inv.status === 'converted' ? (
+                        <Badge color="green">Converti</Badge>
+                      ) : inv.status === 'finalized' ? (
+                        <Badge color="green">Finalisé</Badge>
+                      ) : inv.status === 'cancelled' ? (
+                        <Badge color="red">Annulé</Badge>
+                      ) : (
+                        <Badge color="amber">Brouillon</Badge>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-end">
                         {inv.status !== 'converted' && (
@@ -263,51 +271,51 @@ export default function ProformasPage() {
       </div>
 
       <div className="card overflow-hidden mt-6">
-  <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-    <div>
-      <h3 className="font-semibold text-gray-900">Ventes disponibles pour proforma</h3>
-      <p className="text-xs text-gray-400 mt-0.5">
-        Choisissez une vente existante pour générer une facture définitive.
-      </p>
-    </div>
-  </div>
-
-  {saleGroups.length === 0 ? (
-    <div className="p-6 text-sm text-gray-400">Aucune vente disponible.</div>
-  ) : (
-    <div className="divide-y divide-gray-50">
-      {saleGroups.map(group => {
-        const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
-
-        return (
-          <div key={group.key} className="px-5 py-4 flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium text-gray-900">
-                {group.client_name || 'Client non renseigné'}
-              </p>
-              <p className="text-xs text-gray-400">
-                {format(new Date(group.date), 'dd MMM yyyy', { locale: fr })}
-                {group.created_at ? ` · ${format(new Date(group.created_at), 'HH:mm', { locale: fr })}` : ''}
-                {' · '}
-                {group.items.length} ligne{group.items.length > 1 ? 's' : ''}
-              </p>
-              <p className="text-sm text-gray-500 mt-1">
-                {group.items.map(i => i.product_name).filter(Boolean).join(', ')}
-              </p>
-            </div>
-
-            <div className="text-right">
-              <p className="font-bold text-gray-900">{formatFCFA(total)}</p>
-              <Btn size="sm" icon={Plus} onClick={() => createFactureFromSale(group)} className="mt-2">
-                Créer proforma
-              </Btn>
-            </div>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900">Ventes disponibles pour proforma</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Choisissez une vente existante pour générer une facture définitive.
+            </p>
           </div>
-        )
-      })}
-    </div>
-  )}
-</div>
+        </div>
+
+        {saleGroups.length === 0 ? (
+          <div className="p-6 text-sm text-gray-400">Aucune vente disponible.</div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {saleGroups.map(group => {
+              const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
+
+              return (
+                <div key={group.key} className="px-5 py-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {group.client_name || 'Client non renseigné'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {format(new Date(group.date), 'dd MMM yyyy', { locale: fr })}
+                      {group.created_at ? ` · ${format(new Date(group.created_at), 'HH:mm', { locale: fr })}` : ''}
+                      {' · '}
+                      {group.items.length} ligne{group.items.length > 1 ? 's' : ''}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {group.items.map(i => i.product_name).filter(Boolean).join(', ')}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="font-bold text-gray-900">{formatFCFA(total)}</p>
+                    <Btn size="sm" icon={Plus} onClick={() => createProformaFromSale(group)} className="mt-2">
+                      Créer proforma
+                    </Btn>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
         onConfirm={() => handleDelete(confirm)}

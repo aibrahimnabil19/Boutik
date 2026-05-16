@@ -113,7 +113,7 @@ export default function FacturesPage() {
     }
 
     toast.success('Facture créée depuis la vente')
-    await load()
+    router.push(`/factures/nouvelle?id=${invoiceId}`)
   }
 
   async function handleDelete(id) {

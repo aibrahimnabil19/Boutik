@@ -179,7 +179,12 @@ export default function AchatsPage() {
   }
 
   async function onSubmit(data) {
-    const q = Number(data.quantity)
+  if (!paymentMode) {
+    toast.error('Choisissez le mode de paiement.')
+    return
+  }
+
+  const q = Number(data.quantity)
     const up = Number(data.unit_price)
     const totalAmount = q * up
     const supplier = suppliers.find(s => s.name === data.supplier) || null
@@ -247,11 +252,6 @@ export default function AchatsPage() {
         updated_at: now,
         sync_status: 'pending',
       })
-    }
-
-    if (!paymentMode) {
-      toast.error('Choisissez le mode de paiement.')
-      return
     }
 
     toast.success('Entrée de stock enregistrée')

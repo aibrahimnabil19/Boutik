@@ -598,13 +598,11 @@ export default function AdminPage() {
 
         <div className="flex gap-1 bg-white/5 border border-white/10 rounded-xl p-1 mb-6 w-fit">
           {[
-            [
-              { key: 'codes', label: "Codes d'accès", icon: Key },
-              { key: 'users', label: 'Utilisateurs', icon: Users },
-              { key: 'shops', label: 'Boutiques', icon: Store },
-              { key: 'updates', label: 'Mises à jour', icon: Rocket },
-              { key: 'import', label: 'Import Excel', icon: FileSpreadsheet },
-            ]
+            { key: 'codes', label: "Codes d'accès", icon: Key },
+            { key: 'users', label: 'Utilisateurs', icon: Users },
+            { key: 'shops', label: 'Boutiques', icon: Store },
+            { key: 'updates', label: 'Mises à jour', icon: Rocket },
+            { key: 'import', label: 'Import Excel', icon: FileSpreadsheet },
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
