@@ -23,8 +23,24 @@ export default function AuthPage() {
     try {
       if (mode === 'signup') {
         const pendingCode = await getSetting('pending_code')
+
         if (!pendingCode) {
           toast.error("Code d'accès manquant. Retournez à l'étape précédente.")
+          router.push('/access-code')
+          return
+        }
+
+        // Claim/delete the code BEFORE creating the user.
+        // If this fails, do not create the account.
+        const { data: claimed, error: claimError } = await supabase.rpc('claim_access_code', {
+          p_code: pendingCode,
+        })
+
+        if (claimError) throw claimError
+
+        if (!claimed) {
+          await setSetting('pending_code', null)
+          toast.error('Ce code a déjà été utilisé et ne peut plus être utilisé de nouveau.')
           router.push('/access-code')
           return
         }
@@ -32,30 +48,12 @@ export default function AuthPage() {
         const { data: authData, error } = await supabase.auth.signUp({
           email: data.email.trim().toLowerCase(),
           password: data.password,
-          options: { data: { full_name: data.full_name?.trim() || '' } },
+          options: {
+            data: { full_name: data.full_name?.trim() || '' },
+          },
         })
+
         if (error) throw error
-
-        const now = new Date().toISOString()
-
-        const { data: claimedCode, error: claimError } = await supabase
-          .from('access_codes')
-          .update({
-            used_by: authData.user.id,
-            used_at: now,
-          })
-          .eq('code', pendingCode)
-          .is('used_by', null)
-          .select('id, code')
-          .maybeSingle()
-
-        if (claimError) throw claimError
-
-        if (!claimedCode) {
-          await supabase.auth.signOut()
-          toast.error('Ce code a déjà été utilisé et ne peut plus être utilisé de nouveau.')
-          return
-        }
 
         await setSetting('pending_code', null)
         await setSetting('user_id', authData.user.id)

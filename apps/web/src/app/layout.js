@@ -1,5 +1,6 @@
 import { Toaster } from "sonner";
 import "./globals.css";
+import DesktopDownloadBanner from '@/components/DesktopDownloadBanner'
 
 export const metadata = {
   title: "BM Suite",
@@ -26,6 +27,7 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="antialiased bg-gray-50 text-gray-900">
+        <DesktopDownloadBanner />
         {children}
         <Toaster richColors position="top-right" />
       </body>

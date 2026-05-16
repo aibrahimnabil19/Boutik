@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [authLoading, setAuthLoading] = useState(true)
   const [loginLoading, setLoginLoading] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [currentAdminId, setCurrentAdminId] = useState(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
@@ -128,7 +129,7 @@ export default function AdminPage() {
       setStats({
         total: usersData.length,
         active: usersData.filter((u) => u.shop_id).length,
-        codes_available: codesData.filter((c) => !c.used_by).length,
+        codes_available: codesData.length,
       })
     } catch (err) {
       toast.error(err.message || 'Erreur de chargement')
@@ -149,6 +150,8 @@ export default function AdminPage() {
           setIsAdmin(false)
           return
         }
+
+        setCurrentAdminId(user.id)
 
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
@@ -196,6 +199,8 @@ export default function AdminPage() {
       if (!user) {
         throw new Error('Connexion échouée')
       }
+
+      setCurrentAdminId(user.id)
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
@@ -288,6 +293,34 @@ export default function AdminPage() {
       toast.error(err.message || 'Erreur lors de la suppression de la boutique')
     }
   }
+
+  async function handleDeleteUser(userId) {
+  const user = users.find(u => u.id === userId)
+
+  if (userId === currentAdminId) {
+    toast.error('Vous ne pouvez pas supprimer votre propre compte admin.')
+    return
+  }
+
+  const ok = confirm(
+    `Supprimer l'utilisateur "${user?.email || userId}" ?\n\nCette action supprimera son compte de connexion.`
+  )
+
+  if (!ok) return
+
+  try {
+    const { error } = await supabase.rpc('admin_delete_user', {
+      p_user_id: userId,
+    })
+
+    if (error) throw error
+
+    toast.success('Utilisateur supprimé')
+    await fetchData()
+  } catch (err) {
+    toast.error(err.message || 'Erreur lors de la suppression utilisateur')
+  }
+}
 
   async function handleCreateRelease(e) {
     e.preventDefault()
@@ -445,7 +478,7 @@ export default function AdminPage() {
     router.refresh()
   }
 
-  const visibleCodes = showUsed ? codes : codes.filter((c) => !c.used_by)
+  const visibleCodes = codes
 
   if (authLoading) {
     return (
@@ -775,6 +808,15 @@ export default function AdminPage() {
                         {u.role}
                       </span>
                     </div>
+
+                    <button
+  onClick={() => handleDeleteUser(u.id)}
+  disabled={u.id === currentAdminId}
+  className="p-2 rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+  title={u.id === currentAdminId ? 'Impossible de supprimer votre propre compte' : 'Supprimer utilisateur'}
+>
+  <Trash2 className="w-4 h-4" />
+</button>
                   </div>
                 ))}
               </div>
@@ -906,6 +948,59 @@ export default function AdminPage() {
                 </button>
               </form>
             </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+  <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+    <Rocket className="w-4 h-4 text-purple-400" />
+    Versions publiées
+  </h3>
+
+  {releases.length === 0 ? (
+    <p className="text-sm text-slate-500">Aucune mise à jour publiée.</p>
+  ) : (
+    <div className="space-y-2">
+      {releases.map((r) => (
+        <div
+          key={r.id}
+          className="rounded-xl border border-white/10 bg-slate-900/60 p-4 flex items-center justify-between gap-4"
+        >
+          <div>
+            <p className="font-semibold text-white">
+              {r.version} — {r.title}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {r.platform || 'windows'} · {r.created_at ? format(new Date(r.created_at), 'dd MMM yyyy à HH:mm', { locale: fr }) : ''}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            {(r.exe_url || r.download_url) && (
+              <a
+                href={r.exe_url || r.download_url}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold"
+              >
+                Télécharger EXE
+              </a>
+            )}
+
+            {r.msi_url && (
+              <a
+                href={r.msi_url}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold"
+              >
+                Télécharger MSI
+              </a>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
 
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
               <h3 className="font-semibold text-white mb-4 flex items-center gap-2">

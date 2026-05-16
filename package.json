@@ -9,10 +9,16 @@
     "db:push": "supabase db push",
     "db:reset": "supabase db reset",
     "desktop:dev": "pnpm --dir apps/desktop dev",
-    "desktop:build": "pnpm --dir apps/desktop build"
+    "desktop:build": "pnpm --dir apps/desktop build",
+    "desktop:publish": "node scripts/publish-desktop-release.mjs",
+    "desktop:release": "pnpm desktop:build && pnpm desktop:publish"
   },
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
+    "dotenv": "^17.4.2"
+  }
 }

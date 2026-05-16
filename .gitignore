@@ -53,6 +53,7 @@ apps/desktop/.env
 apps/desktop/.env.local
 apps/desktop/.env.*.local
 
+
 # vercel
 .vercel
 
@@ -117,3 +118,5 @@ supabase/.temp/
 *.xcuserdata/
 *.xcworkspace/xcuserdata/
 DerivedData/
+
+apps/web/node_modules/
