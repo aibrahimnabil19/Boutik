@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx'
 import { v4 as uuid } from 'uuid'
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function normalize(value) {
   return String(value || '')
     .trim()
@@ -11,56 +13,52 @@ function normalize(value) {
 
 function excelDateToISO(value) {
   if (!value) return new Date().toISOString().slice(0, 10)
-
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10)
-  }
-
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
   if (typeof value === 'number') {
     const parsed = XLSX.SSF.parse_date_code(value)
     if (!parsed) return new Date().toISOString().slice(0, 10)
     const d = new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d))
     return d.toISOString().slice(0, 10)
   }
-
   const d = new Date(value)
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
-
   return new Date().toISOString().slice(0, 10)
 }
 
+/**
+ * Get a value from a row object by trying multiple candidate column names.
+ * Matching is accent-insensitive and case-insensitive.
+ */
 function getValue(row, candidates) {
   const normalizedMap = {}
-
   for (const key of Object.keys(row)) {
     normalizedMap[normalize(key)] = row[key]
   }
-
   for (const candidate of candidates) {
     const found = normalizedMap[normalize(candidate)]
     if (found !== undefined && found !== null && found !== '') return found
   }
-
   return ''
 }
 
 function toNumber(value) {
   if (value === null || value === undefined || value === '') return 0
-  return Number(String(value).replace(/\s/g, '').replace(',', '.')) || 0
+  const n = Number(String(value).replace(/[\s\u00a0]/g, '').replace(',', '.'))
+  return isNaN(n) ? 0 : n
 }
 
 function sheetToRows(workbook, preferredSheetName) {
+  // Try exact match first, then normalized match
   const sheetName =
+    workbook.SheetNames.find(s => s === preferredSheetName) ||
     workbook.SheetNames.find(s => normalize(s) === normalize(preferredSheetName)) ||
-    workbook.SheetNames[0]
+    null
 
+  if (!sheetName) return []
   const ws = workbook.Sheets[sheetName]
   if (!ws) return []
 
-  return XLSX.utils.sheet_to_json(ws, {
-    defval: '',
-    raw: true,
-  })
+  return XLSX.utils.sheet_to_json(ws, { defval: '', raw: true })
 }
 
 function buildProductMap(products) {
@@ -70,6 +68,21 @@ function buildProductMap(products) {
   }
   return map
 }
+
+// ─── Deduplication helpers ────────────────────────────────────────────────────
+
+/** Returns existing entity id or null */
+function findSupplier(name, suppliers) {
+  const norm = normalize(name)
+  return suppliers.find(s => normalize(s.name) === norm) || null
+}
+
+function findClient(name, clients) {
+  const norm = normalize(name)
+  return clients.find(c => normalize(c.name) === norm) || null
+}
+
+// ─── Main parser ──────────────────────────────────────────────────────────────
 
 export async function parseGestionExcelFile(file, shopId, existingProducts = [], importMode = 'auto') {
   const buffer = await file.arrayBuffer()
@@ -89,32 +102,41 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
     summary: {},
   }
 
+  // In-memory dedup maps (name → entity record) for this import session
+  const supplierByName = new Map()
+  const clientByName = new Map()
+
   const modes = importMode === 'auto'
     ? ['produits', 'achats', 'ventes', 'charges', 'creances', 'dettes']
     : [importMode]
 
+  // ─── Produits ──────────────────────────────────────────────────────────────
   if (modes.includes('produits')) {
     const rows = sheetToRows(workbook, 'Produits')
 
     for (const row of rows) {
-      const code = String(getValue(row, ['Code Produit', 'Code'])).trim()
-      const name = String(getValue(row, ['Nom Produit', 'Produit', 'Nom'])).trim()
+      const code = String(getValue(row, ['Code Produit', 'Code']) || '').trim()
+      const name = String(getValue(row, ['Nom Produit', 'Produit', 'Nom']) || '').trim()
       if (!name) continue
 
-      const id = existingProducts.find(p => p.code === code)?.id || uuid()
+      // Reuse existing product id if code matches
+      const id = (code && productMap.get(code)) || uuid()
       if (code) productMap.set(code, id)
+
+      // Supplier name for the product
+      const supplierName = String(getValue(row, ['Fournisseur']) || '').trim()
 
       result.products.push({
         id,
         shop_id: shopId,
         code,
         name,
-        purchase_price: toNumber(getValue(row, ['Prix Achat', 'PA'])),
-        sale_price: toNumber(getValue(row, ['Prix Vente', 'PV'])) || null,
-        stock_initial: toNumber(getValue(row, ['Stock Initial', 'Stock'])),
-        alert_threshold: toNumber(getValue(row, ['Seuil Alerte', 'Alerte'])) || null,
-        supplier: String(getValue(row, ['Fournisseur'])).trim(),
-        unit: 'Pièces',
+        purchase_price: toNumber(getValue(row, ['Prix Achat', 'PA', 'Prix d\'achat'])),
+        sale_price: toNumber(getValue(row, ['Prix Vente', 'PV', 'Prix de vente'])) || null,
+        stock_initial: toNumber(getValue(row, ['Stock Initial', 'Stock Ini', 'Stock'])),
+        alert_threshold: toNumber(getValue(row, ['Seuil Alerte', 'Seuil', 'Alerte'])) || null,
+        supplier: supplierName,
+        unit: String(getValue(row, ['Unité', 'Unite', 'Unit']) || 'Pièces').trim() || 'Pièces',
         created_at: now,
         updated_at: now,
         sync_status: 'synced',
@@ -122,39 +144,48 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
     }
   }
 
+  // ─── Achats ────────────────────────────────────────────────────────────────
   if (modes.includes('achats')) {
     const rows = sheetToRows(workbook, 'Achats')
 
     for (const row of rows) {
-      const code = String(getValue(row, ['Code Produit', 'Code'])).trim()
-      const name = String(getValue(row, ['Nom Produit', 'Produit'])).trim()
+      const code = String(getValue(row, ['Code Produit', 'Code']) || '').trim()
+      const name = String(getValue(row, ['Nom Produit', 'Produit', 'Nom Produit']) || '').trim()
       if (!name && !code) continue
 
-      const supplier = String(getValue(row, ['Fournisseur'])).trim()
-      const supplierId = supplier ? uuid() : null
+      const supplierName = String(getValue(row, ['Fournisseur']) || '').trim()
 
-      if (supplier) {
-        result.suppliers.push({
-          id: supplierId,
+      // Deduplicate suppliers within this import
+      let supplierRecord = supplierByName.get(normalize(supplierName))
+      if (!supplierRecord && supplierName) {
+        supplierRecord = {
+          id: uuid(),
           shop_id: shopId,
-          name: supplier,
+          name: supplierName,
+          phone: '',
+          address: '',
           created_at: now,
           updated_at: now,
           sync_status: 'synced',
-        })
+        }
+        supplierByName.set(normalize(supplierName), supplierRecord)
+        result.suppliers.push(supplierRecord)
       }
 
-      const quantity = toNumber(getValue(row, ['Quantité', 'Qte']))
-      const unitPrice = toNumber(getValue(row, ['PA Unitaire', 'Prix Achat', 'Prix Unitaire']))
+      const quantity = toNumber(getValue(row, ['Quantité', 'Qte', 'Qty', 'Quantite']))
+      const unitPrice = toNumber(getValue(row, ['PA Unitaire', 'Prix Achat', 'Prix Unitaire', 'PA']))
       const total = toNumber(getValue(row, ['Total Achat', 'Total'])) || quantity * unitPrice
+      const date = excelDateToISO(getValue(row, ['Date']))
+
+      const productId = productMap.get(code) || null
 
       result.purchases.push({
         id: uuid(),
         shop_id: shopId,
-        date: excelDateToISO(getValue(row, ['Date'])),
-        supplier_id: supplierId,
-        supplier,
-        product_id: productMap.get(code) || null,
+        date,
+        supplier_id: supplierRecord?.id || null,
+        supplier: supplierName,
+        product_id: productId,
         product_code: code,
         product_name: name,
         quantity,
@@ -163,6 +194,7 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
         payment_status: 'paid',
         paid_amount: total,
         remaining_amount: 0,
+        notes: '',
         created_at: now,
         updated_at: now,
         sync_status: 'synced',
@@ -170,29 +202,41 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
     }
   }
 
+  // ─── Ventes ────────────────────────────────────────────────────────────────
   if (modes.includes('ventes')) {
     const rows = sheetToRows(workbook, 'Ventes')
 
     for (const row of rows) {
-      const code = String(getValue(row, ['Code Produit', 'Code'])).trim()
-      const name = String(getValue(row, ['Nom Produit', 'Produit'])).trim()
+      const code = String(getValue(row, ['Code Produit', 'Code']) || '').trim()
+      const name = String(getValue(row, ['Nom Produit', 'Produit']) || '').trim()
       if (!name && !code) continue
 
-      const quantity = toNumber(getValue(row, ['Quantité', 'Qte']))
-      const price = toNumber(getValue(row, ['Prix Vente Unitaire', 'Prix Vente', 'PV']))
+      const quantity = toNumber(getValue(row, ['Quantité', 'Qte', 'Quantite']))
+      // Sale price: "Prix Vente Unitaire" in Excel
+      const price = toNumber(getValue(row, ['Prix Vente Unitaire', 'Prix Vente', 'PV Unitaire', 'PV']))
+      // Total sale: "Total Vente"
       const total = toNumber(getValue(row, ['Total Vente', 'Total'])) || quantity * price
-      const cost = toNumber(getValue(row, ['Coût Unitaire Achat', 'Cout Unitaire Achat', 'PA Unitaire']))
-      const costTotal = toNumber(getValue(row, ['Coût Total Achat', 'Cout Total Achat'])) || quantity * cost
-      const profit = toNumber(getValue(row, ['Résultat', 'Resultat'])) || total - costTotal
+      // Cost: "Coût Unitaire Achat"
+      const cost = toNumber(getValue(row, ['Coût Unitaire Achat', 'Cout Unitaire Achat', 'PA Unitaire', 'Coût Achat Unitaire']))
+      // Total cost: "Coût Total Achat"
+      const costTotal = toNumber(getValue(row, ['Coût Total Achat', 'Cout Total Achat', 'Total Achat'])) || quantity * cost
+      // Profit: "Résultat"
+      const profit = toNumber(getValue(row, ['Résultat', 'Resultat', 'Bénéfice', 'Benefice', 'Marge'])) || (total - costTotal)
+      // Store: "Magasin"
+      const store = String(getValue(row, ['Magasin', 'Boutique', 'Store']) || '').trim()
+      const date = excelDateToISO(getValue(row, ['Date']))
+      const productId = productMap.get(code) || null
 
       result.sales.push({
         id: uuid(),
         shop_id: shopId,
-        session_id: uuid(),
+        session_id: uuid(), // Each row = its own session (historical data)
         sale_batch_id: uuid(),
-        date: excelDateToISO(getValue(row, ['Date'])),
-        store: String(getValue(row, ['Magasin'])).trim(),
-        product_id: productMap.get(code) || null,
+        date,
+        store,
+        client_id: null,
+        client_name: '',
+        product_id: productId,
         product_code: code,
         product_name: name,
         quantity,
@@ -211,20 +255,26 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
     }
   }
 
+  // ─── Charges ───────────────────────────────────────────────────────────────
   if (modes.includes('charges')) {
     const rows = sheetToRows(workbook, 'Charges')
 
     for (const row of rows) {
-      const description = String(getValue(row, ['Description', 'Libellé', 'Libelle'])).trim()
-      const amount = toNumber(getValue(row, ['Montant']))
+      // Skip summary/total rows that have no date or description
+      const description = String(getValue(row, ['Description', 'Libellé', 'Libelle', 'Designation']) || '').trim()
+      const amount = toNumber(getValue(row, ['Montant', 'Amount']))
       if (!description && !amount) continue
+      // Skip rows that look like totals (no date, just aggregate)
+      if (!description) continue
+
+      const date = excelDateToISO(getValue(row, ['Date']))
 
       result.expenses.push({
         id: uuid(),
         shop_id: shopId,
-        date: excelDateToISO(getValue(row, ['Date'])),
+        date,
         description,
-        amount,
+        amount: Math.abs(amount), // Always positive for expenses
         category: 'Anciennes données',
         created_at: now,
         updated_at: now,
@@ -233,36 +283,53 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
     }
   }
 
+  // ─── Créances Clients ──────────────────────────────────────────────────────
   if (modes.includes('creances')) {
     const rows = sheetToRows(workbook, 'Créances Clients')
 
     for (const row of rows) {
-      const client = String(getValue(row, ['Client'])).trim()
-      if (!client) continue
+      const clientName = String(getValue(row, ['Client', 'Nom Client', 'Nom']) || '').trim()
+      if (!clientName) continue
 
-      const clientId = uuid()
-      const amount = toNumber(getValue(row, ['Montant Achat', 'Montant']))
+      const amount = toNumber(getValue(row, ['Montant Achat', 'Montant', 'Amount']))
+      if (!amount) continue
 
-      result.clients.push({
-        id: clientId,
-        shop_id: shopId,
-        name: client,
-        address: String(getValue(row, ['Adresse'])).trim(),
-        phone: String(getValue(row, ['Téléphone', 'Telephone', 'Adresse'])).trim(),
-        created_at: now,
-        updated_at: now,
-        sync_status: 'synced',
-      })
+      // Deduplicate clients within this import
+      let clientRecord = clientByName.get(normalize(clientName))
+      if (!clientRecord) {
+        // "Adresse" in Excel actually contains a phone number for this dataset
+        const adresseRaw = String(getValue(row, ['Adresse', 'Address', 'Tel', 'Phone']) || '').trim()
+        // Detect if it looks like a phone (digits/spaces only)
+        const looksLikePhone = /^[\d\s\+\-]+$/.test(adresseRaw)
+
+        clientRecord = {
+          id: uuid(),
+          shop_id: shopId,
+          name: clientName,
+          phone: looksLikePhone ? adresseRaw : '',
+          address: looksLikePhone ? '' : adresseRaw,
+          created_at: now,
+          updated_at: now,
+          sync_status: 'synced',
+        }
+        clientByName.set(normalize(clientName), clientRecord)
+        result.clients.push(clientRecord)
+      }
+
+      const label = String(getValue(row, ['Libellé', 'Libelle', 'Description', 'Label']) || '').trim() || 'Ancienne créance'
+      const date = excelDateToISO(getValue(row, ['Date']))
+      const quantity = toNumber(getValue(row, ['Quantité', 'Qte'])) || 1
+      const unitAmount = toNumber(getValue(row, ['PA Unitaire', 'Prix Unitaire'])) || amount
 
       result.client_transactions.push({
         id: uuid(),
         shop_id: shopId,
-        client_id: clientId,
-        date: excelDateToISO(getValue(row, ['Date'])),
-        label: String(getValue(row, ['Libellé', 'Libelle'])).trim() || 'Ancienne créance',
-        quantity: toNumber(getValue(row, ['Quantité', 'Qte'])) || 1,
-        unit_amount: toNumber(getValue(row, ['PA Unitaire', 'Prix Unitaire'])),
-        amount,
+        client_id: clientRecord.id,
+        date,
+        label,
+        quantity,
+        unit_amount: unitAmount,
+        amount, // Positive = client owes us (créance)
         created_at: now,
         updated_at: now,
         sync_status: 'synced',
@@ -270,35 +337,52 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
     }
   }
 
+  // ─── Dettes Fournisseurs ───────────────────────────────────────────────────
   if (modes.includes('dettes')) {
     const rows = sheetToRows(workbook, 'Dettes Fournisseurs')
 
     for (const row of rows) {
-      const supplier = String(getValue(row, ['Fournisseur'])).trim()
-      if (!supplier) continue
+      const supplierName = String(getValue(row, ['Fournisseur', 'Nom Fournisseur', 'Nom']) || '').trim()
+      if (!supplierName) continue
 
-      const supplierId = uuid()
-      const amount = toNumber(getValue(row, ['Montant Achat', 'Montant']))
+      const amount = toNumber(getValue(row, ['Montant Achat', 'Montant', 'Amount']))
+      // Include negative amounts (règlements/payments) - they reduce the debt
+      if (amount === 0) continue
 
-      result.suppliers.push({
-        id: supplierId,
-        shop_id: shopId,
-        name: supplier,
-        address: String(getValue(row, ['Adresse'])).trim(),
-        phone: String(getValue(row, ['Téléphone', 'Telephone', 'Adresse'])).trim(),
-        created_at: now,
-        updated_at: now,
-        sync_status: 'synced',
-      })
+      // Deduplicate suppliers
+      let supplierRecord = supplierByName.get(normalize(supplierName))
+      if (!supplierRecord) {
+        const adresseRaw = String(getValue(row, ['Adresse', 'Address', 'Tel']) || '').trim()
+        const looksLikePhone = /^[\d\s\+\-]+$/.test(adresseRaw)
+
+        supplierRecord = {
+          id: uuid(),
+          shop_id: shopId,
+          name: supplierName,
+          phone: looksLikePhone ? adresseRaw : '',
+          address: looksLikePhone ? '' : adresseRaw,
+          created_at: now,
+          updated_at: now,
+          sync_status: 'synced',
+        }
+        supplierByName.set(normalize(supplierName), supplierRecord)
+        result.suppliers.push(supplierRecord)
+      }
+
+      const label = String(getValue(row, ['Libellé', 'Libelle', 'Description']) || '').trim() || 'Ancienne dette'
+      const date = excelDateToISO(getValue(row, ['Date']))
+      const quantity = toNumber(getValue(row, ['Quantité', 'Qte'])) || 1
+      const unitAmount = toNumber(getValue(row, ['PA Unitaire', 'Prix Unitaire'])) || Math.abs(amount)
 
       result.supplier_transactions.push({
         id: uuid(),
         shop_id: shopId,
-        supplier_id: supplierId,
-        date: excelDateToISO(getValue(row, ['Date'])),
-        label: String(getValue(row, ['Libellé', 'Libelle'])).trim() || 'Ancienne dette',
-        quantity: toNumber(getValue(row, ['Quantité', 'Qte'])) || 1,
-        unit_amount: toNumber(getValue(row, ['PA Unitaire', 'Prix Unitaire'])),
+        supplier_id: supplierRecord.id,
+        date,
+        label,
+        quantity,
+        unit_amount: unitAmount,
+        // Positive = we owe supplier (dette), Negative = payment made (règlement)
         amount,
         created_at: now,
         updated_at: now,
@@ -308,14 +392,14 @@ export async function parseGestionExcelFile(file, shopId, existingProducts = [],
   }
 
   result.summary = {
-    products: result.products.length,
-    purchases: result.purchases.length,
-    sales: result.sales.length,
-    expenses: result.expenses.length,
-    clients: result.clients.length,
-    suppliers: result.suppliers.length,
-    client_transactions: result.client_transactions.length,
-    supplier_transactions: result.supplier_transactions.length,
+    Produits: result.products.length,
+    'Entrées de stock': result.purchases.length,
+    Ventes: result.sales.length,
+    Dépenses: result.expenses.length,
+    Clients: result.clients.length,
+    Fournisseurs: result.suppliers.length,
+    'Transactions clients': result.client_transactions.length,
+    'Transactions fournisseurs': result.supplier_transactions.length,
   }
 
   return result

@@ -3,38 +3,56 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { PieChart, TrendingUp, TrendingDown, Package } from 'lucide-react'
-import { format, startOfMonth, endOfMonth, isWithinInterval, subMonths } from 'date-fns'
+import { TrendingUp, TrendingDown, Package, Download } from 'lucide-react'
+import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, Legend
+  ResponsiveContainer, Legend
 } from 'recharts'
 import { useAppStore } from '@/context/store'
-import { getAll } from '@/lib/db/local'
+import { getAll, getAllIncludingDeleted } from '@/lib/db/local'
 import { formatFCFA } from '@/lib/core/calculations'
-import { PageHeader, StatCard } from '@/components/ui'
-import { getAllIncludingDeleted } from '@/lib/db/local'
+import { PageHeader, StatCard, Btn } from '@/components/ui'
+import DateFilter from '@/components/DateFilter'
+import { defaultDateFilter, isDateInFilter, describeDateFilter } from '@/lib/core/dateFilters'
+import { exportRentabiliteReportExcel } from '@/lib/export/rentabiliteReportExcel'
 
 export default function RentabilitePage() {
   const shop = useAppStore(s => s.shop)
   const [products, setProducts] = useState([])
+  const [purchases, setPurchases] = useState([])
   const [sales, setSales] = useState([])
   const [expenses, setExpenses] = useState([])
+  const [clients, setClients] = useState([])
+  const [clientTransactions, setClientTransactions] = useState([])
+  const [suppliers, setSuppliers] = useState([])
+  const [supplierTransactions, setSupplierTransactions] = useState([])
   const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState('month') // month | quarter | all
+  const [dateFilter, setDateFilter] = useState(defaultDateFilter())
 
-const load = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!shop?.id) return
-    const [p, s, e] = await Promise.all([
+
+    const [p, pu, s, e, c, ct, su, st] = await Promise.all([
       getAll('products', shop.id),
-      getAllIncludingDeleted('sales', shop.id),   // ← includes soft-deleted
-      getAllIncludingDeleted('expenses', shop.id), // ← includes soft-deleted
+      getAllIncludingDeleted('purchases', shop.id),
+      getAllIncludingDeleted('sales', shop.id),
+      getAllIncludingDeleted('expenses', shop.id),
+      getAll('clients', shop.id),
+      getAllIncludingDeleted('client_transactions', shop.id),
+      getAll('suppliers', shop.id),
+      getAllIncludingDeleted('supplier_transactions', shop.id),
     ])
+
     setProducts(p)
-    // Include deleted sales but NOT cancelled ones for profitability (or mark them)
-    setSales(s.filter(sale => !sale.cancelled_at))
-    setExpenses(e)
+    setPurchases(pu.filter(row => !row.deleted_at))
+    setSales(s.filter(row => !row.deleted_at && !row.cancelled_at))
+    setExpenses(e.filter(row => !row.deleted_at))
+    setClients(c)
+    setClientTransactions(ct.filter(row => !row.deleted_at))
+    setSuppliers(su)
+    setSupplierTransactions(st.filter(row => !row.deleted_at))
     setLoading(false)
   }, [shop?.id])
 
@@ -42,34 +60,16 @@ const load = useCallback(async () => {
 
   // Filter sales by period
   const filteredSales = useMemo(() => {
-    const now = new Date()
-    if (period === 'month') {
-      const start = startOfMonth(now)
-      const end = endOfMonth(now)
-      return sales.filter(s => isWithinInterval(new Date(s.date), { start, end }))
-    }
-    if (period === 'quarter') {
-      const start = startOfMonth(subMonths(now, 2))
-      const end = endOfMonth(now)
-      return sales.filter(s => isWithinInterval(new Date(s.date), { start, end }))
-    }
-    return sales
-  }, [sales, period])
+    return sales.filter(s => isDateInFilter(s.date, dateFilter))
+  }, [sales, dateFilter])
+
+  const filteredPurchases = useMemo(() => {
+    return purchases.filter(p => isDateInFilter(p.date, dateFilter))
+  }, [purchases, dateFilter])
 
   const filteredExpenses = useMemo(() => {
-    const now = new Date()
-    if (period === 'month') {
-      const start = startOfMonth(now)
-      const end = endOfMonth(now)
-      return expenses.filter(e => isWithinInterval(new Date(e.date), { start, end }))
-    }
-    if (period === 'quarter') {
-      const start = startOfMonth(subMonths(now, 2))
-      const end = endOfMonth(now)
-      return expenses.filter(e => isWithinInterval(new Date(e.date), { start, end }))
-    }
-    return expenses
-  }, [expenses, period])
+    return expenses.filter(e => isDateInFilter(e.date, dateFilter))
+  }, [expenses, dateFilter])
 
   // Per-product profitability
   const productStats = useMemo(() => {
@@ -98,62 +98,125 @@ const load = useCallback(async () => {
 
   const totalRevenue = useMemo(() => filteredSales.reduce((s, v) => s + (v.total_sale || 0), 0), [filteredSales])
   const totalCost = useMemo(() => filteredSales.reduce((s, v) => s + (v.total_purchase_cost || 0), 0), [filteredSales])
+  const totalPurchases = useMemo(() => filteredPurchases.reduce((s, p) => s + Number(p.total_amount || 0), 0), [filteredPurchases])
   const totalGrossProfit = useMemo(() => filteredSales.reduce((s, v) => s + (v.profit || 0), 0), [filteredSales])
   const totalExpAmount = useMemo(() => filteredExpenses.reduce((s, e) => s + (e.amount || 0), 0), [filteredExpenses])
   const netProfit = totalGrossProfit - totalExpAmount
   const grossMargin = totalRevenue > 0 ? (totalGrossProfit / totalRevenue) * 100 : 0
 
-  // Monthly chart data (last 6 months)
+  // Chart data based on the selected filter
   const chartData = useMemo(() => {
-    return Array.from({ length: 6 }, (_, i) => {
-      const date = subMonths(new Date(), 5 - i)
-      const start = startOfMonth(date)
-      const end = endOfMonth(date)
-      const inPeriod = (d) => isWithinInterval(new Date(d), { start, end })
-      const monthSales = sales.filter(s => inPeriod(s.date))
-      const monthExpenses = expenses.filter(e => inPeriod(e.date))
-      const revenue = monthSales.reduce((s, v) => s + (v.total_sale || 0), 0)
-      const gross = monthSales.reduce((s, v) => s + (v.profit || 0), 0)
-      const exp = monthExpenses.reduce((s, e) => s + (e.amount || 0), 0)
-      return {
-        month: format(date, 'MMM yy', { locale: fr }),
-        'Marge brute': gross,
-        'Dépenses': exp,
-        'Bénéfice net': Math.max(0, gross - exp),
+    const monthly = {}
+
+    for (const sale of filteredSales) {
+      const date = new Date(sale.date)
+      if (Number.isNaN(date.getTime())) continue
+
+      const key = format(date, 'yyyy-MM')
+      if (!monthly[key]) {
+        monthly[key] = {
+          month: format(date, 'MMM yy', { locale: fr }),
+          'Marge brute': 0,
+          'Dépenses': 0,
+          'Bénéfice net': 0,
+        }
       }
-    })
-  }, [sales, expenses])
+
+      monthly[key]['Marge brute'] += Number(sale.profit || 0)
+    }
+
+    for (const expense of filteredExpenses) {
+      const date = new Date(expense.date)
+      if (Number.isNaN(date.getTime())) continue
+
+      const key = format(date, 'yyyy-MM')
+      if (!monthly[key]) {
+        monthly[key] = {
+          month: format(date, 'MMM yy', { locale: fr }),
+          'Marge brute': 0,
+          'Dépenses': 0,
+          'Bénéfice net': 0,
+        }
+      }
+
+      monthly[key]['Dépenses'] += Number(expense.amount || 0)
+    }
+
+    return Object.entries(monthly)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, row]) => ({
+        ...row,
+        'Bénéfice net': row['Marge brute'] - row['Dépenses'],
+      }))
+  }, [filteredSales, filteredExpenses])
 
   const primaryColor = shop?.color_primary || '#1a56db'
+
+  function handleDownloadReport() {
+    exportRentabiliteReportExcel({
+      shop,
+      dateFilter,
+      products,
+      purchases,
+      sales,
+      expenses,
+      clients,
+      clientTransactions,
+      suppliers,
+      supplierTransactions,
+    })
+  }
 
   return (
     <div className="p-6">
       <PageHeader
-        title="Analyse Rentabilité"
-        subtitle="Marges, bénéfices et performance par produit"
+        title="Analyse rentabilité"
+        subtitle={`Période : ${describeDateFilter(dateFilter)}`}
+        action={
+          <Btn icon={Download} onClick={handleDownloadReport}>
+            Télécharger le rapport Excel
+          </Btn>
+        }
       />
 
-      {/* Period selector */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit mb-6">
-        {[
-          { key: 'month', label: 'Ce mois' },
-          { key: 'quarter', label: '3 derniers mois' },
-          { key: 'all', label: 'Tout' },
-        ].map(({ key, label }) => (
-          <button key={key} onClick={() => setPeriod(key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              period === key ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
-            }`}>{label}</button>
-        ))}
+      <div className="card p-4 mb-6">
+        <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <StatCard label="Chiffre d'affaires" value={formatFCFA(totalRevenue)} color="blue" icon={TrendingUp} />
-        <StatCard label="Coût des ventes" value={formatFCFA(totalCost)} color="purple" />
-        <StatCard label="Marge brute" value={formatFCFA(totalGrossProfit)} color="green"
-          sub={`${grossMargin.toFixed(1)}% du CA`} />
-        <StatCard label="Dépenses" value={formatFCFA(totalExpAmount)} color="red" />
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+        <StatCard
+          label="Chiffre d'affaires"
+          value={formatFCFA(totalRevenue)}
+          color="blue"
+          icon={TrendingUp}
+        />
+
+        <StatCard
+          label="Entrées de stock"
+          value={formatFCFA(totalPurchases)}
+          color="amber"
+        />
+
+        <StatCard
+          label="Coût des ventes"
+          value={formatFCFA(totalCost)}
+          color="purple"
+        />
+
+        <StatCard
+          label="Marge brute"
+          value={formatFCFA(totalGrossProfit)}
+          color="green"
+          sub={`${grossMargin.toFixed(1)}% du CA`}
+        />
+
+        <StatCard
+          label="Dépenses"
+          value={formatFCFA(totalExpAmount)}
+          color="red"
+        />
+
         <StatCard
           label="Bénéfice net"
           value={formatFCFA(netProfit)}
@@ -164,7 +227,9 @@ const load = useCallback(async () => {
 
       {/* Monthly chart */}
       <div className="card p-6 mb-6">
-        <h2 className="font-semibold text-gray-800 mb-4">Évolution sur 6 mois</h2>
+        <h2 className="font-semibold text-gray-800 mb-4">
+          Évolution de la période sélectionnée
+        </h2>
         {loading ? (
           <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Chargement…</div>
         ) : (
@@ -173,12 +238,12 @@ const load = useCallback(async () => {
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                     tickFormatter={v => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                tickFormatter={v => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v} />
               <Tooltip formatter={(v) => formatFCFA(v)} labelStyle={{ fontSize: 12 }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Marge brute" fill={primaryColor} radius={[4,4,0,0]} />
-              <Bar dataKey="Dépenses" fill="#f87171" radius={[4,4,0,0]} />
-              <Bar dataKey="Bénéfice net" fill="#34d399" radius={[4,4,0,0]} />
+              <Bar dataKey="Marge brute" fill={primaryColor} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Dépenses" fill="#f87171" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Bénéfice net" fill="#34d399" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -202,7 +267,7 @@ const load = useCallback(async () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['#','Produit','Qté vendue','CA total','Coût total','Marge brute','Marge %'].map(h => (
+                  {['#', 'Produit', 'Qté vendue', 'CA total', 'Coût total', 'Marge brute', 'Marge %'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -225,7 +290,7 @@ const load = useCallback(async () => {
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden max-w-20">
                           <div className="h-full bg-emerald-400 rounded-full"
-                               style={{ width: `${Math.min(100, Math.max(0, p.margin))}%` }} />
+                            style={{ width: `${Math.min(100, Math.max(0, p.margin))}%` }} />
                         </div>
                         <span className={`text-xs font-semibold ${p.margin >= 20 ? 'text-emerald-600' : p.margin >= 10 ? 'text-amber-600' : 'text-red-500'}`}>
                           {p.margin.toFixed(1)}%

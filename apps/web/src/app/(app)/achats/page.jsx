@@ -19,6 +19,8 @@ import { printPurchaseDocument } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 import PhoneInput from '@/components/PhoneInput'
 import { useRouter, useSearchParams } from 'next/navigation'
+import DateFilter from '@/components/DateFilter'
+import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
 
 // Document types for purchases
 const PURCHASE_DOC_TYPES = [
@@ -48,6 +50,7 @@ export default function AchatsPage() {
   const [quickSupplier, setQuickSupplier] = useState({ name: '', phone: '', address: '' })
   const [paymentModal, setPaymentModal] = useState(null)
   const [paymentAmount, setPaymentAmount] = useState('')
+  const [dateFilter, setDateFilter] = useState(defaultDateFilter())
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -179,12 +182,12 @@ export default function AchatsPage() {
   }
 
   async function onSubmit(data) {
-  if (!paymentMode) {
-    toast.error('Choisissez le mode de paiement.')
-    return
-  }
+    if (!paymentMode) {
+      toast.error('Choisissez le mode de paiement.')
+      return
+    }
 
-  const q = Number(data.quantity)
+    const q = Number(data.quantity)
     const up = Number(data.unit_price)
     const totalAmount = q * up
     const supplier = suppliers.find(s => s.name === data.supplier) || null
@@ -278,13 +281,24 @@ export default function AchatsPage() {
     setDocModal(null)
   }
 
-  const filtered = useMemo(() =>
-    purchases.filter(p =>
-      p.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-      p.supplier?.toLowerCase().includes(search.toLowerCase())
-    ), [purchases, search])
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim()
 
-  const totalSpent = useMemo(() => purchases.reduce((a, p) => a + (p.total_amount || 0), 0), [purchases])
+    return purchases.filter(p => {
+      const matchesSearch =
+        !q ||
+        p.product_name?.toLowerCase().includes(q) ||
+        p.product_code?.toLowerCase().includes(q) ||
+        p.supplier?.toLowerCase().includes(q)
+
+      return matchesSearch && isDateInFilter(p.date, dateFilter)
+    })
+  }, [purchases, search, dateFilter])
+
+  const totalSpent = useMemo(
+    () => filtered.reduce((a, p) => a + Number(p.total_amount || 0), 0),
+    [filtered]
+  )
 
   return (
     <div className="p-6">
@@ -301,10 +315,12 @@ export default function AchatsPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
-          <div className="flex-1 max-w-xs">
-            <SearchBar value={search} onChange={setSearch} placeholder="Rechercher…" />
+        <div className="flex flex-wrap items-end gap-3 px-5 py-4 border-b border-gray-100">
+          <div className="flex-1 min-w-[220px] max-w-xs">
+            <SearchBar value={search} onChange={setSearch} placeholder="Produit, code, fournisseur…" />
           </div>
+
+          <DateFilter value={dateFilter} onChange={setDateFilter} />
         </div>
 
         {loading ? (

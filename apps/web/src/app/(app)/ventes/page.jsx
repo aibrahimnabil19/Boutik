@@ -17,6 +17,8 @@ import {
 import { printSaleDocument } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 import { useRouter, useSearchParams } from 'next/navigation'
+import DateFilter from '@/components/DateFilter'
+import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -63,6 +65,7 @@ export default function VentesPage() {
   const [paymentAmount, setPaymentAmount] = useState('')
   // Document modal
   const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
+  const [dateFilter, setDateFilter] = useState(defaultDateFilter())
 
   const [cart, setCart] = useState([emptyLine()])
   const [newLineKey, setNewLineKey] = useState(null)
@@ -87,115 +90,115 @@ export default function VentesPage() {
   }, [shop?.id])
 
   function openPayment(group) {
-  if (!group || Number(group.remaining_amount || 0) <= 0) {
-    toast.error('Cette vente est déjà entièrement payée.')
-    return
+    if (!group || Number(group.remaining_amount || 0) <= 0) {
+      toast.error('Cette vente est déjà entièrement payée.')
+      return
+    }
+
+    setPaymentModal(group)
+    setPaymentAmount('')
   }
 
-  setPaymentModal(group)
-  setPaymentAmount('')
-}
+  async function handleCreditPayment(e) {
+    e.preventDefault()
 
-async function handleCreditPayment(e) {
-  e.preventDefault()
+    if (!paymentModal) return
 
-  if (!paymentModal) return
+    const amount = Number(paymentAmount || 0)
+    const remaining = Number(paymentModal.remaining_amount || 0)
 
-  const amount = Number(paymentAmount || 0)
-  const remaining = Number(paymentModal.remaining_amount || 0)
+    if (amount <= 0) {
+      toast.error('Montant invalide.')
+      return
+    }
 
-  if (amount <= 0) {
-    toast.error('Montant invalide.')
-    return
-  }
+    if (amount > remaining) {
+      toast.error('Le paiement dépasse le reste à payer.')
+      return
+    }
 
-  if (amount > remaining) {
-    toast.error('Le paiement dépasse le reste à payer.')
-    return
-  }
+    const now = new Date().toISOString()
+    const groupItems = paymentModal.items || []
 
-  const now = new Date().toISOString()
-  const groupItems = paymentModal.items || []
+    if (!groupItems.length) {
+      toast.error('Aucune ligne de vente trouvée.')
+      return
+    }
 
-  if (!groupItems.length) {
-    toast.error('Aucune ligne de vente trouvée.')
-    return
-  }
+    const firstItem = groupItems[0]
+    let clientId = firstItem.client_id || null
 
-  const firstItem = groupItems[0]
-  let clientId = firstItem.client_id || null
+    // Fallback for old sales that have client_name but no client_id
+    if (!clientId && firstItem.client_name) {
+      const existingClient = clients.find(
+        c => String(c.name || '').trim().toLowerCase() === String(firstItem.client_name || '').trim().toLowerCase()
+      )
 
-  // Fallback for old sales that have client_name but no client_id
-  if (!clientId && firstItem.client_name) {
-    const existingClient = clients.find(
-      c => String(c.name || '').trim().toLowerCase() === String(firstItem.client_name || '').trim().toLowerCase()
-    )
+      if (existingClient) {
+        clientId = existingClient.id
+      } else {
+        const newClient = {
+          id: uuid(),
+          shop_id: shop.id,
+          name: firstItem.client_name,
+          phone: firstItem.client_phone || '',
+          address: '',
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        }
 
-    if (existingClient) {
-      clientId = existingClient.id
-    } else {
-      const newClient = {
-        id: uuid(),
-        shop_id: shop.id,
-        name: firstItem.client_name,
-        phone: firstItem.client_phone || '',
-        address: '',
-        created_at: now,
+        await localUpsert('clients', newClient)
+        clientId = newClient.id
+      }
+    }
+
+    if (!clientId) {
+      toast.error('Client introuvable pour cette vente à crédit.')
+      return
+    }
+
+    let leftToApply = amount
+
+    for (const item of groupItems) {
+      const itemRemaining = Number(item.remaining_amount || 0)
+      if (itemRemaining <= 0) continue
+
+      const applied = Math.min(leftToApply, itemRemaining)
+      const newRemaining = Math.max(0, itemRemaining - applied)
+
+      leftToApply -= applied
+
+      await localUpsert('sales', {
+        ...item,
+        client_id: item.client_id || clientId,
+        paid_amount: Number(item.paid_amount || 0) + applied,
+        remaining_amount: newRemaining,
+        payment_status: newRemaining <= 0 ? 'paid' : 'credit',
         updated_at: now,
         sync_status: 'pending',
-      }
+      })
 
-      await localUpsert('clients', newClient)
-      clientId = newClient.id
+      if (leftToApply <= 0) break
     }
-  }
 
-  if (!clientId) {
-    toast.error('Client introuvable pour cette vente à crédit.')
-    return
-  }
-
-  let leftToApply = amount
-
-  for (const item of groupItems) {
-    const itemRemaining = Number(item.remaining_amount || 0)
-    if (itemRemaining <= 0) continue
-
-    const applied = Math.min(leftToApply, itemRemaining)
-    const newRemaining = Math.max(0, itemRemaining - applied)
-
-    leftToApply -= applied
-
-    await localUpsert('sales', {
-      ...item,
-      client_id: item.client_id || clientId,
-      paid_amount: Number(item.paid_amount || 0) + applied,
-      remaining_amount: newRemaining,
-      payment_status: newRemaining <= 0 ? 'paid' : 'credit',
+    await localUpsert('client_transactions', {
+      id: uuid(),
+      shop_id: shop.id,
+      client_id: clientId,
+      date: format(new Date(), 'yyyy-MM-dd'),
+      label: `Paiement vente — ${String(paymentModal.key).slice(0, 8).toUpperCase()}`,
+      amount: -amount,
+      created_at: now,
       updated_at: now,
       sync_status: 'pending',
     })
 
-    if (leftToApply <= 0) break
+    toast.success('Paiement enregistré')
+    setPaymentModal(null)
+    setPaymentAmount('')
+    await load()
   }
-
-  await localUpsert('client_transactions', {
-    id: uuid(),
-    shop_id: shop.id,
-    client_id: clientId,
-    date: format(new Date(), 'yyyy-MM-dd'),
-    label: `Paiement vente — ${String(paymentModal.key).slice(0, 8).toUpperCase()}`,
-    amount: -amount,
-    created_at: now,
-    updated_at: now,
-    sync_status: 'pending',
-  })
-
-  toast.success('Paiement enregistré')
-  setPaymentModal(null)
-  setPaymentAmount('')
-  await load()
-}
 
   useEffect(() => { load() }, [load])
 
@@ -438,14 +441,24 @@ async function handleCreditPayment(e) {
   }
 
   // Group sales by session_id for display
+  const filteredSales = useMemo(() => {
+    const q = search.toLowerCase().trim()
+
+    return sales.filter(s => {
+      const matchesSearch =
+        !q ||
+        s.product_name?.toLowerCase().includes(q) ||
+        s.product_code?.toLowerCase().includes(q) ||
+        s.client_name?.toLowerCase().includes(q)
+
+      return matchesSearch && isDateInFilter(s.date, dateFilter)
+    })
+  }, [sales, search, dateFilter])
+
   const groupedSales = useMemo(() => {
     const groups = {}
-    const filtered = sales.filter(s =>
-      s.product_name?.toLowerCase().includes(search.toLowerCase()) ||
-      s.store?.toLowerCase().includes(search.toLowerCase()) ||
-      s.client_name?.toLowerCase().includes(search.toLowerCase())
-    )
-    filtered.forEach(s => {
+
+    filteredSales.forEach(s => {
       const key = s.session_id || s.id
       if (!groups[key]) {
         groups[key] = {
@@ -467,8 +480,9 @@ async function handleCreditPayment(e) {
       if (Number(s.remaining_amount || 0) > 0) groups[key].payment_status = 'credit'
       if (s.cancelled_at) groups[key].cancelled = true
     })
+
     return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [sales, search])
+  }, [filteredSales])
 
   const activeSales = useMemo(() => sales.filter(s => !s.cancelled_at), [sales])
   const totalRevenue = useMemo(() => activeSales.reduce((a, s) => a + (s.total_sale || 0), 0), [activeSales])
@@ -517,10 +531,12 @@ async function handleCreditPayment(e) {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
-          <div className="flex-1 max-w-xs">
-            <SearchBar value={search} onChange={setSearch} placeholder="Rechercher…" />
+        <div className="flex flex-wrap items-end gap-3 px-5 py-4 border-b border-gray-100">
+          <div className="flex-1 min-w-[220px] max-w-xs">
+            <SearchBar value={search} onChange={setSearch} placeholder="Client, produit, code…" />
           </div>
+
+          <DateFilter value={dateFilter} onChange={setDateFilter} />
         </div>
 
         {loading ? (
