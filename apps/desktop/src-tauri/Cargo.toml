@@ -1,9 +1,9 @@
 [package]
 name = "boutik_desktop"
-version = "0.1.5"
+version = "0.1.6"
 description = "Boutik Desktop"
 authors = ["Abdurrahman Nabil Ibrahim", "Mouhamadou Nassirou Ousmane Bawa"]
-edition = "2026"
+edition = "2024"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
