@@ -6,7 +6,7 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { formatFCFA, amountToWordsFCFA } from "./calculations";
 
-function askIncludeStamp(shop) {
+export function askIncludeStamp(shop) {
   if (typeof window === "undefined") return true;
 
   const hasStamp = !!shop?.signature_url || !!shop?.cachet_url;
@@ -436,6 +436,8 @@ export function printSaleDocument({ shop, type, saleGroup, invoiceNumber }) {
   const grandTotal = items.reduce((a, i) => a + i.total_price, 0);
   const num = invoiceNumber || `VTE-${saleGroup.date}`;
 
+  const includeStamp = askIncludeStamp(shop);
+
   const html = renderToInvoiceHTML({
     shop,
     invoiceNumber: num,
@@ -443,6 +445,7 @@ export function printSaleDocument({ shop, type, saleGroup, invoiceNumber }) {
     items,
     grandTotal,
     type,
+    includeStamp,
   });
 
   const iframe = document.createElement("iframe");
@@ -487,6 +490,8 @@ export function printPurchaseDocument({ shop, type, purchase, invoiceNumber }) {
   const grandTotal = purchase.total_amount || 0;
   const num = invoiceNumber || `ACH-${purchase.date}`;
 
+  const includeStamp = askIncludeStamp(shop);
+
   const html = renderToInvoiceHTML({
     shop,
     invoiceNumber: num,
@@ -494,6 +499,7 @@ export function printPurchaseDocument({ shop, type, purchase, invoiceNumber }) {
     items,
     grandTotal,
     type,
+    includeStamp,
   });
 
   const iframe = document.createElement("iframe");

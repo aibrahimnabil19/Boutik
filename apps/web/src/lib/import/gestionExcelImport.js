@@ -94,19 +94,6 @@ function buildProductMap(products) {
   return map;
 }
 
-// ─── Deduplication helpers ────────────────────────────────────────────────────
-
-/** Returns existing entity id or null */
-function findSupplier(name, suppliers) {
-  const norm = normalize(name);
-  return suppliers.find((s) => normalize(s.name) === norm) || null;
-}
-
-function findClient(name, clients) {
-  const norm = normalize(name);
-  return clients.find((c) => normalize(c.name) === norm) || null;
-}
-
 // ─── Main parser ──────────────────────────────────────────────────────────────
 
 export async function parseGestionExcelFile(

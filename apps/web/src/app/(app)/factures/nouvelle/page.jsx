@@ -16,7 +16,7 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
-import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
+import { renderToInvoiceHTML, askIncludeStamp } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
@@ -148,33 +148,36 @@ export default function NouvelleFacturePage() {
   }
 
   // ─── Print: renders ONLY the invoice into a hidden iframe ─────────────────
-  function handlePrint() {
-    const formValues = watch ? watch() : {}
-    const html = renderToInvoiceHTML({
-      shop,
-      invoiceNumber,
-      formValues,
-      items: computedItems,
-      grandTotal,
-      type: 'facture',
-    })
+ function handlePrint() {
+  const formValues = watch ? watch() : {}
+  const includeStamp = askIncludeStamp(shop)
 
-    const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
-    document.body.appendChild(iframe)
+  const html = renderToInvoiceHTML({
+    shop,
+    invoiceNumber,
+    formValues,
+    items: computedItems,
+    grandTotal,
+    type: 'facture',
+    includeStamp,
+  })
 
-    iframe.contentDocument.open()
-    iframe.contentDocument.write(html)
-    iframe.contentDocument.close()
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
+  document.body.appendChild(iframe)
 
-    iframe.onload = () => {
-      setTimeout(() => {
-        iframe.contentWindow.focus()
-        iframe.contentWindow.print()
-        setTimeout(() => document.body.removeChild(iframe), 1000)
-      }, 300)
-    }
+  iframe.contentDocument.open()
+  iframe.contentDocument.write(html)
+  iframe.contentDocument.close()
+
+  iframe.onload = () => {
+    setTimeout(() => {
+      iframe.contentWindow.focus()
+      iframe.contentWindow.print()
+      setTimeout(() => document.body.removeChild(iframe), 1000)
+    }, 300)
   }
+}
 
   const formValues = watch()
 

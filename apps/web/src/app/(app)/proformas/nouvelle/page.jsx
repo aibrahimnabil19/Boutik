@@ -12,7 +12,7 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
-import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
+import { renderToInvoiceHTML, askIncludeStamp } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
@@ -143,6 +143,8 @@ export default function NouvelleProformaPage() {
   // ─── Print via iframe (only the document, not the screen) ─────────────────
   function handlePrint() {
     const formValues = watch()
+    const includeStamp = askIncludeStamp(shop)
+
     const html = renderToInvoiceHTML({
       shop,
       invoiceNumber: proformaNumber,
@@ -150,6 +152,7 @@ export default function NouvelleProformaPage() {
       items: computedItems,
       grandTotal,
       type: 'proforma',
+      includeStamp,
     })
 
     const iframe = document.createElement('iframe')

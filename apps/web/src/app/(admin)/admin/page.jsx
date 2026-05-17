@@ -24,7 +24,6 @@ import {
   Store,
   Rocket,
   Send,
-  Building2,
   Upload,
   FileSpreadsheet,
 } from 'lucide-react'
