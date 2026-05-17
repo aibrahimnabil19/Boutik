@@ -66,15 +66,18 @@ export default function DesktopDownloadBanner() {
   }
 
   return (
-    <div className="sticky top-0 z-[9998] bg-slate-950 text-white border-b border-white/10">
-      <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-center gap-3 text-sm relative">
-        <MonitorDown className="w-4 h-4 text-blue-300" />
+  <div className="sticky top-0 z-[9998] bg-slate-950 text-white border-b border-white/10">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2 sm:gap-3 text-sm">
+      <div className="flex items-center justify-center gap-2 text-center">
+        <MonitorDown className="w-4 h-4 text-blue-300 flex-none" />
 
-        <span className="text-slate-200">
+        <span className="text-slate-200 text-xs sm:text-sm leading-snug">
           Application desktop Boutik disponible
           {release.version ? ` — version ${release.version}` : ''}
         </span>
+      </div>
 
+      <div className="flex items-center justify-center gap-2">
         <a
           href={url}
           target="_blank"
@@ -88,12 +91,14 @@ export default function DesktopDownloadBanner() {
         <button
           type="button"
           onClick={closeBanner}
-          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition"
           title="Fermer"
         >
-          <X className="w-4 h-4" />
+          <X className="w-3.5 h-3.5" />
+          <span>Fermer</span>
         </button>
       </div>
     </div>
-  )
+  </div>
+)
 }
