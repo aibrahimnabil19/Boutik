@@ -6,6 +6,18 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { formatFCFA, amountToWordsFCFA } from "./calculations";
 
+function askIncludeStamp(shop) {
+  if (typeof window === "undefined") return true;
+
+  const hasStamp = !!shop?.signature_url || !!shop?.cachet_url;
+
+  if (!hasStamp) return false;
+
+  return window.confirm(
+    "Voulez-vous générer ce document avec cachet/signature ?\n\nOK = Avec cachet/signature\nAnnuler = Sans cachet/signature",
+  );
+}
+
 /**
  * Renders a complete standalone HTML document for a facture or proforma.
  * Used for iframe-based printing (no browser chrome, no sidebar, just the doc).
@@ -17,6 +29,7 @@ export function renderToInvoiceHTML({
   items,
   grandTotal,
   type = "facture",
+  includeStamp = true,
 }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), "dd MMMM yyyy", { locale: fr })
@@ -377,8 +390,8 @@ export function renderToInvoiceHTML({
     <div class="signature">
       <div class="signature-box">
         SIGNATURE
-        ${shop?.signature_url ? `<br/><img class="signature-img" src="${shop.signature_url}" />` : ""}
-        ${shop?.cachet_url ? `<br/><img class="signature-img" src="${shop.cachet_url}" />` : ""}
+        ${includeStamp && shop?.signature_url ? `<br/><img class="signature-img" src="${shop.signature_url}" />` : ""}
+${includeStamp && shop?.cachet_url ? `<br/><img class="signature-img" src="${shop.cachet_url}" />` : ""}
       </div>
     </div>
 

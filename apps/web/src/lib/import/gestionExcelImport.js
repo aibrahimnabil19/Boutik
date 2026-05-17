@@ -208,7 +208,7 @@ export async function parseGestionExcelFile(
       if (!name) continue;
 
       // Reuse existing product id if code matches
-      const id = (code && productMap.get(code)) || uuid();
+      const id = getProductId(code, name);
       if (code) productMap.set(code, id);
 
       // Supplier name for the product
