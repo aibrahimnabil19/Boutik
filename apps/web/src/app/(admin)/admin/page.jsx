@@ -295,32 +295,32 @@ export default function AdminPage() {
   }
 
   async function handleDeleteUser(userId) {
-  const user = users.find(u => u.id === userId)
+    const user = users.find(u => u.id === userId)
 
-  if (userId === currentAdminId) {
-    toast.error('Vous ne pouvez pas supprimer votre propre compte admin.')
-    return
+    if (userId === currentAdminId) {
+      toast.error('Vous ne pouvez pas supprimer votre propre compte admin.')
+      return
+    }
+
+    const ok = confirm(
+      `Supprimer l'utilisateur "${user?.email || userId}" ?\n\nCette action supprimera son compte de connexion.`
+    )
+
+    if (!ok) return
+
+    try {
+      const { error } = await supabase.rpc('admin_delete_user', {
+        p_user_id: userId,
+      })
+
+      if (error) throw error
+
+      toast.success('Utilisateur supprimé')
+      await fetchData()
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de la suppression utilisateur')
+    }
   }
-
-  const ok = confirm(
-    `Supprimer l'utilisateur "${user?.email || userId}" ?\n\nCette action supprimera son compte de connexion.`
-  )
-
-  if (!ok) return
-
-  try {
-    const { error } = await supabase.rpc('admin_delete_user', {
-      p_user_id: userId,
-    })
-
-    if (error) throw error
-
-    toast.success('Utilisateur supprimé')
-    await fetchData()
-  } catch (err) {
-    toast.error(err.message || 'Erreur lors de la suppression utilisateur')
-  }
-}
 
   async function handleCreateRelease(e) {
     e.preventDefault()
@@ -406,14 +406,50 @@ export default function AdminPage() {
     )
   }
 
-  async function upsertMany(table, rows) {
-    if (!rows?.length) return
+  function stripUndefined(row) {
+    return Object.fromEntries(
+      Object.entries(row || {}).filter(([, value]) => value !== undefined)
+    )
+  }
 
-    const { error } = await supabase
-      .from(table)
-      .upsert(rows, { onConflict: 'id' })
+  function dedupeRowsByConflict(rows, conflictKey = 'id') {
+    const map = new Map()
 
-    if (error) throw error
+    for (const row of rows || []) {
+      if (!row) continue
+
+      const key = row[conflictKey]
+      if (!key) continue
+
+      // If the same id appears twice in the same Excel import,
+      // merge it into one row before sending to Supabase.
+      map.set(String(key), {
+        ...(map.get(String(key)) || {}),
+        ...row,
+      })
+    }
+
+    return Array.from(map.values()).map(stripUndefined)
+  }
+
+  async function upsertMany(table, rows, conflictKey = 'id') {
+    const cleanRows = dedupeRowsByConflict(rows, conflictKey)
+
+    if (!cleanRows.length) return
+
+    const CHUNK_SIZE = 250
+
+    for (let i = 0; i < cleanRows.length; i += CHUNK_SIZE) {
+      const chunk = cleanRows.slice(i, i + CHUNK_SIZE)
+
+      const { error } = await supabase
+        .from(table)
+        .upsert(chunk, { onConflict: conflictKey })
+
+      if (error) {
+        throw new Error(`${table}: ${error.message}`)
+      }
+    }
   }
 
   async function handleExcelImport(e) {
@@ -810,13 +846,13 @@ export default function AdminPage() {
                     </div>
 
                     <button
-  onClick={() => handleDeleteUser(u.id)}
-  disabled={u.id === currentAdminId}
-  className="p-2 rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-  title={u.id === currentAdminId ? 'Impossible de supprimer votre propre compte' : 'Supprimer utilisateur'}
->
-  <Trash2 className="w-4 h-4" />
-</button>
+                      onClick={() => handleDeleteUser(u.id)}
+                      disabled={u.id === currentAdminId}
+                      className="p-2 rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      title={u.id === currentAdminId ? 'Impossible de supprimer votre propre compte' : 'Supprimer utilisateur'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -950,57 +986,57 @@ export default function AdminPage() {
             </div>
 
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-  <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-    <Rocket className="w-4 h-4 text-purple-400" />
-    Versions publiées
-  </h3>
+              <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+                <Rocket className="w-4 h-4 text-purple-400" />
+                Versions publiées
+              </h3>
 
-  {releases.length === 0 ? (
-    <p className="text-sm text-slate-500">Aucune mise à jour publiée.</p>
-  ) : (
-    <div className="space-y-2">
-      {releases.map((r) => (
-        <div
-          key={r.id}
-          className="rounded-xl border border-white/10 bg-slate-900/60 p-4 flex items-center justify-between gap-4"
-        >
-          <div>
-            <p className="font-semibold text-white">
-              {r.version} — {r.title}
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {r.platform || 'windows'} · {r.created_at ? format(new Date(r.created_at), 'dd MMM yyyy à HH:mm', { locale: fr }) : ''}
-            </p>
-          </div>
+              {releases.length === 0 ? (
+                <p className="text-sm text-slate-500">Aucune mise à jour publiée.</p>
+              ) : (
+                <div className="space-y-2">
+                  {releases.map((r) => (
+                    <div
+                      key={r.id}
+                      className="rounded-xl border border-white/10 bg-slate-900/60 p-4 flex items-center justify-between gap-4"
+                    >
+                      <div>
+                        <p className="font-semibold text-white">
+                          {r.version} — {r.title}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {r.platform || 'windows'} · {r.created_at ? format(new Date(r.created_at), 'dd MMM yyyy à HH:mm', { locale: fr }) : ''}
+                        </p>
+                      </div>
 
-          <div className="flex gap-2">
-            {(r.exe_url || r.download_url) && (
-              <a
-                href={r.exe_url || r.download_url}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold"
-              >
-                Télécharger EXE
-              </a>
-            )}
+                      <div className="flex gap-2">
+                        {(r.exe_url || r.download_url) && (
+                          <a
+                            href={r.exe_url || r.download_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold"
+                          >
+                            Télécharger EXE
+                          </a>
+                        )}
 
-            {r.msi_url && (
-              <a
-                href={r.msi_url}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold"
-              >
-                Télécharger MSI
-              </a>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  )}
-</div>
+                        {r.msi_url && (
+                          <a
+                            href={r.msi_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-semibold"
+                          >
+                            Télécharger MSI
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
               <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
