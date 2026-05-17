@@ -3,7 +3,7 @@ import "./globals.css";
 import DesktopDownloadBanner from '@/components/DesktopDownloadBanner'
 
 export const metadata = {
-  title: "BM Suite",
+  title: "Boutik",
   description: "Gestion comptable & commerciale",
   icons: {
     icon: "/favicon.ico",
