@@ -42,8 +42,6 @@ export function renderToInvoiceHTML({
   type = "facture",
   includeCachet,
   includeSignature,
-  includeCachet,
-  includeSignature,
 }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), "dd MMMM yyyy", { locale: fr })
