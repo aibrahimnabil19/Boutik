@@ -35,6 +35,7 @@ export default function ClientsPage() {
   const [transactions, setTransactions] = useState([])
   const [sales, setSales] = useState([])
   const [search, setSearch] = useState('')
+  const [sortMode, setSortMode] = useState('alpha')
   const [modal, setModal] = useState(false)
   const [txModal, setTxModal] = useState(false)
   const [selected, setSelected] = useState(null)
@@ -217,10 +218,21 @@ export default function ClientsPage() {
     [clients, search]
   )
 
-  const withBalance = useMemo(() =>
-    filtered.map(c => ({ ...c, balance: clientBalance(c.id) })),
-    [filtered, transactions]
-  )
+  const withBalance = useMemo(() => {
+    const list = filtered.map(c => ({ ...c, balance: clientBalance(c.id) }))
+
+    return list.sort((a, b) => {
+      const alpha = String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
+
+      if (sortMode === 'alpha') return alpha
+      if (sortMode === 'debt_desc') return Math.max(0, b.balance) - Math.max(0, a.balance) || alpha
+      if (sortMode === 'debt_asc') return Math.max(0, a.balance) - Math.max(0, b.balance) || alpha
+      if (sortMode === 'credit_desc') return Math.max(0, -b.balance) - Math.max(0, -a.balance) || alpha
+      if (sortMode === 'recent') return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+
+      return alpha
+    })
+  }, [filtered, transactions, sortMode])
 
   const totalCreances = useMemo(() =>
     clients.reduce((s, c) => s + Math.max(0, clientBalance(c.id)), 0),
@@ -542,9 +554,26 @@ export default function ClientsPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
-          <div className="flex-1 max-w-xs">
+        <div className="flex flex-wrap items-end gap-3 px-5 py-4 border-b border-gray-100">
+          <div className="flex-1 min-w-[220px] max-w-xs">
             <SearchBar value={search} onChange={setSearch} placeholder="Rechercher un client…" />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-400 mb-1">
+              Trier par
+            </label>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              className={inputCls}
+            >
+              <option value="alpha">Nom A-Z</option>
+              <option value="debt_desc">Plus grosse dette</option>
+              <option value="debt_asc">Plus petite dette</option>
+              <option value="credit_desc">Plus gros crédit client</option>
+              <option value="recent">Plus récent</option>
+            </select>
           </div>
         </div>
 

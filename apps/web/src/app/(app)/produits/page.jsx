@@ -23,6 +23,7 @@ export default function ProduitsPage() {
   const [sales, setSales] = useState([])
   const [search, setSearch] = useState('')
   const [stockFilter, setStockFilter] = useState('all')
+  const [sortMode, setSortMode] = useState('alpha')
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [confirm, setConfirm] = useState(null)
@@ -125,14 +126,24 @@ export default function ProduitsPage() {
     }), [filtered, purchases, sales])
 
   const displayedProducts = useMemo(() => {
-    let list = withStock
+    let list = [...withStock]
 
     if (stockFilter === 'low') list = list.filter(p => p.isLow)
     if (stockFilter === 'urgent') list = list.filter(p => p.isUrgent)
     if (stockFilter === 'ok') list = list.filter(p => !p.isLow && !p.isUrgent)
 
-    return list
-  }, [withStock, stockFilter])
+    return list.sort((a, b) => {
+      const alpha = String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
+
+      if (sortMode === 'alpha') return alpha
+      if (sortMode === 'stock_desc') return Number(b.currentStock || 0) - Number(a.currentStock || 0) || alpha
+      if (sortMode === 'stock_asc') return Number(a.currentStock || 0) - Number(b.currentStock || 0) || alpha
+      if (sortMode === 'value_desc') return Number(b.stockValue || 0) - Number(a.stockValue || 0) || alpha
+      if (sortMode === 'low_first') return Number(a.isLow ? 0 : 1) - Number(b.isLow ? 0 : 1) || alpha
+
+      return alpha
+    })
+  }, [withStock, stockFilter, sortMode])
 
   const lowStockCount = withStock.filter(p => p.alert_threshold != null && p.currentStock <= p.alert_threshold).length
 
@@ -179,6 +190,23 @@ export default function ProduitsPage() {
                 {label}
               </button>
             ))}
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-400 mb-1">
+              Trier par
+            </label>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              className={inputCls}
+            >
+              <option value="alpha">Nom A-Z</option>
+              <option value="stock_desc">Stock le plus élevé</option>
+              <option value="stock_asc">Stock le plus bas</option>
+              <option value="low_first">Stock bas d’abord</option>
+              <option value="value_desc">Valeur stock élevée</option>
+            </select>
           </div>
         </div>
 

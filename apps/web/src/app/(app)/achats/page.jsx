@@ -21,6 +21,7 @@ import PhoneInput from '@/components/PhoneInput'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DateFilter from '@/components/DateFilter'
 import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
+import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
 
 // Document types for purchases
 const PURCHASE_DOC_TYPES = [
@@ -51,6 +52,7 @@ export default function AchatsPage() {
   const [paymentModal, setPaymentModal] = useState(null)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
+  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -277,6 +279,8 @@ export default function AchatsPage() {
       type: docType,
       purchase,
       invoiceNumber: `ACH-${purchase.date}-${purchase.id.slice(0, 4).toUpperCase()}`,
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
     })
     setDocModal(null)
   }
@@ -299,6 +303,22 @@ export default function AchatsPage() {
     () => filtered.reduce((a, p) => a + Number(p.total_amount || 0), 0),
     [filtered]
   )
+
+  const purchaseProductOptions = useMemo(() => {
+    return products
+      .map(p => ({
+        ...p,
+        currentStock: calculateStock(p, purchases, sales),
+      }))
+      .sort((a, b) => {
+        const aOut = Number(a.currentStock || 0) <= 0 ? 1 : 0
+        const bOut = Number(b.currentStock || 0) <= 0 ? 1 : 0
+
+        if (aOut !== bOut) return aOut - bOut
+
+        return String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
+      })
+  }, [products, purchases, sales])
 
   return (
     <div className="p-6">
@@ -403,6 +423,11 @@ export default function AchatsPage() {
           <p className="text-sm text-gray-500 mb-4">
             Choisissez le type de document à générer pour cet achat.
           </p>
+          <DocumentPrintOptions
+            shop={shop}
+            value={printOptions}
+            onChange={setPrintOptions}
+          />
           {docModal && PURCHASE_DOC_TYPES.map(doc => {
             const Icon = doc.icon
             return (
@@ -467,8 +492,11 @@ export default function AchatsPage() {
               required
             >
               <option value="">— Choisir un produit —</option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>{p.name} {p.code ? `(${p.code})` : ''}</option>
+              {purchaseProductOptions.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(p.currentStock)}
+                  {Number(p.currentStock || 0) <= 0 ? ' — rupture' : ''}
+                </option>
               ))}
             </select>
           </FormField>

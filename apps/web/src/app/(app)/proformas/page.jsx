@@ -11,6 +11,7 @@ import { localDb, getAll, localDelete, localUpsert } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA } from '@/lib/core/calculations'
 import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard } from '@/components/ui'
 import { v4 as uuid } from 'uuid'
+import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
 
 export default function ProformasPage() {
   const router = useRouter()
@@ -20,6 +21,8 @@ export default function ProformasPage() {
   const [search, setSearch] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [pendingSale, setPendingSale] = useState(null)
+  const [docOptions, setDocOptions] = useState(getDefaultDocumentOptions(shop))
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -81,7 +84,12 @@ export default function ProformasPage() {
     return Object.values(groups).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date))
   }, [sales])
 
-  async function createProformaFromSale(group) {
+  function openCreateProformaOptions(group) {
+    setPendingSale(group)
+    setDocOptions(getDefaultDocumentOptions(shop))
+  }
+
+  async function createProformaFromSale(group, options = docOptions) {
     const now = new Date().toISOString()
     const invoiceId = uuid()
     const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
@@ -126,7 +134,9 @@ export default function ProformasPage() {
     }
 
     toast.success('Proforma créé depuis la vente')
-    router.push(`/proformas/nouvelle?id=${invoiceId}`)
+    router.push(
+      `/proformas/nouvelle?id=${invoiceId}&cachet=${options.includeCachet ? '1' : '0'}&signature=${options.includeSignature ? '1' : '0'}`
+    )
   }
 
   async function handleConvertToSale(inv) {
@@ -306,7 +316,7 @@ export default function ProformasPage() {
 
                   <div className="text-right">
                     <p className="font-bold text-gray-900">{formatFCFA(total)}</p>
-                    <Btn size="sm" icon={Plus} onClick={() => createProformaFromSale(group)} className="mt-2">
+                    <Btn size="sm" icon={Plus} onClick={() => openCreateProformaOptions(group)} className="mt-2">
                       Créer proforma
                     </Btn>
                   </div>
@@ -316,6 +326,40 @@ export default function ProformasPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={!!pendingSale}
+        onClose={() => setPendingSale(null)}
+        title="Options de la proforma"
+        maxW="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Choisissez les éléments à inclure avant de créer la proforma.
+          </p>
+
+          <DocumentPrintOptions
+            shop={shop}
+            value={docOptions}
+            onChange={setDocOptions}
+          />
+
+          <div className="flex gap-3 justify-end">
+            <Btn variant="secondary" onClick={() => setPendingSale(null)}>
+              Annuler
+            </Btn>
+            <Btn
+              icon={Plus}
+              onClick={async () => {
+                await createProformaFromSale(pendingSale, docOptions)
+                setPendingSale(null)
+              }}
+            >
+              Créer proforma
+            </Btn>
+          </div>
+        </div>
+      </Modal>
 
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
         onConfirm={() => handleDelete(confirm)}

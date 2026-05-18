@@ -12,7 +12,8 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
-import { renderToInvoiceHTML, askIncludeStamp } from '@/lib/core/invoicePrint'
+import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
+import DocumentPrintOptions from '@/components/DocumentPrintOptions'
 import FrenchInput from '@/components/FrenchInput'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
@@ -28,6 +29,10 @@ export default function NouvelleProformaPage() {
   const [saving, setSaving] = useState(false)
   const [proformaId] = useState(existingId || uuid())
   const [proformaNumber, setProformaNumber] = useState('')
+  const [printOptions, setPrintOptions] = useState({
+    includeCachet: searchParams.get('cachet') !== '0',
+    includeSignature: searchParams.get('signature') !== '0',
+  })
 
   const { register, handleSubmit, reset, watch, setValue } = useForm({
     defaultValues: {
@@ -143,7 +148,6 @@ export default function NouvelleProformaPage() {
   // ─── Print via iframe (only the document, not the screen) ─────────────────
   function handlePrint() {
     const formValues = watch()
-    const includeStamp = askIncludeStamp(shop)
 
     const html = renderToInvoiceHTML({
       shop,
@@ -152,7 +156,8 @@ export default function NouvelleProformaPage() {
       items: computedItems,
       grandTotal,
       type: 'proforma',
-      includeStamp,
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
     })
 
     const iframe = document.createElement('iframe')
@@ -181,6 +186,13 @@ export default function NouvelleProformaPage() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <h1 className="font-display font-bold text-gray-900">Proforma {proformaNumber}</h1>
+        <div className="hidden lg:block w-64">
+          <DocumentPrintOptions
+            shop={shop}
+            value={printOptions}
+            onChange={setPrintOptions}
+          />
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <Btn variant="secondary" icon={Printer} onClick={handlePrint}>Imprimer</Btn>
           <Btn icon={Save} onClick={handleSubmit(onSubmit)} disabled={saving}>

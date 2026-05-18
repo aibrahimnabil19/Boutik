@@ -18,6 +18,17 @@ export function askIncludeStamp(shop) {
   );
 }
 
+export function normalizeDocumentOptions(shop, options = {}) {
+  const includeStamp = options.includeStamp;
+
+  return {
+    includeCachet: options.includeCachet ?? includeStamp ?? !!shop?.cachet_url,
+
+    includeSignature:
+      options.includeSignature ?? includeStamp ?? !!shop?.signature_url,
+  };
+}
+
 /**
  * Renders a complete standalone HTML document for a facture or proforma.
  * Used for iframe-based printing (no browser chrome, no sidebar, just the doc).
@@ -29,13 +40,22 @@ export function renderToInvoiceHTML({
   items,
   grandTotal,
   type = "facture",
-  includeStamp = true,
+  includeCachet,
+  includeSignature,
+  includeCachet,
+  includeSignature,
 }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), "dd MMMM yyyy", { locale: fr })
     : "—";
 
   const city = formValues.city || shop?.city || "Niamey";
+  const documentOptions = normalizeDocumentOptions(shop, {
+    includeCachet,
+    includeSignature,
+    includeCachet,
+    includeSignature,
+  });
   const primary = "#1F4E79";
   const orange = "#F39A21";
 
@@ -390,8 +410,8 @@ export function renderToInvoiceHTML({
     <div class="signature">
       <div class="signature-box">
         SIGNATURE
-        ${includeStamp && shop?.signature_url ? `<br/><img class="signature-img" src="${shop.signature_url}" />` : ""}
-${includeStamp && shop?.cachet_url ? `<br/><img class="signature-img" src="${shop.cachet_url}" />` : ""}
+        ${documentOptions.includeSignature && shop?.signature_url ? `<br/><img class="signature-img" src="${shop.signature_url}" />` : ""}
+        ${documentOptions.includeCachet && shop?.cachet_url ? `<br/><img class="signature-img" src="${shop.cachet_url}" />` : ""}
       </div>
     </div>
 
@@ -414,7 +434,14 @@ ${includeStamp && shop?.cachet_url ? `<br/><img class="signature-img" src="${sho
  * @param {object} params.saleGroup - { date, client_name, items: [{product_name, quantity, unit_sale_price, total_sale}] }
  * @param {string} params.invoiceNumber - optional
  */
-export function printSaleDocument({ shop, type, saleGroup, invoiceNumber }) {
+export function printSaleDocument({
+  shop,
+  type,
+  saleGroup,
+  invoiceNumber,
+  includeCachet,
+  includeSignature,
+}) {
   const formValues = {
     date: saleGroup.date,
     city: shop?.city || "",
@@ -436,8 +463,6 @@ export function printSaleDocument({ shop, type, saleGroup, invoiceNumber }) {
   const grandTotal = items.reduce((a, i) => a + i.total_price, 0);
   const num = invoiceNumber || `VTE-${saleGroup.date}`;
 
-  const includeStamp = askIncludeStamp(shop);
-
   const html = renderToInvoiceHTML({
     shop,
     invoiceNumber: num,
@@ -445,7 +470,8 @@ export function printSaleDocument({ shop, type, saleGroup, invoiceNumber }) {
     items,
     grandTotal,
     type,
-    includeStamp,
+    includeCachet,
+    includeSignature,
   });
 
   const iframe = document.createElement("iframe");
@@ -467,7 +493,14 @@ export function printSaleDocument({ shop, type, saleGroup, invoiceNumber }) {
 /**
  * Opens a print dialog for a purchase (bon de commande).
  */
-export function printPurchaseDocument({ shop, type, purchase, invoiceNumber }) {
+export function printPurchaseDocument({
+  shop,
+  type,
+  purchase,
+  invoiceNumber,
+  includeCachet,
+  includeSignature,
+}) {
   const formValues = {
     date: purchase.date,
     city: shop?.city || "",
@@ -490,8 +523,6 @@ export function printPurchaseDocument({ shop, type, purchase, invoiceNumber }) {
   const grandTotal = purchase.total_amount || 0;
   const num = invoiceNumber || `ACH-${purchase.date}`;
 
-  const includeStamp = askIncludeStamp(shop);
-
   const html = renderToInvoiceHTML({
     shop,
     invoiceNumber: num,
@@ -499,7 +530,8 @@ export function printPurchaseDocument({ shop, type, purchase, invoiceNumber }) {
     items,
     grandTotal,
     type,
-    includeStamp,
+    includeCachet,
+    includeSignature,
   });
 
   const iframe = document.createElement("iframe");

@@ -16,7 +16,8 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
-import { renderToInvoiceHTML, askIncludeStamp } from '@/lib/core/invoicePrint'
+import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
+import DocumentPrintOptions from '@/components/DocumentPrintOptions'
 import FrenchInput from '@/components/FrenchInput'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
@@ -33,6 +34,10 @@ export default function NouvelleFacturePage() {
   const [status, setStatus] = useState('draft')
   const [invoiceId] = useState(existingId || uuid())
   const [invoiceNumber, setInvoiceNumber] = useState('')
+  const [printOptions, setPrintOptions] = useState({
+    includeCachet: searchParams.get('cachet') !== '0',
+    includeSignature: searchParams.get('signature') !== '0',
+  })
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
@@ -148,36 +153,36 @@ export default function NouvelleFacturePage() {
   }
 
   // ─── Print: renders ONLY the invoice into a hidden iframe ─────────────────
- function handlePrint() {
-  const formValues = watch ? watch() : {}
-  const includeStamp = askIncludeStamp(shop)
+  function handlePrint() {
+    const formValues = watch ? watch() : {}
 
-  const html = renderToInvoiceHTML({
-    shop,
-    invoiceNumber,
-    formValues,
-    items: computedItems,
-    grandTotal,
-    type: 'facture',
-    includeStamp,
-  })
+    const html = renderToInvoiceHTML({
+      shop,
+      invoiceNumber,
+      formValues,
+      items: computedItems,
+      grandTotal,
+      type: 'facture',
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
+    })
 
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
-  document.body.appendChild(iframe)
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
+    document.body.appendChild(iframe)
 
-  iframe.contentDocument.open()
-  iframe.contentDocument.write(html)
-  iframe.contentDocument.close()
+    iframe.contentDocument.open()
+    iframe.contentDocument.write(html)
+    iframe.contentDocument.close()
 
-  iframe.onload = () => {
-    setTimeout(() => {
-      iframe.contentWindow.focus()
-      iframe.contentWindow.print()
-      setTimeout(() => document.body.removeChild(iframe), 1000)
-    }, 300)
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus()
+        iframe.contentWindow.print()
+        setTimeout(() => document.body.removeChild(iframe), 1000)
+      }, 300)
+    }
   }
-}
 
   const formValues = watch()
 
@@ -194,6 +199,15 @@ export default function NouvelleFacturePage() {
           {status === 'draft' && <span className="ml-2 text-xs font-normal text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full">Brouillon</span>}
           {status === 'finalized' && <span className="ml-2 text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Finalisée</span>}
         </h1>
+
+        <div className="hidden lg:block w-64">
+          <DocumentPrintOptions
+            shop={shop}
+            value={printOptions}
+            onChange={setPrintOptions}
+          />
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <Btn variant="secondary" icon={Printer} onClick={handlePrint}>Imprimer</Btn>
           <Btn

@@ -13,6 +13,7 @@ import { formatFCFA, amountToWordsFCFA } from '@/lib/core/calculations'
 import { v4 as uuid } from 'uuid'
 import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard } from '@/components/ui'
 import FrenchInput from '@/components/FrenchInput'
+import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
 
 export default function FacturesPage() {
   const router = useRouter()
@@ -22,6 +23,8 @@ export default function FacturesPage() {
   const [search, setSearch] = useState('')
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [pendingSale, setPendingSale] = useState(null)
+  const [docOptions, setDocOptions] = useState(getDefaultDocumentOptions(shop))
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -68,7 +71,7 @@ export default function FacturesPage() {
     return Object.values(groups).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date))
   }, [sales])
 
-  async function createFactureFromSale(group) {
+  async function createFactureFromSale(group, options = docOptions) {
     const now = new Date().toISOString()
     const invoiceId = uuid()
     const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
@@ -113,7 +116,9 @@ export default function FacturesPage() {
     }
 
     toast.success('Facture créée depuis la vente')
-    router.push(`/factures/nouvelle?id=${invoiceId}`)
+    router.push(
+      `/factures/nouvelle?id=${invoiceId}&cachet=${options.includeCachet ? '1' : '0'}&signature=${options.includeSignature ? '1' : '0'}`
+    )
   }
 
   async function handleDelete(id) {
@@ -129,6 +134,11 @@ export default function FacturesPage() {
       : status === 'cancelled'
         ? <Badge color="red">Annulée</Badge>
         : <Badge color="amber">Brouillon</Badge>
+  }
+
+  function openCreateFactureOptions(group) {
+    setPendingSale(group)
+    setDocOptions(getDefaultDocumentOptions(shop))
   }
 
   return (
@@ -245,7 +255,7 @@ export default function FacturesPage() {
 
                   <div className="text-right">
                     <p className="font-bold text-gray-900">{formatFCFA(total)}</p>
-                    <Btn size="sm" icon={Plus} onClick={() => createFactureFromSale(group)} className="mt-2">
+                    <Btn size="sm" icon={Plus} onClick={() => openCreateFactureOptions(group)} className="mt-2">
                       Créer facture
                     </Btn>
                   </div>
@@ -255,6 +265,40 @@ export default function FacturesPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={!!pendingSale}
+        onClose={() => setPendingSale(null)}
+        title="Options de la facture"
+        maxW="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">
+            Choisissez les éléments à inclure avant de créer la facture.
+          </p>
+
+          <DocumentPrintOptions
+            shop={shop}
+            value={docOptions}
+            onChange={setDocOptions}
+          />
+
+          <div className="flex gap-3 justify-end">
+            <Btn variant="secondary" onClick={() => setPendingSale(null)}>
+              Annuler
+            </Btn>
+            <Btn
+              icon={Plus}
+              onClick={async () => {
+                await createFactureFromSale(pendingSale, docOptions)
+                setPendingSale(null)
+              }}
+            >
+              Créer facture
+            </Btn>
+          </div>
+        </div>
+      </Modal>
 
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
         onConfirm={() => { handleDelete(confirm) }}

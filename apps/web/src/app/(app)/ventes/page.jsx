@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { TrendingUp, Plus, Trash2, XCircle, PlusCircle, FileText, Printer, Receipt, Truck, Wallet, } from 'lucide-react'
+import { TrendingUp, Plus, Trash2, Pencil, PlusCircle, FileText, Printer, Receipt, Truck, Wallet } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -19,6 +19,8 @@ import FrenchInput from '@/components/FrenchInput'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DateFilter from '@/components/DateFilter'
 import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
+import PhoneInput from '@/components/PhoneInput'
+import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -63,6 +65,10 @@ export default function VentesPage() {
   const [loading, setLoading] = useState(true)
   const [paymentModal, setPaymentModal] = useState(null)
   const [paymentAmount, setPaymentAmount] = useState('')
+  const [clientModal, setClientModal] = useState(false)
+  const [quickClient, setQuickClient] = useState({ name: '', phone: '', address: '' })
+  const [editingGroup, setEditingGroup] = useState(null)
+  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
   // Document modal
   const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
@@ -88,6 +94,12 @@ export default function VentesPage() {
     setClients(c)
     setLoading(false)
   }, [shop?.id])
+
+  const sortedClients = useMemo(() => {
+    return [...clients].sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
+    )
+  }, [clients])
 
   function openPayment(group) {
     if (!group || Number(group.remaining_amount || 0) <= 0) {
@@ -328,7 +340,11 @@ export default function VentesPage() {
       const prod = products.find(p => p.id === productId)
       if (!prod) continue
 
-      const currentStock = computeStock(prod, purchases, sales)
+      const stockSales = editingGroup
+        ? sales.filter(s => (s.session_id || s.id) !== editingGroup.key)
+        : sales
+
+      const currentStock = computeStock(prod, purchases, stockSales)
 
       if (requestedQty > currentStock) {
         toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${formatNumber(currentStock)}`)
@@ -353,10 +369,17 @@ export default function VentesPage() {
       return
     }
 
-    const sessionId = uuid()
+    const sessionId = editingGroup?.key || uuid()
     const now = new Date().toISOString()
 
     try {
+      if (editingGroup) {
+        const oldSales = sales.filter(s => (s.session_id || s.id) === editingGroup.key)
+
+        for (const oldSale of oldSales) {
+          await localDelete('sales', oldSale.id)
+        }
+      }
       const savedSales = []
       for (const line of cart) {
         const q = Number(line.quantity)
@@ -409,7 +432,8 @@ export default function VentesPage() {
         })
       }
 
-      toast.success(`Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`)
+      toast.success(editingGroup ? 'Vente modifiée' : `Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`)
+      setEditingGroup(null)
       setModal(false)
 
       // Show document modal after successful sale
@@ -431,7 +455,74 @@ export default function VentesPage() {
     }
   }
 
+  async function handleQuickClientSubmit(e) {
+    e.preventDefault()
+
+    const name = quickClient.name.trim()
+
+    if (!name) {
+      toast.error('Nom du client requis.')
+      return
+    }
+
+    const now = new Date().toISOString()
+
+    const record = {
+      id: uuid(),
+      shop_id: shop.id,
+      name,
+      phone: quickClient.phone || '',
+      address: quickClient.address || '',
+      created_at: now,
+      updated_at: now,
+      sync_status: 'pending',
+    }
+
+    await localUpsert('clients', record)
+
+    setClients(prev =>
+      [...prev, record].sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
+      )
+    )
+
+    setSaleClientId(record.id)
+    setClientModal(false)
+    setQuickClient({ name: '', phone: '', address: '' })
+    toast.success('Client ajouté')
+  }
+
+  function openEditSale(group) {
+    const firstItem = group.items?.[0]
+    const matchedClient = clients.find(c =>
+      c.id === firstItem?.client_id ||
+      String(c.name || '').trim().toLowerCase() === String(group.client_name || '').trim().toLowerCase()
+    )
+
+    setEditingGroup(group)
+    setSaleDate(group.date || format(new Date(), 'yyyy-MM-dd'))
+    setSaleClientId(matchedClient?.id || '')
+    setPaymentMode(Number(group.remaining_amount || 0) > 0 ? 'credit' : 'paid')
+    setPaidAmount(String(group.paid_amount || ''))
+
+    setCart(
+      (group.items || []).map(item => ({
+        _key: uuid(),
+        existing_id: item.id,
+        product_id: item.product_id || '',
+        product_name: item.product_name || '',
+        product_code: item.product_code || '',
+        unit_cost: item.unit_purchase_cost || 0,
+        quantity: item.quantity || 1,
+        unit_sale_price: item.unit_sale_price || '',
+      }))
+    )
+
+    setModal(true)
+  }
+
   function openAdd() {
+    setEditingGroup(null)
     setCart([emptyLine()])
     setSaleDate(format(new Date(), 'yyyy-MM-dd'))
     setSaleClientId('')
@@ -512,9 +603,32 @@ export default function VentesPage() {
       type: docType,
       saleGroup: group,
       invoiceNumber: `VTE-${group.date}-${group.key.slice(0, 4).toUpperCase()}`,
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
     })
+
     setDocModal(null)
   }
+
+  const saleProductOptions = useMemo(() => {
+    const stockSales = editingGroup
+      ? sales.filter(s => (s.session_id || s.id) !== editingGroup.key)
+      : sales
+
+    return products
+      .map(p => ({
+        ...p,
+        currentStock: computeStock(p, purchases, stockSales),
+      }))
+      .sort((a, b) => {
+        const aOut = Number(a.currentStock || 0) <= 0 ? 1 : 0
+        const bOut = Number(b.currentStock || 0) <= 0 ? 1 : 0
+
+        if (aOut !== bOut) return aOut - bOut
+
+        return String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
+      })
+  }, [products, purchases, sales, editingGroup])
 
   return (
     <div className="p-6">
@@ -526,7 +640,7 @@ export default function VentesPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Chiffre d'affaires total" value={formatFCFA(totalRevenue)} color="blue" icon={TrendingUp} />
-        <StatCard label="Bénéfice total" value={formatFCFA(totalProfit)} color="green" icon={TrendingUp} />
+        <StatCard label="Marge total" value={formatFCFA(totalProfit)} color="green" icon={TrendingUp} />
         <StatCard label="Nombre de ventes" value={activeSales.length} color="purple" />
       </div>
 
@@ -616,11 +730,11 @@ export default function VentesPage() {
                           <Wallet className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => setConfirm({ type: 'cancel', id: group.key })}
-                          className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-400 hover:text-amber-500 transition-colors"
-                          title="Annuler la vente"
+                          onClick={() => openEditSale(group)}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Modifier la vente"
                         >
-                          <XCircle className="w-3.5 h-3.5" />
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => setConfirm({ type: 'delete', id: group.key })}
@@ -645,6 +759,11 @@ export default function VentesPage() {
           <p className="text-sm text-gray-500 mb-4">
             Choisissez le type de document à générer pour cette vente.
           </p>
+          <DocumentPrintOptions
+            shop={shop}
+            value={printOptions}
+            onChange={setPrintOptions}
+          />
           {docModal && SALE_DOC_TYPES.map(doc => {
             const Icon = doc.icon
             return (
@@ -684,10 +803,27 @@ export default function VentesPage() {
               />
             </FormField>
             <FormField label="Client">
-              <select value={saleClientId} onChange={e => setSaleClientId(e.target.value)} className={selectCls}>
-                <option value="">— Choisir —</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <div className="flex gap-2">
+                <select
+                  value={saleClientId}
+                  onChange={e => setSaleClientId(e.target.value)}
+                  className={selectCls}
+                >
+                  <option value="">— Choisir un client —</option>
+                  {sortedClients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setClientModal(true)}
+                  className="h-11 w-11 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition"
+                  title="Ajouter un client"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
             </FormField>
           </div>
 
@@ -755,16 +891,21 @@ export default function VentesPage() {
                       className={selectCls}
                     >
                       <option value="">— Sélectionner un produit —</option>
-                      {products.map(p => {
-                        const stock = computeStock(p, purchases, sales)
+                      {saleProductOptions.map(p => {
+                        const stock = Number(p.currentStock || 0)
                         const isSelectedElsewhere = cart.some(other =>
                           other._key !== line._key && other.product_id === p.id
                         )
+                        const isCurrentLine = line.product_id === p.id
+                        const outOfStock = stock <= 0
+                        const disabled = !isCurrentLine && (isSelectedElsewhere || outOfStock)
 
                         return (
-                          <option key={p.id} value={p.id} disabled={isSelectedElsewhere}>
+                          <option key={p.id} value={p.id} disabled={disabled}>
+                            {outOfStock ? '⚠ ' : ''}
                             {p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(stock)}
                             {isSelectedElsewhere ? ' — déjà ajouté' : ''}
+                            {outOfStock ? ' — rupture' : ''}
                           </option>
                         )
                       })}
@@ -824,7 +965,7 @@ export default function VentesPage() {
 
                           {lineTotal > 0 && (
                             <span className={`text-xs font-semibold ml-1 ${lineProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                              Bénéfice : {lineProfit >= 0 ? '+' : ''}{formatFCFA(lineProfit)}
+                              Marge : {lineProfit >= 0 ? '+' : ''}{formatFCFA(lineProfit)}
                             </span>
                           )}
                         </div>
@@ -858,7 +999,7 @@ export default function VentesPage() {
                 <p className="font-bold text-blue-700">{formatFCFA(cartTotals.cost)}</p>
               </div>
               <div>
-                <p className="text-xs text-blue-500">Bénéfice</p>
+                <p className="text-xs text-blue-500">Marge</p>
                 <p className={`font-bold ${cartTotals.profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                   {cartTotals.profit >= 0 ? '+' : ''}{formatFCFA(cartTotals.profit)}
                 </p>
@@ -916,6 +1057,45 @@ export default function VentesPage() {
             </div>
           </form>
         )}
+      </Modal>
+
+      <Modal open={clientModal} onClose={() => setClientModal(false)} title="Nouveau client" maxW="max-w-md">
+        <form onSubmit={handleQuickClientSubmit} className="space-y-4">
+          <FormField label="Nom du client" required>
+            <input
+              value={quickClient.name}
+              onChange={(e) => setQuickClient(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="Ex: Client Boutique"
+              className={inputCls}
+              required
+            />
+          </FormField>
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Téléphone">
+              <PhoneInput
+                value={quickClient.phone}
+                onChange={(value) => setQuickClient(prev => ({ ...prev, phone: value }))}
+                placeholder="99 12 34 56"
+                className={inputCls}
+              />
+            </FormField>
+
+            <FormField label="Adresse">
+              <input
+                value={quickClient.address}
+                onChange={(e) => setQuickClient(prev => ({ ...prev, address: e.target.value }))}
+                placeholder="Ex: Niamey"
+                className={inputCls}
+              />
+            </FormField>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Btn variant="secondary" onClick={() => setClientModal(false)}>Annuler</Btn>
+            <Btn type="submit">Ajouter</Btn>
+          </div>
+        </form>
       </Modal>
 
       <ConfirmDialog

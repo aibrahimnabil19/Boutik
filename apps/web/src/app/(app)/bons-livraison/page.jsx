@@ -8,6 +8,7 @@ import { useAppStore } from '@/context/store'
 import { getAll } from '@/lib/db/local'
 import { formatFCFA } from '@/lib/core/calculations'
 import { printSaleDocument } from '@/lib/core/invoicePrint'
+import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
 import {
   PageHeader,
   SearchBar,
@@ -22,6 +23,7 @@ export default function BonsLivraisonPage() {
   const [sales, setSales] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -75,6 +77,8 @@ export default function BonsLivraisonPage() {
       type: 'bon_livraison',
       saleGroup: group,
       invoiceNumber: `BL-${String(group.date).replaceAll('-', '')}-${String(group.key).slice(0, 4).toUpperCase()}`,
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
     })
   }
 
@@ -101,6 +105,11 @@ export default function BonsLivraisonPage() {
 
       <div className="card overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+          <DocumentPrintOptions
+            shop={shop}
+            value={printOptions}
+            onChange={setPrintOptions}
+          />
           <div className="flex-1 max-w-xs">
             <SearchBar value={search} onChange={setSearch} placeholder="Client, produit, magasin…" />
           </div>
