@@ -65,17 +65,45 @@ const TENS = [
   "quatre-vingt",
 ];
 
-function belowThousand(n) {
+function belowHundred(n) {
   if (n === 0) return "";
   if (n < 20) return ONES[n];
+
   const ten = Math.floor(n / 10);
   const one = n % 10;
-  if (ten === 7) return "soixante-" + ONES[10 + one];
-  if (ten === 9) return "quatre-vingt-" + (one === 0 ? "" : ONES[one]);
-  if (ten === 8) return "quatre-vingt" + (one === 0 ? "s" : "-" + ONES[one]);
-  if (one === 1 && ten !== 8)
-    return TENS[ten] + (ten === 7 ? "-et-onze" : "-et-un");
+
+  if (ten === 7) {
+    return one === 1 ? "soixante-et-onze" : "soixante-" + ONES[10 + one];
+  }
+
+  if (ten === 9) {
+    return one === 0 ? "quatre-vingt-dix" : "quatre-vingt-" + ONES[10 + one];
+  }
+
+  if (ten === 8) {
+    return "quatre-vingt" + (one === 0 ? "s" : "-" + ONES[one]);
+  }
+
+  if (one === 1) {
+    return TENS[ten] + "-et-un";
+  }
+
   return TENS[ten] + (one > 0 ? "-" + ONES[one] : "");
+}
+
+function belowThousand(n) {
+  if (n === 0) return "";
+  if (n < 100) return belowHundred(n);
+
+  const hundred = Math.floor(n / 100);
+  const rest = n % 100;
+
+  const hundredText =
+    hundred === 1
+      ? "cent"
+      : `${belowHundred(hundred)} cent${rest === 0 ? "s" : ""}`;
+
+  return rest > 0 ? `${hundredText} ${belowHundred(rest)}` : hundredText;
 }
 
 function numberToWordsFR(n) {
@@ -115,15 +143,15 @@ function numberToWordsFR(n) {
 
 /** Convert amount to French words for invoices */
 export function amountWordsOnlyFCFA(amount) {
-  const n = Math.round(Number(amount));
-  if (isNaN(n)) return "";
+  const n = Math.round(Number(amount || 0));
+  if (!Number.isFinite(n)) return "zéro franc CFA";
   return `${numberToWordsFR(n)} francs CFA`;
 }
 
 /** Convert amount to French words for invoices */
 export function amountToWordsFCFA(amount, subject = "") {
-  const subjectPart = subject ? ` ${subject}` : "";
-  return `Arrêté la présente${subjectPart} à la somme de ${amountWordsOnlyFCFA(amount)}`;
+  const safeSubject = subject ? ` ${subject}` : "";
+  return `Arrêté la présente${safeSubject} à la somme de ${amountWordsOnlyFCFA(amount)}`;
 }
 
 /**
@@ -207,4 +235,43 @@ export function calculateInvoiceTotal(items) {
     (a, item) => a + (item.total_price || item.quantity * item.unit_price || 0),
     0,
   );
+}
+
+export function getMonthlyTotals(sales = [], purchases = [], expenses = [], months = 6) {
+  return Array.from({ length: months }, (_, i) => {
+    const date = subMonths(new Date(), months - 1 - i);
+    const start = startOfMonth(date);
+    const end = endOfMonth(date);
+
+    const inPeriod = (value) => {
+      if (!value) return false;
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return false;
+      return isWithinInterval(d, { start, end });
+    };
+
+    const monthSales = sales
+      .filter((s) => !s.deleted_at && !s.cancelled_at && inPeriod(s.date))
+      .reduce((a, s) => a + Number(s.total_sale || 0), 0);
+
+    const monthPurchases = purchases
+      .filter((p) => !p.deleted_at && inPeriod(p.date))
+      .reduce((a, p) => a + Number(p.total_amount || 0), 0);
+
+    const monthExpenses = expenses
+      .filter((e) => !e.deleted_at && inPeriod(e.date))
+      .reduce((a, e) => a + Number(e.amount || 0), 0);
+
+    const grossProfit = sales
+      .filter((s) => !s.deleted_at && !s.cancelled_at && inPeriod(s.date))
+      .reduce((a, s) => a + Number(s.profit || 0), 0);
+
+    return {
+      month: format(date, "MMM yy", { locale: fr }),
+      ventes: monthSales,
+      achats: monthPurchases,
+      depenses: monthExpenses,
+      benefice: grossProfit - monthExpenses,
+    };
+  });
 }

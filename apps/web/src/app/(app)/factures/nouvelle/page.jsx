@@ -187,7 +187,7 @@ export default function NouvelleFacturePage() {
     })
 
     const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
     document.body.appendChild(iframe)
 
     iframe.contentDocument.open()
@@ -372,6 +372,7 @@ export default function NouvelleFacturePage() {
               formValues={formValues}
               items={computedItems}
               grandTotal={grandTotal}
+              guarantee={guarantee}
             />
           </div>
         </div>
@@ -381,7 +382,7 @@ export default function NouvelleFacturePage() {
 }
 
 // ─── Invoice Preview Component ────────────────────────────────────────────────
-export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, full }) {
+export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTotal, guarantee, full }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), 'dd MMMM yyyy', { locale: fr })
     : '—'
@@ -458,7 +459,7 @@ export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTo
         {amountToWordsFCFA(grandTotal, 'facture')}
       </p>
 
-      {guarantee.text && (
+      {guarantee?.text && (
         <p className="text-gray-800 mb-8">
           <span className="text-red-600 underline font-bold">GARANTIE</span> : {guarantee.text}
         </p>

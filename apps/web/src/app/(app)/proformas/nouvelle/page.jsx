@@ -180,7 +180,7 @@ export default function NouvelleProformaPage() {
     })
 
     const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;'
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
     document.body.appendChild(iframe)
     iframe.contentDocument.open()
     iframe.contentDocument.write(html)
@@ -338,8 +338,14 @@ export default function NouvelleProformaPage() {
         <div>
           <div className="card p-6 sticky top-24">
             <h3 className="font-semibold text-gray-700 mb-4 text-sm uppercase tracking-wide">Aperçu</h3>
-            <ProformaPreview shop={shop} proformaNumber={proformaNumber}
-              formValues={formValues} items={computedItems} grandTotal={grandTotal} />
+            <ProformaPreview
+              shop={shop}
+              proformaNumber={proformaNumber}
+              formValues={formValues}
+              items={computedItems}
+              grandTotal={grandTotal}
+              guarantee={guarantee}
+            />
           </div>
         </div>
       </div>
@@ -347,7 +353,7 @@ export default function NouvelleProformaPage() {
   )
 }
 
-function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal }) {
+function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, guarantee }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), 'dd MMMM yyyy', { locale: fr }) : '—'
   const city = formValues.city || shop?.city || 'Niamey'
@@ -423,7 +429,7 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal }
         {amountToWordsFCFA(grandTotal, 'proforma')}
       </p>
 
-      {guarantee.text && (
+      {guarantee?.text && (
         <p className="text-gray-800 mb-6">
           <span className="text-red-600 underline font-bold">GARANTIE</span> : {guarantee.text}
         </p>
