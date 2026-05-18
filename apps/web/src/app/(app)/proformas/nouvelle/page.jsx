@@ -15,6 +15,8 @@ import { FormField, inputCls, Btn } from '@/components/ui'
 import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
 import DocumentPrintOptions from '@/components/DocumentPrintOptions'
 import FrenchInput from '@/components/FrenchInput'
+import GuaranteePicker from '@/components/GuaranteePicker'
+import { GUARANTEE_OPTIONS } from '@/lib/core/guarantees'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
@@ -32,6 +34,10 @@ export default function NouvelleProformaPage() {
   const [printOptions, setPrintOptions] = useState({
     includeCachet: searchParams.get('cachet') !== '0',
     includeSignature: searchParams.get('signature') !== '0',
+  })
+  const [guarantee, setGuarantee] = useState({
+    key: GUARANTEE_OPTIONS[0].key,
+    text: GUARANTEE_OPTIONS[0].text,
   })
 
   const { register, handleSubmit, reset, watch, setValue } = useForm({
@@ -61,6 +67,15 @@ export default function NouvelleProformaPage() {
           client_phone: inv.client_phone || '', validity: inv.validity || '30 jours',
         })
         setProformaNumber(inv.invoice_number)
+        setGuarantee({
+          key: 'manual',
+          text: inv.guarantee_text || GUARANTEE_OPTIONS[0].text,
+        })
+
+        setPrintOptions({
+          includeCachet: inv.include_cachet ?? searchParams.get('cachet') !== '0',
+          includeSignature: inv.include_signature ?? searchParams.get('signature') !== '0',
+        })
         if (lines.length > 0) setItems(lines)
       }
     } else {
@@ -107,7 +122,10 @@ export default function NouvelleProformaPage() {
         client_phone: data.client_phone,
         validity: data.validity,
         total_amount: grandTotal,
-        amount_in_words: amountToWordsFCFA(grandTotal),
+        amount_in_words: amountToWordsFCFA(grandTotal, 'proforma'),
+        guarantee_text: guarantee.text || '',
+        include_cachet: !!printOptions.includeCachet,
+        include_signature: !!printOptions.includeSignature,
         status: 'finalized',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -156,6 +174,7 @@ export default function NouvelleProformaPage() {
       items: computedItems,
       grandTotal,
       type: 'proforma',
+      guaranteeText: guarantee.text,
       includeCachet: printOptions.includeCachet,
       includeSignature: printOptions.includeSignature,
     })
@@ -311,6 +330,10 @@ export default function NouvelleProformaPage() {
           </div>
         </div>
 
+        <div className="card p-4 mb-4">
+          <GuaranteePicker value={guarantee} onChange={setGuarantee} />
+        </div>
+
         {/* Preview */}
         <div>
           <div className="card p-6 sticky top-24">
@@ -396,7 +419,15 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal }
         </tfoot>
       </table>
 
-      <p className="text-gray-600 italic mb-6">{amountToWordsFCFA(grandTotal)}</p>
+      <p className="text-gray-800 mb-6">
+        {amountToWordsFCFA(grandTotal, 'proforma')}
+      </p>
+
+      {guarantee.text && (
+        <p className="text-gray-800 mb-6">
+          <span className="text-red-600 underline font-bold">GARANTIE</span> : {guarantee.text}
+        </p>
+      )}
 
       <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 mb-4 text-xs text-amber-700">
         ⚠ Ce document est un devis / proforma et ne constitue pas une facture définitive.

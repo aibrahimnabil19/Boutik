@@ -19,6 +19,8 @@ import { FormField, inputCls, Btn } from '@/components/ui'
 import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
 import DocumentPrintOptions from '@/components/DocumentPrintOptions'
 import FrenchInput from '@/components/FrenchInput'
+import GuaranteePicker from '@/components/GuaranteePicker'
+import { GUARANTEE_OPTIONS } from '@/lib/core/guarantees'
 
 const UNITS = ['Pièces', 'Mètre', 'Litre', 'Kg', 'Lot', 'Forfait']
 
@@ -37,6 +39,10 @@ export default function NouvelleFacturePage() {
   const [printOptions, setPrintOptions] = useState({
     includeCachet: searchParams.get('cachet') !== '0',
     includeSignature: searchParams.get('signature') !== '0',
+  })
+  const [guarantee, setGuarantee] = useState({
+    key: GUARANTEE_OPTIONS[0].key,
+    text: GUARANTEE_OPTIONS[0].text,
   })
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
@@ -67,6 +73,15 @@ export default function NouvelleFacturePage() {
         })
         setStatus(inv.status)
         setInvoiceNumber(inv.invoice_number)
+        setGuarantee({
+          key: 'manual',
+          text: inv.guarantee_text || GUARANTEE_OPTIONS[0].text,
+        })
+
+        setPrintOptions({
+          includeCachet: inv.include_cachet ?? searchParams.get('cachet') !== '0',
+          includeSignature: inv.include_signature ?? searchParams.get('signature') !== '0',
+        })
         if (lines.length > 0) setItems(lines)
       }
     } else {
@@ -114,7 +129,10 @@ export default function NouvelleFacturePage() {
         client_address: data.client_address,
         client_phone: data.client_phone,
         total_amount: grandTotal,
-        amount_in_words: amountToWordsFCFA(grandTotal),
+        amount_in_words: amountToWordsFCFA(grandTotal, 'facture'),
+        guarantee_text: guarantee.text || '',
+        include_cachet: !!printOptions.includeCachet,
+        include_signature: !!printOptions.includeSignature,
         status: newStatus,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -163,6 +181,7 @@ export default function NouvelleFacturePage() {
       items: computedItems,
       grandTotal,
       type: 'facture',
+      guaranteeText: guarantee.text,
       includeCachet: printOptions.includeCachet,
       includeSignature: printOptions.includeSignature,
     })
@@ -339,6 +358,10 @@ export default function NouvelleFacturePage() {
           </div>
         </div>
 
+        <div className="card p-4 mb-4">
+          <GuaranteePicker value={guarantee} onChange={setGuarantee} />
+        </div>
+
         {/* ── Preview ── */}
         <div>
           <div className="card p-6 sticky top-24">
@@ -431,7 +454,15 @@ export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTo
         </tfoot>
       </table>
 
-      <p className="text-gray-600 italic mb-8">{amountToWordsFCFA(grandTotal)}</p>
+      <p className="text-gray-800 mb-8">
+        {amountToWordsFCFA(grandTotal, 'facture')}
+      </p>
+
+      {guarantee.text && (
+        <p className="text-gray-800 mb-8">
+          <span className="text-red-600 underline font-bold">GARANTIE</span> : {guarantee.text}
+        </p>
+      )}
 
       <div className="flex justify-between items-end mt-12">
         <div />

@@ -9,11 +9,13 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert } from '@/lib/db/local'
-import { formatFCFA, amountToWordsFCFA } from '@/lib/core/calculations'
+import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber } from '@/lib/core/calculations'
 import { v4 as uuid } from 'uuid'
-import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard } from '@/components/ui'
+import { PageHeader, SearchBar, EmptyState, ConfirmDialog, Btn, Badge, StatCard, Modal } from '@/components/ui'
 import FrenchInput from '@/components/FrenchInput'
 import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
+import GuaranteePicker from '@/components/GuaranteePicker'
+import { GUARANTEE_OPTIONS } from '@/lib/core/guarantees'
 
 export default function FacturesPage() {
   const router = useRouter()
@@ -24,7 +26,11 @@ export default function FacturesPage() {
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
   const [pendingSale, setPendingSale] = useState(null)
-  const [docOptions, setDocOptions] = useState(getDefaultDocumentOptions(shop))
+  const [docOptions, setDocOptions] = useState({
+    ...getDefaultDocumentOptions(shop),
+    guaranteeKey: GUARANTEE_OPTIONS[0].key,
+    guaranteeText: GUARANTEE_OPTIONS[0].text,
+  })
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -76,7 +82,7 @@ export default function FacturesPage() {
     const invoiceId = uuid()
     const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
 
-    const invoiceNumber = `FAC-${String(group.date).replaceAll('-', '')}-${String(group.key).slice(0, 4).toUpperCase()}`
+    const invoiceNumber = generateInvoiceNumber(invoices, 'facture', group.date)
 
     await localUpsert('invoices', {
       id: invoiceId,
@@ -89,7 +95,10 @@ export default function FacturesPage() {
       date: group.date,
       city: shop?.city || 'Niamey',
       total_amount: total,
-      amount_in_words: amountToWordsFCFA(total),
+      amount_in_words: amountToWordsFCFA(total, 'facture'),
+      guarantee_text: options.guaranteeText || '',
+      include_cachet: !!options.includeCachet,
+      include_signature: !!options.includeSignature,
       status: 'draft',
       created_at: now,
       updated_at: now,
@@ -138,7 +147,11 @@ export default function FacturesPage() {
 
   function openCreateFactureOptions(group) {
     setPendingSale(group)
-    setDocOptions(getDefaultDocumentOptions(shop))
+    setDocOptions({
+      ...getDefaultDocumentOptions(shop),
+      guaranteeKey: GUARANTEE_OPTIONS[0].key,
+      guaranteeText: GUARANTEE_OPTIONS[0].text,
+    })
   }
 
   return (
@@ -281,6 +294,20 @@ export default function FacturesPage() {
             shop={shop}
             value={docOptions}
             onChange={setDocOptions}
+          />
+
+          <GuaranteePicker
+            value={{
+              key: docOptions.guaranteeKey,
+              text: docOptions.guaranteeText,
+            }}
+            onChange={(next) =>
+              setDocOptions(prev => ({
+                ...prev,
+                guaranteeKey: next.key,
+                guaranteeText: next.text,
+              }))
+            }
           />
 
           <div className="flex gap-3 justify-end">

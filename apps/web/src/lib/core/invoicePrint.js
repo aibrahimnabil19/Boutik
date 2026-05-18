@@ -40,6 +40,7 @@ export function renderToInvoiceHTML({
   items,
   grandTotal,
   type = "facture",
+  guaranteeText = "",
   includeCachet,
   includeSignature,
 }) {
@@ -49,8 +50,6 @@ export function renderToInvoiceHTML({
 
   const city = formValues.city || shop?.city || "Niamey";
   const documentOptions = normalizeDocumentOptions(shop, {
-    includeCachet,
-    includeSignature,
     includeCachet,
     includeSignature,
   });
@@ -99,8 +98,8 @@ export function renderToInvoiceHTML({
   <title>${title} ${invoiceNumber}</title>
   <style>
     @page {
-      size: A4;
-      margin: 10mm;
+      size: A4 landscape;
+      margin: 7mm 5mm 5mm 5mm;
     }
 
     * {
@@ -110,48 +109,49 @@ export function renderToInvoiceHTML({
     body {
       margin: 0;
       background: white;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: "Times New Roman", Times, serif;
       color: #111827;
       font-size: 13px;
     }
 
     .page {
-      width: 100%;
-      min-height: 277mm;
+      width: 287mm;
+      min-height: 195mm;
       padding: 0;
       position: relative;
     }
 
     .top {
       display: grid;
-      grid-template-columns: 1fr 380px;
+      grid-template-columns: 92mm 90mm 95mm;
       align-items: start;
-      min-height: 88px;
+      column-gap: 6mm;
+      min-height: 33mm;
     }
 
     .logo {
-      max-width: 115px;
-      max-height: 82px;
+      max-width: 78mm;
+      max-height: 32mm;
       object-fit: contain;
     }
 
     .activity {
-      background: ${orange};
+      background: #F29100;
       color: white;
       font-weight: 800;
       text-align: center;
-      padding: 8px 10px;
-      border-radius: 4px;
-      font-size: 13px;
+      padding: 3mm 5mm;
+      border-radius: 7mm;
+      font-size: 18px;
+      line-height: 1.25;
       text-transform: uppercase;
     }
 
     .company {
-      text-align: center;
-      font-size: 11px;
+      text-align: left;
+      font-size: 19px;
       font-weight: 700;
-      line-height: 1.35;
-      margin-top: 8px;
+      line-height: 1.28;
     }
 
     .title-row {
@@ -162,13 +162,13 @@ export function renderToInvoiceHTML({
     }
 
     .doc-title {
-      grid-column: 2;
-      background: ${primary};
+      background: #F29100;
       color: white;
       text-align: center;
       font-weight: 800;
-      font-size: 16px;
-      padding: 4px 8px;
+      font-size: 22px;
+      padding: 1mm 2mm;
+      margin-top: 6mm;
     }
 
     .date {
@@ -179,19 +179,18 @@ export function renderToInvoiceHTML({
 
     .client-strip {
       display: grid;
-      grid-template-columns: 1.1fr 1.25fr 1fr;
-      background: ${primary};
+      grid-template-columns: 1.1fr 1fr 1fr;
+      background: #1D71B8;
       color: white;
       font-weight: 800;
-      margin-top: 20px;
-      border: 1px solid ${primary};
+      border-top: 2px solid white;
     }
 
     .client-cell {
-      padding: 5px 10px;
+      padding: 1mm 2mm;
       border-right: 2px solid white;
       text-align: center;
-      font-size: 15px;
+      font-size: 22px;
     }
 
     .client-cell:last-child {
@@ -201,24 +200,33 @@ export function renderToInvoiceHTML({
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 22px;
-      font-size: 14px;
+      margin-top: 8mm;
+      font-size: 20px;
     }
 
     th {
-      background: ${primary};
+      background: #1D71B8;
       color: white;
-      padding: 5px 6px;
-      font-size: 14px;
+      padding: 1mm 2mm;
+      font-size: 21px;
       border: 2px solid white;
       font-weight: 800;
     }
 
     .td {
-      padding: 4px 6px;
-      border-left: 2px solid white;
-      border-right: 2px solid white;
-      font-size: 13px;
+      padding: 1mm 2mm;
+      border: 2px solid white;
+      background: #D9E2F3;
+      font-size: 20px;
+    }
+
+    .total-row td {
+      background: #1D71B8;
+      color: white;
+      font-weight: 800;
+      padding: 1mm 2mm;
+      border: 2px solid white;
+      font-size: 21px;
     }
 
     .designation {
@@ -251,19 +259,18 @@ export function renderToInvoiceHTML({
     }
 
     .words {
-      margin-top: 26px;
-      font-size: 14px;
+      margin-top: 8mm;
+      font-size: 20px;
       line-height: 1.35;
     }
 
     .words strong {
-      font-weight: 800;
+      font-weight: 900;
     }
 
     .garantie {
-      margin-top: 26px;
-      font-size: 14px;
-      font-weight: 700;
+      margin-top: 9mm;
+      font-size: 20px;
       line-height: 1.35;
     }
 
@@ -274,25 +281,24 @@ export function renderToInvoiceHTML({
     }
 
     .signature {
-      margin-top: 26px;
+      margin-top: 1mm;
       display: flex;
       justify-content: flex-end;
-      min-height: 120px;
-      padding-right: 20px;
+      padding-right: 10mm;
     }
 
     .signature-box {
-      width: 180px;
-      text-align: left;
-      font-weight: 700;
-      font-size: 14px;
+      width: 48mm;
+      text-align: center;
+      font-weight: 900;
+      font-size: 22px;
     }
 
     .signature-img {
-      max-width: 150px;
-      max-height: 70px;
+      max-width: 42mm;
+      max-height: 22mm;
       object-fit: contain;
-      margin-top: 8px;
+      margin-top: 2mm;
     }
 
     .footer {
@@ -334,24 +340,23 @@ export function renderToInvoiceHTML({
         ${shop?.logo_url ? `<img class="logo" src="${shop.logo_url}" alt="Logo" />` : ""}
       </div>
 
+      <div class="company">
+        <div>Situé à ${shop?.address || "DAR ES SALAM derrière ESCAE"}</div>
+        <div>Tél : ${shop?.phone || "+ 227 90 27 54 53 / 94 29 29 19"}</div>
+        <div>Email : ${shop?.email || "elso.niger@gmail.com"}</div>
+        <div>NIF: ${shop?.nif || "50873"} ${shop?.rccm ? `– RCCM : ${shop.rccm}` : "– RCCM : NE-NIA-2019-A-467"}</div>
+        <div>${(shop?.city || "NIAMEY").toUpperCase()} - NIGER</div>
+      </div>
+
       <div>
         <div class="activity">
-          ${shop?.activity || "VENTE ET INSTALLATION D’ÉQUIPEMENTS SOLAIRES"}
+          ${shop?.activity || "VENTE, INSTALLATION D’ÉQUIPEMENTS SOLAIRES, ENTRETIEN ET DÉPANNAGE"}
         </div>
-        <div class="company">
-          <div>Situé à DAR ES SALAM derrière ESCAE</div>
-          <div>NIF : ${shop?.nif || "—"} ${shop?.rccm ? `– RCCM : ${shop.rccm}` : ""}</div>
-          ${shop?.bank_account ? `<div>COMPTE CORIS BANK : ${shop.bank_account}</div>` : ""}
-          <div>${(shop?.city || "NIAMEY").toUpperCase()} - NIGER</div>
-        </div>
+        <div class="date">${city}, le ${dateStr}</div>
       </div>
     </div>
 
-    <div class="title-row">
-      <div></div>
-      <div class="doc-title">${title} N°${invoiceNumber}</div>
-      <div class="date">${city}, le ${dateStr}</div>
-    </div>
+    <div class="doc-title">${title} ${invoiceNumber}</div>
 
     <div class="client-strip">
       <div class="client-cell">CLIENT : ${formValues.client_name || "—"}</div>
@@ -387,20 +392,22 @@ export function renderToInvoiceHTML({
 
     ${
       showPrices
-        ? `<div class="words">Arrêté la présente ${isProforma ? "proforma" : "facture"} à la somme de <strong>${amountToWordsFCFA(
+        ? `<div class="words">${amountToWordsFCFA(
             grandTotal,
-          )
-            .replace(/^Arrêté.*?somme de /i, "")
-            .replace(" FCFA", " francs CFA")}</strong></div>`
+            isProforma ? "proforma" : "facture",
+          ).replace(
+            /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+            "$1<strong>$2</strong>",
+          )}</div>`
         : ""
     }
 
     ${
-      isBonCommande || isBonLivraison
+      isBonCommande || isBonLivraison || !guaranteeText
         ? ""
         : `
           <div class="garantie">
-            <span>GARANTIE</span> : Cinq (05) ans sur la batterie et un (01) an sur l’onduleur si l’installation a été faite dans les normes et ne prend en charge qu’une consommation correspondante à la capacité des équipements concernés. En cas de problème la garantie consistera à réparer les d’abord et les remplacer s’ils sont irréparables.
+            <span>GARANTIE</span> : ${guaranteeText}
           </div>
         `
     }
@@ -437,6 +444,7 @@ export function printSaleDocument({
   type,
   saleGroup,
   invoiceNumber,
+  guaranteeText,
   includeCachet,
   includeSignature,
 }) {
@@ -470,11 +478,12 @@ export function printSaleDocument({
     type,
     includeCachet,
     includeSignature,
+    guaranteeText,
   });
 
   const iframe = document.createElement("iframe");
   iframe.style.cssText =
-    "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;";
+    "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
   document.body.appendChild(iframe);
   iframe.contentDocument.open();
   iframe.contentDocument.write(html);
