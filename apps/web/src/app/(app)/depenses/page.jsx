@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { Wallet, Plus, Trash2 } from 'lucide-react'
+import { Wallet, Plus, Trash2, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -24,6 +24,8 @@ export default function DepensesPage() {
   const [expenses, setExpenses] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
+  const [expenseDetail, setExpenseDetail] = useState(null)
+  const [editingExpense, setEditingExpense] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -41,20 +43,22 @@ export default function DepensesPage() {
   useEffect(() => { load() }, [load])
 
   async function onSubmit(data) {
+    const now = new Date().toISOString()
     const record = {
-      id: uuid(),
+      id: editingExpense?.id || uuid(),
       shop_id: shop.id,
       date: data.date,
       description: data.description,
       amount: Number(data.amount),
       category: data.category || 'Autre',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: editingExpense?.created_at || now,
+      updated_at: now,
       sync_status: 'pending',
     }
     await localUpsert('expenses', record)
-    toast.success('Dépense ajoutée')
+    toast.success(editingExpense ? 'Dépense modifiée' : 'Dépense enregistrée')
     setModal(false)
+    setEditingExpense(null)
     load()
   }
 
@@ -63,6 +67,21 @@ export default function DepensesPage() {
       e.description?.toLowerCase().includes(search.toLowerCase()) ||
       e.category?.toLowerCase().includes(search.toLowerCase())
     ), [expenses, search])
+
+  function openEditExpense(expense) {
+    setEditingExpense(expense)
+    reset({
+      date: expense.date,
+      description: expense.description,
+      amount: String(expense.amount),
+      category: expense.category || 'Autre',
+    })
+    setModal(true)
+  }
+
+  function openExpenseDetail(expense) {
+    setExpenseDetail(expense)
+  }
 
   const total = useMemo(() => expenses.reduce((a, e) => a + (e.amount || 0), 0), [expenses])
   const byMonth = useMemo(() => {
@@ -111,18 +130,29 @@ export default function DepensesPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(e => (
-                  <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={e.id}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      onClick={() => openExpenseDetail(e)}>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(e.date), 'dd MMM yy', { locale: fr })}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{e.description}</td>
                     <td className="px-4 py-3 text-gray-500">{e.category}</td>
                     <td className="px-4 py-3 font-bold text-red-600">{formatFCFA(e.amount)}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => setConfirm(e.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => openEditExpense(e)}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Modifier la dépense"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setConfirm(e.id)}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -141,7 +171,7 @@ export default function DepensesPage() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle dépense">
+      <Modal open={modal} onClose={() => { setModal(false); setEditingExpense(null) }} title={editingExpense ? 'Modifier la dépense' : 'Nouvelle dépense'}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Date" required>
@@ -181,6 +211,25 @@ export default function DepensesPage() {
         </form>
       </Modal>
 
+      <Modal open={!!expenseDetail} onClose={() => setExpenseDetail(null)} title="Détails de la dépense" maxW="max-w-md">
+        {expenseDetail && (
+          <div className="space-y-4 text-sm text-gray-700">
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="space-y-3">
+                <div className="flex justify-between"><span>Date</span><span>{format(new Date(expenseDetail.date), 'dd MMM yyyy', { locale: fr })}</span></div>
+                {expenseDetail.created_at && <div className="flex justify-between"><span>Créée le</span><span>{format(new Date(expenseDetail.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span></div>}
+                <div className="flex justify-between"><span>Description</span><span>{expenseDetail.description || '—'}</span></div>
+                <div className="flex justify-between"><span>Catégorie</span><span>{expenseDetail.category || '—'}</span></div>
+                <div className="flex justify-between"><span>Montant</span><span className="font-semibold text-red-600">{formatFCFA(expenseDetail.amount)}</span></div>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Btn variant="secondary" onClick={() => setExpenseDetail(null)}>Fermer</Btn>
+              <Btn onClick={() => { setExpenseDetail(null); openEditExpense(expenseDetail) }}>Modifier</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
         onConfirm={() => { localDelete('expenses', confirm); load(); toast.success('Dépense supprimée') }}
         title="Supprimer la dépense" message="Êtes-vous sûr ?" />

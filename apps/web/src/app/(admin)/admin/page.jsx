@@ -406,201 +406,203 @@ export default function AdminPage() {
   }
 
   const IMPORT_COLUMNS = {
-  products: [
-    'id',
-    'shop_id',
-    'code',
-    'name',
-    'purchase_price',
-    'sale_price',
-    'stock_initial',
-    'alert_threshold',
-    'supplier',
-    'unit',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
+    products: [
+      'id',
+      'shop_id',
+      'code',
+      'name',
+      'purchase_price',
+      'sale_price',
+      'stock_initial',
+      'alert_threshold',
+      'supplier',
+      'unit',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
 
-  suppliers: [
-    'id',
-    'shop_id',
-    'name',
-    'phone',
-    'address',
-    'email',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
+    suppliers: [
+      'id',
+      'shop_id',
+      'name',
+      'phone',
+      'address',
+      'email',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
 
-  clients: [
-    'id',
-    'shop_id',
-    'name',
-    'phone',
-    'address',
-    'email',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
+    clients: [
+      'id',
+      'shop_id',
+      'name',
+      'phone',
+      'address',
+      'email',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
 
-  purchases: [
-    'id',
-    'shop_id',
-    'date',
-    'supplier_id',
-    'supplier',
-    'product_id',
-    'product_code',
-    'product_name',
-    'quantity',
-    'unit_price',
-    'total_amount',
-    'payment_status',
-    'paid_amount',
-    'remaining_amount',
-    'notes',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
+    purchases: [
+      'id',
+      'shop_id',
+      'date',
+      'supplier_id',
+      'supplier',
+      'product_id',
+      'product_code',
+      'product_name',
+      'quantity',
+      'unit_price',
+      'charge_total',
+      'charges',
+      'total_amount',
+      'payment_status',
+      'paid_amount',
+      'remaining_amount',
+      'notes',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
 
-  sales: [
-    'id',
-    'shop_id',
-    'session_id',
-    'sale_batch_id',
-    'date',
-    'store',
-    'client_id',
-    'client_name',
-    'product_id',
-    'product_code',
-    'product_name',
-    'quantity',
-    'unit_sale_price',
-    'total_sale',
-    'unit_purchase_cost',
-    'total_purchase_cost',
-    'profit',
-    'payment_status',
-    'paid_amount',
-    'remaining_amount',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-    'cancelled_at',
-  ],
+    sales: [
+      'id',
+      'shop_id',
+      'session_id',
+      'sale_batch_id',
+      'date',
+      'store',
+      'client_id',
+      'client_name',
+      'product_id',
+      'product_code',
+      'product_name',
+      'quantity',
+      'unit_sale_price',
+      'total_sale',
+      'unit_purchase_cost',
+      'total_purchase_cost',
+      'profit',
+      'payment_status',
+      'paid_amount',
+      'remaining_amount',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+      'cancelled_at',
+    ],
 
-  expenses: [
-    'id',
-    'shop_id',
-    'date',
-    'description',
-    'amount',
-    'category',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
+    expenses: [
+      'id',
+      'shop_id',
+      'date',
+      'description',
+      'amount',
+      'category',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
 
-  client_transactions: [
-    'id',
-    'shop_id',
-    'client_id',
-    'date',
-    'label',
-    'quantity',
-    'unit_amount',
-    'amount',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
+    client_transactions: [
+      'id',
+      'shop_id',
+      'client_id',
+      'date',
+      'label',
+      'quantity',
+      'unit_amount',
+      'amount',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
 
-  supplier_transactions: [
-    'id',
-    'shop_id',
-    'supplier_id',
-    'date',
-    'label',
-    'quantity',
-    'unit_amount',
-    'amount',
-    'created_at',
-    'updated_at',
-    'deleted_at',
-  ],
-}
-
-function cleanImportRow(table, row) {
-  const allowed = IMPORT_COLUMNS[table]
-
-  if (!allowed) {
-    const {
-      sync_status,
-      sync_error,
-      _localId,
-      ...rest
-    } = row || {}
-
-    return Object.fromEntries(
-      Object.entries(rest).filter(([, value]) => value !== undefined)
-    )
+    supplier_transactions: [
+      'id',
+      'shop_id',
+      'supplier_id',
+      'date',
+      'label',
+      'quantity',
+      'unit_amount',
+      'amount',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+    ],
   }
 
-  const clean = {}
+  function cleanImportRow(table, row) {
+    const allowed = IMPORT_COLUMNS[table]
 
-  for (const key of allowed) {
-    if (row?.[key] !== undefined) {
-      clean[key] = row[key]
+    if (!allowed) {
+      const {
+        sync_status,
+        sync_error,
+        _localId,
+        ...rest
+      } = row || {}
+
+      return Object.fromEntries(
+        Object.entries(rest).filter(([, value]) => value !== undefined)
+      )
+    }
+
+    const clean = {}
+
+    for (const key of allowed) {
+      if (row?.[key] !== undefined) {
+        clean[key] = row[key]
+      }
+    }
+
+    return clean
+  }
+
+  function dedupeRowsByConflict(table, rows, conflictKey = 'id') {
+    const map = new Map()
+
+    for (const row of rows || []) {
+      if (!row) continue
+
+      const cleanRow = cleanImportRow(table, row)
+      const key = cleanRow[conflictKey]
+
+      if (!key) continue
+
+      map.set(String(key), {
+        ...(map.get(String(key)) || {}),
+        ...cleanRow,
+      })
+    }
+
+    return Array.from(map.values())
+  }
+
+  async function upsertMany(table, rows, conflictKey = 'id') {
+    const cleanRows = dedupeRowsByConflict(table, rows, conflictKey)
+
+    if (!cleanRows.length) return
+
+    const CHUNK_SIZE = 250
+
+    for (let i = 0; i < cleanRows.length; i += CHUNK_SIZE) {
+      const chunk = cleanRows.slice(i, i + CHUNK_SIZE)
+
+      const { error } = await supabase
+        .from(table)
+        .upsert(chunk, { onConflict: conflictKey })
+
+      if (error) {
+        throw new Error(`${table}: ${error.message}`)
+      }
     }
   }
-
-  return clean
-}
-
-function dedupeRowsByConflict(table, rows, conflictKey = 'id') {
-  const map = new Map()
-
-  for (const row of rows || []) {
-    if (!row) continue
-
-    const cleanRow = cleanImportRow(table, row)
-    const key = cleanRow[conflictKey]
-
-    if (!key) continue
-
-    map.set(String(key), {
-      ...(map.get(String(key)) || {}),
-      ...cleanRow,
-    })
-  }
-
-  return Array.from(map.values())
-}
-
-async function upsertMany(table, rows, conflictKey = 'id') {
-  const cleanRows = dedupeRowsByConflict(table, rows, conflictKey)
-
-  if (!cleanRows.length) return
-
-  const CHUNK_SIZE = 250
-
-  for (let i = 0; i < cleanRows.length; i += CHUNK_SIZE) {
-    const chunk = cleanRows.slice(i, i + CHUNK_SIZE)
-
-    const { error } = await supabase
-      .from(table)
-      .upsert(chunk, { onConflict: conflictKey })
-
-    if (error) {
-      throw new Error(`${table}: ${error.message}`)
-    }
-  }
-}
 
   async function handleExcelImport(e) {
     e.preventDefault()

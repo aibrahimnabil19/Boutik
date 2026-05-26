@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { ShoppingCart, Plus, Trash2, Printer, FileText, Package, Wallet, } from 'lucide-react'
+import { ShoppingCart, Plus, Trash2, Printer, FileText, Package, Wallet, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -43,6 +43,8 @@ export default function AchatsPage() {
   const [loading, setLoading] = useState(true)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [suppliers, setSuppliers] = useState([])
+  const [purchaseDetail, setPurchaseDetail] = useState(null)
+  const [editingPurchase, setEditingPurchase] = useState(null)
   // Document modal: holds the purchase to print
   const [docModal, setDocModal] = useState(null)
   const [paymentMode, setPaymentMode] = useState('')
@@ -53,6 +55,7 @@ export default function AchatsPage() {
   const [paymentAmount, setPaymentAmount] = useState('')
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
   const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
+  const [chargeRows, setChargeRows] = useState([])
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -60,7 +63,13 @@ export default function AchatsPage() {
 
   const qty = Number(watch('quantity') || 0)
   const price = Number(watch('unit_price') || 0)
-  const total = qty * price
+  const stockSubtotal = qty * price
+
+  const chargeTotal = useMemo(() => {
+    return chargeRows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+  }, [chargeRows])
+
+  const total = stockSubtotal + chargeTotal
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -183,6 +192,34 @@ export default function AchatsPage() {
     toast.success('Fournisseur ajouté')
   }
 
+  function addChargeRow() {
+    setChargeRows(prev => [
+      ...prev,
+      { _key: uuid(), label: '', amount: '' },
+    ])
+  }
+
+  function updateChargeRow(key, field, value) {
+    setChargeRows(prev =>
+      prev.map(row =>
+        row._key === key ? { ...row, [field]: value } : row
+      )
+    )
+  }
+
+  function removeChargeRow(key) {
+    setChargeRows(prev => prev.filter(row => row._key !== key))
+  }
+
+  function cleanChargeRows() {
+    return chargeRows
+      .map(row => ({
+        label: String(row.label || '').trim(),
+        amount: Number(row.amount || 0),
+      }))
+      .filter(row => row.label && row.amount > 0)
+  }
+
   async function onSubmit(data) {
     if (!paymentMode) {
       toast.error('Choisissez le mode de paiement.')
@@ -191,7 +228,10 @@ export default function AchatsPage() {
 
     const q = Number(data.quantity)
     const up = Number(data.unit_price)
-    const totalAmount = q * up
+    const cleanCharges = cleanChargeRows()
+    const chargesTotal = cleanCharges.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+    const stockAmount = q * up
+    const totalAmount = stockAmount + chargesTotal
     const supplier = suppliers.find(s => s.name === data.supplier) || null
     if (!supplier) {
       toast.error('Choisissez un fournisseur.')
@@ -223,7 +263,7 @@ export default function AchatsPage() {
     const now = new Date().toISOString()
 
     const record = {
-      id: uuid(),
+      id: editingPurchase?.id || uuid(),
       shop_id: shop.id,
       date: data.date,
       supplier_id: supplier?.id || null,
@@ -233,12 +273,14 @@ export default function AchatsPage() {
       product_name: selectedProduct.name,
       quantity: q,
       unit_price: up,
+      charge_total: chargesTotal,
+      charges: cleanCharges,
       total_amount: totalAmount,
       payment_status: paymentStatus,
       paid_amount: totalPaid,
       remaining_amount: remainingAmount,
       notes: data.notes || '',
-      created_at: now,
+      created_at: editingPurchase?.created_at || now,
       updated_at: now,
       sync_status: 'pending',
     }
@@ -259,17 +301,48 @@ export default function AchatsPage() {
       })
     }
 
-    toast.success('Entrée de stock enregistrée')
+    toast.success(editingPurchase ? 'Entrée de stock modifiée' : 'Entrée de stock enregistrée')
     setModal(false)
+    setEditingPurchase(null)
     setDocModal(record)
     load()
   }
 
   function openAdd() {
-    reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1 })
+    setEditingPurchase(null)
+    reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' })
+    setChargeRows([])
     setSelectedProduct(null)
     setPaymentMode('')
     setPaidAmount('')
+    setModal(true)
+  }
+
+  function openEditPurchase(purchase) {
+    const product = products.find(p => p.id === purchase.product_id)
+    setEditingPurchase(purchase)
+    setSelectedProduct(product || null)
+    reset({
+      date: purchase.date || format(new Date(), 'yyyy-MM-dd'),
+      quantity: purchase.quantity || 1,
+      unit_price: purchase.unit_price || '',
+      supplier: purchase.supplier || '',
+      notes: purchase.notes || '',
+    })
+    setPaymentMode(purchase.payment_status === 'credit' ? 'credit' : 'paid')
+    setPaidAmount(String(purchase.paid_amount || ''))
+
+    const existingCharges = Array.isArray(purchase.charges)
+      ? purchase.charges
+      : []
+
+    setChargeRows(
+      existingCharges.map(charge => ({
+        _key: uuid(),
+        label: charge.label || '',
+        amount: String(charge.amount || ''),
+      }))
+    )
     setModal(true)
   }
 
@@ -355,7 +428,7 @@ export default function AchatsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date', 'Fournisseur', 'Produit', 'Quantité', 'Prix unit.', 'Total', ''].map(h => (
+                  {['Date', 'Fournisseur', 'Produit', 'Quantité', 'Prix unit.', 'Charges', 'Total', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -365,7 +438,7 @@ export default function AchatsPage() {
                   <tr
                     key={p.id}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => setDocModal(p)}
+                    onClick={() => setPurchaseDetail(p)}
                   >
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(p.date), 'dd MMM yy', { locale: fr })}
@@ -382,6 +455,9 @@ export default function AchatsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-700">{p.quantity}</td>
                     <td className="px-4 py-3 text-gray-600">{formatFCFA(p.unit_price)}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {Number(p.charge_total || 0) > 0 ? formatFCFA(p.charge_total) : '—'}
+                    </td>
                     <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(p.total_amount)}</td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1">
@@ -389,6 +465,17 @@ export default function AchatsPage() {
                           className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
                           title="Imprimer document">
                           <Printer className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openEditPurchase(p)
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Modifier l’entrée de stock"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
 
                         <button
@@ -418,6 +505,61 @@ export default function AchatsPage() {
       </div>
 
       {/* ── Document Print Modal ── */}
+      <Modal open={!!purchaseDetail} onClose={() => setPurchaseDetail(null)} title="Détails de l'entrée de stock" maxW="max-w-3xl">
+        {purchaseDetail && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Informations</p>
+                <div className="mt-4 space-y-3 text-sm text-gray-700">
+                  <div className="flex justify-between"><span>Date</span><span>{format(new Date(purchaseDetail.date), 'dd MMM yyyy', { locale: fr })}</span></div>
+                  {purchaseDetail.created_at && <div className="flex justify-between"><span>Créée le</span><span>{format(new Date(purchaseDetail.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span></div>}
+                  <div className="flex justify-between"><span>Fournisseur</span><span>{purchaseDetail.supplier || '—'}</span></div>
+                  <div className="flex justify-between"><span>Produit</span><span>{purchaseDetail.product_name || '—'}</span></div>
+                  <div className="flex justify-between"><span>Code produit</span><span>{purchaseDetail.product_code || purchaseDetail.product_id || '—'}</span></div>
+                  <div className="flex justify-between"><span>Quantité</span><span>{purchaseDetail.quantity}</span></div>
+                  <div className="flex justify-between"><span>Prix unitaire</span><span>{formatFCFA(purchaseDetail.unit_price || 0)}</span></div>
+                  <div className="flex justify-between">
+                    <span>Prix stock</span>
+                    <span>{formatFCFA(Number(purchaseDetail.quantity || 0) * Number(purchaseDetail.unit_price || 0))}</span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span>Charges</span>
+                    <span>{formatFCFA(purchaseDetail.charge_total || 0)}</span>
+                  </div>
+                  <div className="flex justify-between"><span>Total</span><span>{formatFCFA(purchaseDetail.total_amount || 0)}</span></div>
+                  <div className="flex justify-between"><span>Statut paiement</span><span>{purchaseDetail.payment_status === 'credit' ? 'Crédit' : 'Payé'}</span></div>
+                  <div className="flex justify-between"><span>Montant payé</span><span>{formatFCFA(purchaseDetail.paid_amount || 0)}</span></div>
+                  <div className="flex justify-between"><span>Reste à payer</span><span>{formatFCFA(purchaseDetail.remaining_amount || 0)}</span></div>
+                  <div className="flex justify-between"><span>Notes</span><span>{purchaseDetail.notes || '—'}</span></div>
+                </div>
+              </div>
+            </div>
+
+            {Array.isArray(purchaseDetail.charges) && purchaseDetail.charges.length > 0 && (
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-gray-400 mb-3">Détail des charges</p>
+                <div className="space-y-2">
+                  {purchaseDetail.charges.map((charge, index) => (
+                    <div key={index} className="flex justify-between text-sm">
+                      <span className="text-gray-600">{charge.label}</span>
+                      <span className="font-semibold text-gray-900">{formatFCFA(charge.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-3 justify-end">
+              <Btn variant="secondary" onClick={() => setPurchaseDetail(null)}>Fermer</Btn>
+              <Btn onClick={() => { setPurchaseDetail(null); setDocModal(purchaseDetail) }}>Imprimer</Btn>
+              <Btn onClick={() => { setPurchaseDetail(null); openEditPurchase(purchaseDetail) }}>Modifier</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal open={!!docModal} onClose={() => setDocModal(null)} title="Imprimer un document" maxW="max-w-sm">
         <div className="space-y-3">
           <p className="text-sm text-gray-500 mb-4">
@@ -453,7 +595,7 @@ export default function AchatsPage() {
         </div>
       </Modal>
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Nouvelle entrée de stock" maxW="max-w-lg">
+      <Modal open={modal} onClose={() => { setModal(false); setEditingPurchase(null) }} title={editingPurchase ? 'Modifier l’entrée de stock' : 'Nouvelle entrée de stock'} maxW="max-w-lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Date" required>
@@ -568,6 +710,58 @@ export default function AchatsPage() {
             </FormField>
           </div>
 
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Charges supplémentaires</p>
+                <p className="text-xs text-gray-400">
+                  Ex: taxe, frais bancaires, transport, manutention…
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={addChargeRow}
+                className="inline-flex items-center gap-2 rounded-xl bg-white border border-gray-200 px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Ajouter
+              </button>
+            </div>
+
+            {chargeRows.length === 0 ? (
+              <p className="text-xs text-gray-400">Aucune charge ajoutée.</p>
+            ) : (
+              <div className="space-y-2">
+                {chargeRows.map(row => (
+                  <div key={row._key} className="grid grid-cols-[1fr_160px_36px] gap-2 items-center">
+                    <input
+                      value={row.label}
+                      onChange={(e) => updateChargeRow(row._key, 'label', e.target.value)}
+                      placeholder="Libellé de la charge"
+                      className={inputCls}
+                    />
+
+                    <FrenchInput
+                      value={row.amount}
+                      onChange={(value) => updateChargeRow(row._key, 'amount', value)}
+                      placeholder="Montant"
+                      className={inputCls}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => removeChargeRow(row._key)}
+                      className="h-11 w-9 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Paiement" required>
               <select
@@ -595,14 +789,24 @@ export default function AchatsPage() {
           </div>
 
           {total > 0 && (
-            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-blue-700 font-medium">Montant total</span>
-              <div className="text-right">
-                <span className="font-bold text-blue-800 block">{formatFCFA(total)}</span>
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <p className="text-xs text-blue-500 font-semibold">Prix stock</p>
+                <p className="font-bold text-blue-900">{formatFCFA(stockSubtotal)}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-blue-500 font-semibold">Charges</p>
+                <p className="font-bold text-blue-900">{formatFCFA(chargeTotal)}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-blue-500 font-semibold">Prix total</p>
+                <p className="font-bold text-blue-900">{formatFCFA(total)}</p>
                 {paymentMode === 'credit' && (
-                  <span className="text-xs text-amber-700">
+                  <p className="text-xs text-amber-700">
                     Reste : {formatFCFA(Math.max(0, total - Number(paidAmount || 0)))}
-                  </span>
+                  </p>
                 )}
               </div>
             </div>

@@ -14,7 +14,7 @@ import {
   Printer,
   FileText,
 } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete } from '@/lib/db/local'
@@ -40,12 +40,16 @@ export default function FournisseursPage() {
   const [suppliers, setSuppliers] = useState([])
   const [transactions, setTransactions] = useState([])
   const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('name')
   const [modal, setModal] = useState(false)
   const [txModal, setTxModal] = useState(false)
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [editingSupplier, setEditingSupplier] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [periodFilter, setPeriodFilter] = useState('all')
+  const [customDateStart, setCustomDateStart] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [customDateEnd, setCustomDateEnd] = useState(format(new Date(), 'yyyy-MM-dd'))
 
   const submittingRef = useRef(false)
 
@@ -84,6 +88,22 @@ export default function FournisseursPage() {
     return transactions
       .filter(t => t.supplier_id === supplierId)
       .reduce((sum, t) => sum + Number(t.amount || 0), 0)
+  }
+
+  function getDateRange() {
+    const today = new Date()
+    switch(periodFilter) {
+      case 'week':
+        return { start: startOfWeek(today), end: endOfWeek(today) }
+      case 'month':
+        return { start: startOfMonth(today), end: endOfMonth(today) }
+      case 'year':
+        return { start: startOfYear(today), end: endOfYear(today) }
+      case 'custom':
+        return { start: parseISO(customDateStart), end: parseISO(customDateEnd) }
+      default:
+        return { start: new Date(1900, 0, 1), end: new Date(2100, 0, 1) }
+    }
   }
 
   function openAddSupplier() {
@@ -205,24 +225,41 @@ export default function FournisseursPage() {
     [suppliers, search]
   )
 
-  const withBalance = useMemo(() =>
-    filtered.map(s => ({ ...s, balance: supplierBalance(s.id) })),
-    [filtered, transactions]
-  )
+  const withBalance = useMemo(() => {
+    const suppliers = filtered.map(s => ({ ...s, balance: supplierBalance(s.id) }))
+    
+    const sorted = [...suppliers].sort((a, b) => {
+      switch (sortBy) {
+        case 'name':
+          return (a.name || '').localeCompare(b.name || '', 'fr')
+        case 'balance-desc':
+          return (b.balance || 0) - (a.balance || 0)
+        case 'balance-asc':
+          return (a.balance || 0) - (b.balance || 0)
+        case 'phone':
+          return (a.phone || '').localeCompare(b.phone || '', 'fr')
+        case 'address':
+          return (a.address || '').localeCompare(b.address || '', 'fr')
+        default:
+          return 0
+      }
+    })
+    
+    return sorted
+  }, [filtered, transactions, sortBy])
 
   const totalDebt = useMemo(() =>
     suppliers.reduce((sum, s) => sum + Math.max(0, supplierBalance(s.id)), 0),
     [suppliers, transactions]
   )
 
-  const supplierTx = useMemo(() =>
-    selected
-      ? transactions
-        .filter(t => t.supplier_id === selected.id)
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-      : [],
-    [selected, transactions]
-  )
+  const supplierTx = useMemo(() => {
+    if (!selected) return []
+    const { start, end } = getDateRange()
+    return transactions
+      .filter(t => t.supplier_id === selected.id && isWithinInterval(parseISO(t.date), { start, end }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [selected, transactions, periodFilter, customDateStart, customDateEnd])
 
   if (selected) {
     const balance = supplierBalance(selected.id)
@@ -302,6 +339,40 @@ export default function FournisseursPage() {
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
             <FileText className="w-4 h-4 text-blue-500" />
             <h3 className="font-semibold text-gray-800">Historique fournisseur</h3>
+          </div>
+
+          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+            <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Période</p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <button onClick={() => setPeriodFilter('all')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                Tous les temps
+              </button>
+              <button onClick={() => setPeriodFilter('week')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'week' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                Cette semaine
+              </button>
+              <button onClick={() => setPeriodFilter('month')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'month' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                Ce mois
+              </button>
+              <button onClick={() => setPeriodFilter('year')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'year' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                Cette année
+              </button>
+              <button onClick={() => setPeriodFilter('custom')}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'custom' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
+                Personnalisé
+              </button>
+            </div>
+            {periodFilter === 'custom' && (
+              <div className="flex gap-2">
+                <input type="date" value={customDateStart} onChange={e => setCustomDateStart(e.target.value)}
+                  className="px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                <input type="date" value={customDateEnd} onChange={e => setCustomDateEnd(e.target.value)}
+                  className="px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+            )}
           </div>
 
           {supplierTx.length === 0 ? (
@@ -447,6 +518,17 @@ export default function FournisseursPage() {
           <div className="flex-1 max-w-xs">
             <SearchBar value={search} onChange={setSearch} placeholder="Rechercher un fournisseur…" />
           </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className={inputCls + ' max-w-xs'}
+          >
+            <option value="name">Trier par : Nom (A-Z)</option>
+            <option value="balance-desc">Trier par : Dettes décroissantes</option>
+            <option value="balance-asc">Trier par : Dettes croissantes</option>
+            <option value="phone">Trier par : Téléphone</option>
+            <option value="address">Trier par : Adresse</option>
+          </select>
         </div>
 
         {loading ? (

@@ -23,7 +23,7 @@ export default function DashboardPage() {
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
   const [productSummary, setProductSummary] = useState([])
-  const [period, setPeriod] = useState('6m')
+  const [period, setPeriod] = useState('month')
   const [rawSales, setRawSales] = useState([])
   const [rawPurchases, setRawPurchases] = useState([])
   const [rawExpenses, setRawExpenses] = useState([])

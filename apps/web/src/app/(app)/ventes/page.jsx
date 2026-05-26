@@ -38,6 +38,7 @@ const emptyLine = () => ({
   product_name: '',
   product_code: '',
   unit_cost: 0,
+  manual_cost: false,
   quantity: 1,
   unit_sale_price: '',
 })
@@ -71,6 +72,7 @@ export default function VentesPage() {
   const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
   // Document modal
   const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
+  const [saleDetail, setSaleDetail] = useState(null)
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
 
   const [cart, setCart] = useState([emptyLine()])
@@ -238,11 +240,68 @@ export default function VentesPage() {
     ))
   }
 
+  function getPurchaseCostOptions(productId) {
+    const product = products.find(p => p.id === productId)
+
+    const rows = purchases
+      .filter(p => p.product_id === productId && !p.deleted_at)
+      .sort((a, b) => new Date(b.date || b.created_at || 0) - new Date(a.date || a.created_at || 0))
+      .map(p => {
+        const qty = Number(p.quantity || 0)
+        const unit = Number(p.unit_price || 0)
+        const charges = Number(p.charge_total || 0)
+        const realUnitCost = qty > 0 ? unit + charges / qty : unit
+
+        return {
+          value: realUnitCost,
+          label: `${formatFCFA(realUnitCost)} — ${format(new Date(p.date), 'dd MMM yyyy', { locale: fr })}${charges > 0 ? ` · charges incluses` : ''}`,
+        }
+      })
+
+    if (product?.purchase_price) {
+      rows.push({
+        value: Number(product.purchase_price || 0),
+        label: `${formatFCFA(product.purchase_price)} — prix catalogue`,
+      })
+    }
+
+    const seen = new Set()
+
+    return rows.filter(option => {
+      const key = String(Number(option.value || 0))
+      if (!Number(option.value || 0)) return false
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  function getDefaultPurchaseCost(productId) {
+    return getPurchaseCostOptions(productId)[0]?.value || 0
+  }
+
+  function handleCostSelect(key, value) {
+    if (value === 'manual') {
+      setCart(prev => prev.map(line =>
+        line._key === key
+          ? { ...line, manual_cost: true, unit_cost: '' }
+          : line
+      ))
+      return
+    }
+
+    setCart(prev => prev.map(line =>
+      line._key === key
+        ? { ...line, manual_cost: false, unit_cost: Number(value || 0) }
+        : line
+    ))
+  }
+
   function selectProductForLine(key, productId) {
     if (!productId) {
       setCart(prev => prev.map(line =>
         line._key === key
-          ? { ...line, product_id: '', product_name: '', product_code: '', unit_cost: 0, unit_sale_price: '' }
+          ? { ...line, product_id: '', product_name: '', product_code: '', unit_cost: 0, manual_cost: false, unit_sale_price: '' }
           : line
       ))
       return
@@ -266,7 +325,8 @@ export default function VentesPage() {
         product_id: prod.id,
         product_name: prod.name,
         product_code: prod.code || '',
-        unit_cost: prod.purchase_price || 0,
+        unit_cost: getDefaultPurchaseCost(prod.id) || prod.purchase_price || 0,
+        manual_cost: false,
         unit_sale_price: prod.sale_price || '',
       } : line
     ))
@@ -316,6 +376,10 @@ export default function VentesPage() {
       }
       if (!line.unit_sale_price || Number(line.unit_sale_price) <= 0) {
         toast.error(`Prix manquant pour ${line.product_name}`)
+        return
+      }
+      if (!line.unit_cost || Number(line.unit_cost) <= 0) {
+        toast.error(`Choisissez le prix d'achat pour ${line.product_name}`)
         return
       }
     }
@@ -669,7 +733,7 @@ export default function VentesPage() {
                 <div
                   key={group.key}
                   className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : 'hover:bg-gray-50 cursor-pointer'} transition-colors`}
-                  onClick={() => !group.cancelled && setDocModal(group)}
+                  onClick={() => setSaleDetail(group)}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -689,9 +753,7 @@ export default function VentesPage() {
                         {group.items.length > 1 && (
                           <Badge color="blue">{group.items.length} produits</Badge>
                         )}
-                        {!group.cancelled && (
-                          <span className="text-xs text-gray-300 ml-1">· Cliquer pour imprimer un document</span>
-                        )}
+                        <span className="text-xs text-gray-300 ml-1">· Cliquer pour voir les détails</span>
                       </div>
                       <div className="space-y-0.5">
                         {group.items.map(s => (
@@ -752,6 +814,73 @@ export default function VentesPage() {
           </div>
         )}
       </div>
+
+      <Modal open={!!saleDetail} onClose={() => setSaleDetail(null)} title="Détails de la vente" maxW="max-w-3xl">
+        {saleDetail && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Informations générales</p>
+                <div className="mt-4 space-y-3 text-sm text-gray-700">
+                  <div className="flex justify-between"><span>Date</span><span>{format(new Date(saleDetail.date), 'dd MMM yyyy', { locale: fr })}</span></div>
+                  {saleDetail.created_at && <div className="flex justify-between"><span>Créée le</span><span>{format(new Date(saleDetail.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span></div>}
+                  <div className="flex justify-between"><span>Client</span><span>{saleDetail.client_name || '—'}</span></div>
+                  <div className="flex justify-between"><span>Statut paiement</span><span>{saleDetail.payment_status === 'credit' ? 'Crédit' : 'Payé'}</span></div>
+                  <div className="flex justify-between"><span>Montant payé</span><span>{formatFCFA(saleDetail.paid_amount || 0)}</span></div>
+                  <div className="flex justify-between"><span>Reste à payer</span><span>{formatFCFA(saleDetail.remaining_amount || 0)}</span></div>
+                  <div className="flex justify-between"><span>Articles</span><span>{saleDetail.items.length}</span></div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Totaux</p>
+                <div className="mt-4 space-y-3 text-sm text-gray-700">
+                  <div className="flex justify-between"><span>Chiffre d'affaires</span><span>{formatFCFA(saleDetail.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0))}</span></div>
+                  <div className="flex justify-between"><span>Coût total</span><span>{formatFCFA(saleDetail.items.reduce((sum, item) => sum + Number(item.total_purchase_cost || 0), 0))}</span></div>
+                  <div className="flex justify-between"><span>Marge</span><span>{formatFCFA(saleDetail.items.reduce((sum, item) => sum + Number(item.profit || 0), 0))}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Articles vendus</p>
+                  <p className="text-xs text-gray-500">Détails des lignes de vente</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {saleDetail.items.map(item => (
+                  <div key={item.id} className="grid grid-cols-1 lg:grid-cols-4 gap-3 p-4 rounded-2xl bg-gray-50">
+                    <div>
+                      <p className="text-xs text-gray-400">Produit</p>
+                      <p className="font-semibold text-gray-900 truncate">{item.product_name || '—'}</p>
+                      <p className="text-xs text-gray-500">{item.product_code || item.product_id || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Quantité</p>
+                      <p className="font-semibold text-gray-900">{item.quantity}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Prix unitaire</p>
+                      <p className="font-semibold text-gray-900">{formatFCFA(item.unit_sale_price || 0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Total</p>
+                      <p className="font-semibold text-gray-900">{formatFCFA(item.total_sale || 0)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 justify-end">
+              <Btn variant="secondary" onClick={() => setSaleDetail(null)}>Fermer</Btn>
+              <Btn onClick={() => { setSaleDetail(null); setDocModal(saleDetail) }}>Imprimer</Btn>
+              <Btn onClick={() => { setSaleDetail(null); openEditSale(saleDetail) }}>Modifier</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ── Document Print Modal ── */}
       <Modal open={!!docModal} onClose={() => setDocModal(null)} title="Imprimer un document" maxW="max-w-sm">
@@ -941,7 +1070,7 @@ export default function VentesPage() {
                         </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-[0.75fr_1fr_1.8fr] gap-2">
+                    <div className="grid grid-cols-[0.75fr_1fr_1fr_1.8fr] gap-2">
                       <div>
                         <label className="text-xs text-gray-400">Quantité</label>
                         <FrenchInput
@@ -949,6 +1078,55 @@ export default function VentesPage() {
                           onChange={(value) => updateLine(line._key, 'quantity', value)}
                           className={inputCls}
                         />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400">Prix d'achat utilisé</label>
+
+                        {line.manual_cost ? (
+                          <div className="flex gap-2">
+                            <FrenchInput
+                              value={line.unit_cost}
+                              onChange={(value) => updateLine(line._key, 'unit_cost', value)}
+                              placeholder="Prix achat"
+                              className={inputCls}
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => handleCostSelect(line._key, getDefaultPurchaseCost(line.product_id))}
+                              className="h-11 w-10 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50"
+                              title="Revenir à la liste"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <select
+                              value={Number(line.unit_cost || 0)}
+                              onChange={(e) => handleCostSelect(line._key, e.target.value)}
+                              className={selectCls}
+                              disabled={!line.product_id}
+                            >
+                              <option value="">— Choisir —</option>
+                              {getPurchaseCostOptions(line.product_id).map(option => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCostSelect(line._key, 'manual')}
+                              className="h-11 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700"
+                              title="Saisir un prix d'achat manuellement"
+                              disabled={!line.product_id}
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="text-xs text-gray-400">Prix unitaire (FCFA)</label>

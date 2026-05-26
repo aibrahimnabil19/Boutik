@@ -18,8 +18,8 @@
 # next.js
 /.next/
 /out/
-apps/web/.next/
-apps/web/out/
+/apps/web/.next/
+/apps/web/out/
 apps/web/dist/
 apps/web/build/
 

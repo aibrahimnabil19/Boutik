@@ -320,6 +320,7 @@ export function exportRentabiliteReportExcel({
         "Nom Produit",
         "Quantité",
         "PA Unitaire",
+        "Charges",
         "Total Achat",
       ],
       ...filteredPurchases.map((p) => [
@@ -329,6 +330,7 @@ export function exportRentabiliteReportExcel({
         p.product_name || "",
         n(p.quantity),
         n(p.unit_price),
+        n(p.charge_total),
         n(p.total_amount),
       ]),
     ],

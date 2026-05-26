@@ -5,8 +5,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { Package, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react'
-import { format } from 'date-fns'
+import { Package, Plus, Pencil, Trash2, AlertTriangle, Eye } from 'lucide-react'
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval } from 'date-fns'
+import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, formatNumber, calculateStock } from '@/lib/core/calculations'
@@ -21,6 +22,7 @@ export default function ProduitsPage() {
   const [products, setProducts] = useState([])
   const [purchases, setPurchases] = useState([])
   const [sales, setSales] = useState([])
+  const [suppliers, setSuppliers] = useState([])
   const [search, setSearch] = useState('')
   const [stockFilter, setStockFilter] = useState('all')
   const [sortMode, setSortMode] = useState('alpha')
@@ -28,19 +30,25 @@ export default function ProduitsPage() {
   const [editing, setEditing] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [productDetail, setProductDetail] = useState(null)
+  const [periodFilter, setPeriodFilter] = useState('month')
+  const [customDateStart, setCustomDateStart] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [customDateEnd, setCustomDateEnd] = useState(format(new Date(), 'yyyy-MM-dd'))
 
   const { register, handleSubmit, reset, setValue, control, formState: { errors } } = useForm()
 
   async function load() {
     if (!shop?.id) return
-    const [p, pu, s] = await Promise.all([
+    const [p, pu, s, sup] = await Promise.all([
       getAll('products', shop.id),
       getAll('purchases', shop.id),
       getAll('sales', shop.id),
+      getAll('suppliers', shop.id),
     ])
     setProducts(p)
     setPurchases(pu)
     setSales(s)
+    setSuppliers(sup)
     setLoading(false)
   }
 
@@ -87,6 +95,89 @@ export default function ProduitsPage() {
     await localDelete('products', id)
     toast.success('Produit supprimé')
     load()
+  }
+
+  function getDateRange() {
+    const today = new Date()
+    switch (periodFilter) {
+      case 'week':
+        return { start: startOfWeek(today), end: endOfWeek(today) }
+      case 'month':
+        return { start: startOfMonth(today), end: endOfMonth(today) }
+      case 'year':
+        return { start: startOfYear(today), end: endOfYear(today) }
+      case 'custom':
+        return { start: parseISO(customDateStart), end: parseISO(customDateEnd) }
+      default:
+        return { start: new Date(1900, 0, 1), end: new Date(2100, 0, 1) }
+    }
+  }
+
+  function getProductAnalytics(product) {
+    const { start, end } = getDateRange()
+
+    const inRange = (dateValue) => {
+      if (!dateValue) return false
+      const d = new Date(dateValue)
+      if (Number.isNaN(d.getTime())) return false
+      return isWithinInterval(d, { start, end })
+    }
+
+    const productSales = sales
+      .filter(s =>
+        s.product_id === product.id &&
+        !s.cancelled_at &&
+        inRange(s.date)
+      )
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+
+    const productPurchases = purchases
+      .filter(p =>
+        p.product_id === product.id &&
+        inRange(p.date)
+      )
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+
+    const totalQtySold = productSales.reduce((sum, s) => sum + Number(s.quantity || 0), 0)
+    const totalRevenue = productSales.reduce((sum, s) => sum + Number(s.total_sale || 0), 0)
+    const totalCost = productSales.reduce((sum, s) => sum + Number(s.total_purchase_cost || 0), 0)
+    const totalProfit = productSales.reduce((sum, s) => sum + Number(s.profit || 0), 0)
+    const avgSalePrice = totalQtySold > 0 ? totalRevenue / totalQtySold : 0
+
+    const totalQtyBought = productPurchases.reduce((sum, p) => sum + Number(p.quantity || 0), 0)
+    const totalStockCost = productPurchases.reduce((sum, p) => {
+      return sum + Number(p.quantity || 0) * Number(p.unit_price || 0)
+    }, 0)
+    const totalCharges = productPurchases.reduce((sum, p) => sum + Number(p.charge_total || 0), 0)
+    const totalSpent = productPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0)
+    const avgPurchasePrice = totalQtyBought > 0 ? totalStockCost / totalQtyBought : 0
+    const avgRealCost = totalQtyBought > 0 ? totalSpent / totalQtyBought : 0
+
+    const currentStock = calculateStock(product, purchases, sales)
+    const stockValue = currentStock * Number(product.purchase_price || 0)
+    const marginRate = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
+
+    return {
+      totalQtySold,
+      totalRevenue,
+      totalCost,
+      totalProfit,
+      marginRate,
+      avgSalePrice,
+
+      totalQtyBought,
+      totalStockCost,
+      totalCharges,
+      totalSpent,
+      avgPurchasePrice,
+      avgRealCost,
+
+      currentStock,
+      stockValue,
+
+      productSales,
+      productPurchases,
+    }
   }
 
   const filtered = useMemo(() => {
@@ -140,6 +231,7 @@ export default function ProduitsPage() {
       if (sortMode === 'stock_asc') return Number(a.currentStock || 0) - Number(b.currentStock || 0) || alpha
       if (sortMode === 'value_desc') return Number(b.stockValue || 0) - Number(a.stockValue || 0) || alpha
       if (sortMode === 'low_first') return Number(a.isLow ? 0 : 1) - Number(b.isLow ? 0 : 1) || alpha
+      if (sortMode === 'sold_desc') return Number(b.sold || 0) - Number(a.sold || 0) || alpha
 
       return alpha
     })
@@ -202,6 +294,7 @@ export default function ProduitsPage() {
               className={inputCls}
             >
               <option value="alpha">Nom A-Z</option>
+              <option value="sold_desc">Les plus vendus</option>
               <option value="stock_desc">Stock le plus élevé</option>
               <option value="stock_asc">Stock le plus bas</option>
               <option value="low_first">Stock bas d’abord</option>
@@ -231,15 +324,19 @@ export default function ProduitsPage() {
                 {displayedProducts.map(p => {
                   const low = p.alert_threshold != null && p.currentStock <= p.alert_threshold
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3">
+                    <tr
+                      key={p.id}
+                      onClick={() => setProductDetail(p)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <p className="font-mono text-xs font-semibold text-gray-700">{p.code || '—'}</p>
                         <p className="font-mono text-[10px] text-gray-400 truncate max-w-[120px]" title={p.id}>
                           ID: {p.id}
                         </p>
                       </td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <p className="font-medium text-gray-900">{p.name}</p>
                         <p className="text-xs text-gray-400">{p.unit}</p>
                       </td>
@@ -250,7 +347,7 @@ export default function ProduitsPage() {
                       <td className="px-4 py-3 text-gray-600">{formatNumber(p.bought)}</td>
                       <td className="px-4 py-3 text-gray-600">{formatNumber(p.sold)}</td>
 
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <span className={`font-bold ${p.currentStock <= 0 ? 'text-red-600' : low ? 'text-amber-600' : 'text-emerald-600'}`}>
                           {formatNumber(p.currentStock)}
                         </span>
@@ -259,7 +356,7 @@ export default function ProduitsPage() {
                       <td className="px-4 py-3 font-medium text-gray-800">
                         {formatFCFA(p.stockValue)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         {low
                           ? <Badge color="red">⚠ Bas</Badge>
                           : p.alert_threshold != null
@@ -267,8 +364,13 @@ export default function ProduitsPage() {
                             : <span className="text-gray-300 text-xs">—</span>
                         }
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1 justify-end">
+                          <button onClick={() => setProductDetail(p)}
+                            className="p-1.5 rounded-lg hover:bg-violet-50 text-gray-400 hover:text-violet-600 transition-colors"
+                            title="Voir détails">
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
                           <button onClick={() => openEdit(p)}
                             className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors">
                             <Pencil className="w-3.5 h-3.5" />
@@ -383,6 +485,208 @@ export default function ProduitsPage() {
             <Btn type="submit">{editing ? 'Enregistrer' : 'Ajouter'}</Btn>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!productDetail} onClose={() => setProductDetail(null)} title={productDetail?.name ? `Détails du produit: ${productDetail.name}` : 'Détails du produit'}>
+        {productDetail && (() => {
+          const analytics = getProductAnalytics(productDetail)
+          const { start, end } = getDateRange()
+          const periodLabel = periodFilter === 'custom' ? `du ${customDateStart} au ${customDateEnd}` : periodFilter === 'all' ? 'Tous les temps' : periodFilter === 'week' ? 'Cette semaine' : periodFilter === 'month' ? 'Ce mois-ci' : 'Cette année'
+
+          return (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Code</p>
+                  <p className="font-mono text-sm text-gray-800">{productDetail.code || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Unité</p>
+                  <p className="text-sm text-gray-800">{productDetail.unit || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Prix d'achat</p>
+                  <p className="text-sm text-gray-800">{formatFCFA(productDetail.purchase_price)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Prix de vente</p>
+                  <p className="text-sm text-gray-800">{formatFCFA(productDetail.sale_price || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Stock Initial</p>
+                  <p className="text-sm text-gray-800">{productDetail.stock_initial}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Stock Actuel</p>
+                  <p className="text-sm text-gray-800">{formatNumber(calculateStock(productDetail, purchases, sales))}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Seuil d'alerte</p>
+                  <p className="text-sm text-gray-800">{productDetail.alert_threshold ?? '—'}</p>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-3">Période: {periodLabel}</p>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button onClick={() => setPeriodFilter('all')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'all' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                    Tous les temps
+                  </button>
+                  <button onClick={() => setPeriodFilter('week')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'week' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                    Cette semaine
+                  </button>
+                  <button onClick={() => setPeriodFilter('month')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'month' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                    Ce mois
+                  </button>
+                  <button onClick={() => setPeriodFilter('year')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'year' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                    Cette année
+                  </button>
+                  <button onClick={() => setPeriodFilter('custom')}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'custom' ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                    Personnalisé
+                  </button>
+                </div>
+                {periodFilter === 'custom' && (
+                  <div className="flex gap-2 mb-4">
+                    <input type="date" value={customDateStart} onChange={e => setCustomDateStart(e.target.value)}
+                      className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent" />
+                    <input type="date" value={customDateEnd} onChange={e => setCustomDateEnd(e.target.value)}
+                      className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent" />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                  <p className="text-xs font-semibold text-blue-600 uppercase mb-2">Ventes</p>
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-xs text-gray-600">Qté vendue</p>
+                      <p className="text-lg font-bold text-blue-900">{analytics.totalQtySold}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Revenu</p>
+                      <p className="text-sm font-bold text-blue-900">{formatFCFA(analytics.totalRevenue)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Prix moyen</p>
+                      <p className="text-sm font-bold text-blue-900">{formatFCFA(analytics.avgSalePrice)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-orange-50 rounded-lg border border-orange-100">
+                  <p className="text-xs font-semibold text-orange-600 uppercase mb-2">Achats</p>
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-xs text-gray-600">Qté achetée</p>
+                      <p className="text-lg font-bold text-orange-900">{analytics.totalQtyBought}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Dépensé</p>
+                      <p className="text-sm font-bold text-orange-900">{formatFCFA(analytics.totalSpent)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Prix moyen</p>
+                      <p className="text-sm font-bold text-orange-900">{formatFCFA(analytics.avgPurchasePrice)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-green-50 rounded-lg border border-green-100">
+                  <p className="text-xs font-semibold text-green-600 uppercase mb-2">Profit</p>
+                  <div className="space-y-2">
+                    <p className="text-2xl font-bold text-green-900">{formatFCFA(analytics.totalProfit)}</p>
+                    <p className="text-xs text-gray-600">Bénéfice brut sur la période</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600 uppercase">Stock actuel</p>
+                  <p className="text-lg font-bold text-slate-900">{formatNumber(analytics.currentStock)}</p>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600 uppercase">Valeur stock</p>
+                  <p className="text-lg font-bold text-slate-900">{formatFCFA(analytics.stockValue)}</p>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600 uppercase">Charges achat</p>
+                  <p className="text-lg font-bold text-slate-900">{formatFCFA(analytics.totalCharges)}</p>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600 uppercase">Marge</p>
+                  <p className="text-lg font-bold text-slate-900">{analytics.marginRate.toFixed(1)}%</p>
+                </div>
+              </div>
+
+              {analytics.productSales.length > 0 && (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <p className="text-xs font-semibold text-gray-700 bg-gray-50 px-4 py-2">Historique des ventes</p>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-t border-gray-200 bg-gray-50">
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">Date</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Quantité</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Prix unitaire</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analytics.productSales.map(s => (
+                        <tr key={s.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2">{format(parseISO(s.date), 'dd MMM yyyy', { locale: fr })}</td>
+                          <td className="px-4 py-2 text-right">{s.quantity}</td>
+                          <td className="px-4 py-2 text-right">{formatFCFA(s.unit_sale_price || 0)}</td>
+                          <td className="px-4 py-2 text-right font-medium">{formatFCFA(s.total_sale || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {analytics.productPurchases.length > 0 && (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <p className="text-xs font-semibold text-gray-700 bg-gray-50 px-4 py-2">Historique des achats</p>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-t border-gray-200 bg-gray-50">
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">Date</th>
+                        <th className="px-4 py-2 text-left font-semibold text-gray-600">Fournisseur</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Quantité</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Prix unitaire</th>
+                        <th className="px-4 py-2 text-right font-semibold text-gray-600">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analytics.productPurchases.map(p => {
+                        const supplier = (suppliers || []).find(s => s.id === p.supplier_id)
+                        return (
+                          <tr key={p.id} className="border-t border-gray-200 hover:bg-gray-50">
+                            <td className="px-4 py-2">{format(parseISO(p.date), 'dd MMM yyyy', { locale: fr })}</td>
+                            <td className="px-4 py-2 text-sm">{supplier?.name || 'Inconnu'}</td>
+                            <td className="px-4 py-2 text-right">{p.quantity}</td>
+                            <td className="px-4 py-2 text-right">{formatFCFA(p.unit_price || 0)}</td>
+                            <td className="px-4 py-2 text-right font-medium">{formatFCFA(p.total_amount || 0)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </Modal>
 
       <ConfirmDialog

@@ -43,6 +43,8 @@ const REMOTE_COLUMNS = {
     "product_name",
     "quantity",
     "unit_price",
+    "charge_total",
+    "charges",
     "total_amount",
     "payment_status",
     "paid_amount",
