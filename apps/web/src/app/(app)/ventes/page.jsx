@@ -21,6 +21,10 @@ import DateFilter from '@/components/DateFilter'
 import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
 import PhoneInput from '@/components/PhoneInput'
 import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
+import PaymentBreakdownInput, {
+  cleanPaymentBreakdown,
+  sumPaymentBreakdown,
+} from '@/components/PaymentBreakdownInput'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -83,7 +87,7 @@ export default function VentesPage() {
   const [saleClientId, setSaleClientId] = useState('')
   const [paymentMode, setPaymentMode] = useState('')
   const [paidAmount, setPaidAmount] = useState('')
-  const [useClientCredit, setUseClientCredit] = useState(false)
+  const [paymentBreakdown, setPaymentBreakdown] = useState([])
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -384,15 +388,19 @@ export default function VentesPage() {
   const selectedClientForSale = clients.find(c => c.id === saleClientId) || null
   const selectedClientBalance = selectedClientForSale ? clientBalance(selectedClientForSale.id) : 0
   const selectedClientCredit = Math.max(0, -selectedClientBalance)
-  const clientCreditUsed = useClientCredit
-    ? Math.min(selectedClientCredit, cartTotals.revenue)
-    : 0
+  const clientCreditUsed =
+    paymentMode === 'advance'
+      ? Math.min(selectedClientCredit, cartTotals.revenue)
+      : 0
 
-  const paidPreview = clientCreditUsed + (
+  const cashPaid =
     paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
-      : Math.max(0, cartTotals.revenue - clientCreditUsed)
-  )
+      : paymentMode === 'paid'
+        ? cartTotals.revenue
+        : 0
+
+  const paidPreview = clientCreditUsed + cashPaid
 
   const remainingPreview = Math.max(0, cartTotals.revenue - paidPreview)
 
@@ -403,6 +411,30 @@ export default function VentesPage() {
     if (!paymentMode) {
       toast.error('Choisissez le mode de paiement.')
       return
+    }
+
+    if (paymentMode === 'advance' && !selectedClientForSale) {
+      toast.error('Choisissez un client pour utiliser une avance.')
+      return
+    }
+
+    if (paymentMode === 'advance' && selectedClientCredit <= 0) {
+      toast.error('Ce client n’a aucune avance disponible.')
+      return
+    }
+
+    if (paymentMode === 'paid') {
+      const breakdownTotal = sumPaymentBreakdown(paymentBreakdown)
+
+      if (paymentBreakdown.length === 0) {
+        toast.error('Choisissez au moins un moyen de paiement.')
+        return
+      }
+
+      if (Math.abs(breakdownTotal - cartTotals.revenue) > 0.01) {
+        toast.error('La somme des moyens de paiement doit être égale au total de la vente.')
+        return
+      }
     }
 
     for (const line of cart) {
@@ -455,7 +487,9 @@ export default function VentesPage() {
     const selectedClient = clients.find(c => c.id === saleClientId) || null
     const cashPaid = paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
-      : Math.max(0, cartTotals.revenue - clientCreditUsed)
+      : paymentMode === 'paid'
+        ? cartTotals.revenue
+        : 0
 
     const totalPaid = clientCreditUsed + cashPaid
     const remainingAmount = Math.max(0, cartTotals.revenue - totalPaid)
@@ -517,9 +551,9 @@ export default function VentesPage() {
           store: '',
           client_id: selectedClient?.id || null,
           client_name: selectedClient?.name || '',
-          payment_status: paymentStatus,
-          paid_amount: linePaid,
-          remaining_amount: lineRemaining,
+          payment_method: paymentMode,
+          payment_breakdown: paymentMode === 'paid' ? cleanPaymentBreakdown(paymentBreakdown) : [],
+          advance_used: clientCreditUsed,
           product_id: line.product_id,
           purchase_id: line.purchase_id || null,
           product_code: line.product_code || '',
@@ -654,7 +688,7 @@ export default function VentesPage() {
       }))
     )
 
-    setUseClientCredit(false)
+    setPaymentBreakdown(firstItem?.payment_breakdown || [])
     setModal(true)
   }
 
@@ -665,7 +699,7 @@ export default function VentesPage() {
     setSaleClientId('')
     setPaymentMode('')
     setPaidAmount('')
-    setUseClientCredit(false)
+    setPaymentBreakdown([])
     setModal(true)
   }
 
@@ -1034,13 +1068,26 @@ export default function VentesPage() {
             <FormField label="Paiement" required>
               <select
                 value={paymentMode}
-                onChange={e => setPaymentMode(e.target.value)}
+                onChange={e => {
+                  setPaymentMode(e.target.value)
+                  setPaymentBreakdown([])
+                  setPaidAmount('')
+                }}
                 className={selectCls}
                 required
               >
                 <option value="">— Choisir le mode de paiement —</option>
                 <option value="paid">Payé comptant</option>
                 <option value="credit">Vente à crédit</option>
+                <option
+                  value="advance"
+                  disabled={!selectedClientForSale || selectedClientCredit <= 0}
+                >
+                  Paiement depuis avance
+                  {selectedClientForSale && selectedClientCredit > 0
+                    ? ` (${formatFCFA(selectedClientCredit)})`
+                    : ' — indisponible'}
+                </option>
               </select>
             </FormField>
 
@@ -1055,6 +1102,30 @@ export default function VentesPage() {
               </FormField>
             )}
           </div>
+
+          {paymentMode === 'paid' && (
+            <PaymentBreakdownInput
+              value={paymentBreakdown}
+              onChange={setPaymentBreakdown}
+              total={cartTotals.revenue}
+            />
+          )}
+
+          {paymentMode === 'advance' && selectedClientForSale && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm">
+              <p className="font-semibold text-emerald-900">
+                Avance disponible : {formatFCFA(selectedClientCredit)}
+              </p>
+              <p className="text-emerald-700">
+                Montant utilisé pour cette vente : {formatFCFA(clientCreditUsed)}
+              </p>
+              {remainingPreview > 0 && (
+                <p className="text-amber-700 mt-1">
+                  Reste à payer après avance : {formatFCFA(remainingPreview)}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="border border-gray-100 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
@@ -1345,36 +1416,6 @@ export default function VentesPage() {
               />
             </FormField>
           </div>
-
-          {selectedClientForSale && selectedClientCredit > 0 && (
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-emerald-900">
-                    Crédit client disponible : {formatFCFA(selectedClientCredit)}
-                  </p>
-                  <p className="text-xs text-emerald-700">
-                    Vous pouvez utiliser cette avance pour payer cette vente.
-                  </p>
-                </div>
-
-                <label className="flex items-center gap-2 text-sm font-medium text-emerald-900">
-                  <input
-                    type="checkbox"
-                    checked={useClientCredit}
-                    onChange={e => setUseClientCredit(e.target.checked)}
-                  />
-                  Utiliser l’avance
-                </label>
-              </div>
-
-              {useClientCredit && (
-                <p className="text-xs text-emerald-800 mt-2">
-                  Montant utilisé : {formatFCFA(clientCreditUsed)}
-                </p>
-              )}
-            </div>
-          )}
 
           <div className="flex gap-3 justify-end pt-2">
             <Btn variant="secondary" onClick={() => setClientModal(false)}>Annuler</Btn>

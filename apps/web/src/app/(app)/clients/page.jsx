@@ -155,7 +155,10 @@ export default function ClientsPage() {
 
     try {
       const amount = Number(data.amount)
-      const signed = data.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
+      const signed =
+        data.type === 'credit' || data.type === 'advance_product'
+          ? -Math.abs(amount)
+          : Math.abs(amount)
       const now = new Date().toISOString()
 
       const record = {
@@ -163,7 +166,13 @@ export default function ClientsPage() {
         shop_id: shop.id,
         client_id: selected.id,
         date: data.date,
-        label: data.label,
+        label:
+          data.label ||
+          (data.type === 'advance_product'
+            ? 'Avance pour achat futur'
+            : data.type === 'credit'
+              ? 'Paiement client'
+              : 'Créance client'),
         amount: signed,
         type: data.type,
         created_at: editingTx?.created_at || now,
@@ -306,24 +315,17 @@ export default function ClientsPage() {
             <Btn variant="secondary" icon={Printer} onClick={handlePrintStatement}>
               Imprimer relevé
             </Btn>
-            <Btn icon={Plus} onClick={() => {
-              setEditingTx(null)
-              resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '', label: '' })
-              setTxModal(true)
-            }}>
-              Nouvelle ligne
-            </Btn>
             <Btn icon={Plus} variant="secondary" onClick={() => {
               setEditingTx(null)
               resetTx({
                 date: format(new Date(), 'yyyy-MM-dd'),
-                type: 'credit',
-                label: 'Dépôt / avance client',
+                type: 'advance_product',
+                label: 'Avance pour achat futur',
                 amount: '',
               })
               setTxModal(true)
             }}>
-              Dépôt / avance
+              Dépôt / avance produit
             </Btn>
             <Btn
               variant="secondary"
@@ -360,7 +362,7 @@ export default function ClientsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard
             label="Solde actuel"
             value={formatFCFA(Math.abs(balance))}
@@ -382,6 +384,12 @@ export default function ClientsPage() {
             value={salesSummary.count}
             color="blue"
             sub={formatFCFA(salesSummary.totalSales)}
+          />
+          <StatCard
+            label="Avance disponible"
+            value={formatFCFA(clientCredit)}
+            color="green"
+            sub="Pour achat futur"
           />
         </div>
 
@@ -457,8 +465,12 @@ export default function ClientsPage() {
                       </td>
                       <td className="px-4 py-3 font-medium text-gray-900">{tx.label}</td>
                       <td className="px-4 py-3">
-                        <Badge color={tx.amount > 0 ? 'red' : 'green'}>
-                          {tx.amount > 0 ? 'Créance' : 'Paiement'}
+                        <Badge color={tx.amount > 0 ? 'red' : tx.type === 'advance_product' ? 'blue' : 'green'}>
+                          {tx.amount > 0
+                            ? 'Créance'
+                            : tx.type === 'advance_product'
+                              ? 'Avance produit'
+                              : 'Paiement'}
                         </Badge>
                       </td>
                       <td className={`px-4 py-3 font-bold ${tx.amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -587,7 +599,8 @@ export default function ClientsPage() {
               <FormField label="Type" required>
                 <select {...registerTx('type')} className={inputCls}>
                   <option value="debit">Créance (client doit)</option>
-                  <option value="credit">Paiement (client paie)</option>
+                  <option value="credit">Paiement d’une créance</option>
+                  <option value="advance_product">Avance pour achat futur</option>
                 </select>
               </FormField>
             </div>

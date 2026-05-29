@@ -22,6 +22,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import DateFilter from '@/components/DateFilter'
 import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
 import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
+import PaymentBreakdownInput, {
+  cleanPaymentBreakdown,
+  sumPaymentBreakdown,
+} from '@/components/PaymentBreakdownInput'
 
 // Document types for purchases
 const PURCHASE_DOC_TYPES = [
@@ -65,6 +69,7 @@ export default function AchatsPage() {
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
   const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
   const [chargeRows, setChargeRows] = useState([])
+  const [paymentBreakdown, setPaymentBreakdown] = useState([])
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -299,6 +304,31 @@ export default function AchatsPage() {
       }
     }
 
+    const supplier = suppliers.find(s => s.name === data.supplier) || null
+
+    if (!supplier) {
+      toast.error('Choisissez un fournisseur.')
+      return
+    }
+
+    const cleanCharges = cleanChargeRows()
+    const chargesTotal = cleanCharges.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+    const totalAmount = stockSubtotal + chargesTotal
+
+    if (paymentMode === 'paid') {
+      const breakdownTotal = sumPaymentBreakdown(paymentBreakdown)
+
+      if (paymentBreakdown.length === 0) {
+        toast.error('Choisissez au moins un moyen de paiement.')
+        return
+      }
+
+      if (Math.abs(breakdownTotal - totalAmount) > 0.01) {
+        toast.error('La somme des moyens de paiement doit être égale au total de l’entrée de stock.')
+        return
+      }
+    }
+
     const totalPaid = paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
       : totalAmount
@@ -353,6 +383,8 @@ export default function AchatsPage() {
         payment_status: lineRemaining > 0 ? 'credit' : 'paid',
         paid_amount: linePaid,
         remaining_amount: lineRemaining,
+        payment_method: paymentMode,
+        payment_breakdown: paymentMode === 'paid' ? cleanPaymentBreakdown(paymentBreakdown) : [],
         notes: data.notes || '',
         created_at: editingPurchase?.created_at || now,
         updated_at: now,
@@ -407,6 +439,7 @@ export default function AchatsPage() {
     setPurchaseLines([emptyPurchaseLine()])
     setPaymentMode('')
     setPaidAmount('')
+    setPaymentBreakdown([])
     setModal(true)
   }
 
@@ -431,6 +464,7 @@ export default function AchatsPage() {
     })
     setPaymentMode(purchase.payment_status === 'credit' ? 'credit' : 'paid')
     setPaidAmount(String(purchase.paid_amount || ''))
+    setPaymentBreakdown(purchase.payment_breakdown || [])
 
     const existingCharges = Array.isArray(purchase.charges)
       ? purchase.charges
@@ -853,7 +887,11 @@ export default function AchatsPage() {
             <FormField label="Paiement" required>
               <select
                 value={paymentMode}
-                onChange={e => setPaymentMode(e.target.value)}
+                onChange={e => {
+                  setPaymentMode(e.target.value)
+                  setPaymentBreakdown([])
+                  setPaidAmount('')
+                }}
                 className={selectCls}
                 required
               >
@@ -874,6 +912,14 @@ export default function AchatsPage() {
               </FormField>
             )}
           </div>
+
+          {paymentMode === 'paid' && (
+            <PaymentBreakdownInput
+              value={paymentBreakdown}
+              onChange={setPaymentBreakdown}
+              total={total}
+            />
+          )}
 
           {total > 0 && (
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
