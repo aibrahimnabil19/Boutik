@@ -19,14 +19,10 @@ export function askIncludeStamp(shop) {
 }
 
 export function normalizeDocumentOptions(shop, options = {}) {
-  const includeStamp = options.includeStamp;
-
   return {
-    includeCachet: options.includeCachet ?? includeStamp ?? !!shop?.cachet_url,
-
-    includeSignature:
-      options.includeSignature ?? includeStamp ?? !!shop?.signature_url,
-  };
+    includeCachet: !!options.includeCachet && !!shop?.cachet_url,
+    includeSignature: !!options.includeSignature && !!shop?.signature_url,
+  }
 }
 
 /**
@@ -394,14 +390,14 @@ export function renderToInvoiceHTML({
     }
 
     ${
-      isBonCommande || isBonLivraison || !guaranteeText
-        ? ""
-        : `
-          <div class="garantie">
-            <span>GARANTIE</span> : ${guaranteeText}
-          </div>
-        `
-    }
+  !guaranteeText
+    ? ""
+    : `
+      <div class="garantie">
+        <span>GARANTIE</span> : ${guaranteeText}
+      </div>
+    `
+}
 
     <div class="signature">
       <div class="signature-box">
@@ -496,6 +492,7 @@ export function printPurchaseDocument({
   type,
   purchase,
   invoiceNumber,
+  guaranteeText = "",
   includeCachet,
   includeSignature,
 }) {
@@ -530,6 +527,7 @@ export function printPurchaseDocument({
     type,
     includeCachet,
     includeSignature,
+    guaranteeText,
   });
 
   const iframe = document.createElement("iframe");

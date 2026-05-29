@@ -32,9 +32,9 @@ export default function NouvelleProformaPage() {
   const [proformaId] = useState(existingId || uuid())
   const [proformaNumber, setProformaNumber] = useState('')
   const [printOptions, setPrintOptions] = useState({
-    includeCachet: searchParams.get('cachet') !== '0',
-    includeSignature: searchParams.get('signature') !== '0',
-  })
+  includeCachet: searchParams.get('cachet') === '1',
+  includeSignature: searchParams.get('signature') === '1',
+})
   const [guarantee, setGuarantee] = useState({
     key: GUARANTEE_OPTIONS[0].key,
     text: GUARANTEE_OPTIONS[0].text,
@@ -72,10 +72,10 @@ export default function NouvelleProformaPage() {
           text: inv.guarantee_text || GUARANTEE_OPTIONS[0].text,
         })
 
-        setPrintOptions({
-          includeCachet: inv.include_cachet ?? searchParams.get('cachet') !== '0',
-          includeSignature: inv.include_signature ?? searchParams.get('signature') !== '0',
-        })
+        ssetPrintOptions({
+  includeCachet: inv.include_cachet ?? searchParams.get('cachet') === '1',
+  includeSignature: inv.include_signature ?? searchParams.get('signature') === '1',
+})
         if (lines.length > 0) setItems(lines)
       }
     } else {

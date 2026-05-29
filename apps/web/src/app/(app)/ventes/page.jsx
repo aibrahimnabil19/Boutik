@@ -25,6 +25,8 @@ import PaymentBreakdownInput, {
   cleanPaymentBreakdown,
   sumPaymentBreakdown,
 } from '@/components/PaymentBreakdownInput'
+import GuaranteePicker from '@/components/GuaranteePicker'
+import { GUARANTEE_OPTIONS } from '@/lib/core/guarantees'
 
 function computeStock(product, purchases, sales) {
   const bought = purchases
@@ -76,7 +78,11 @@ export default function VentesPage() {
   const [clientModal, setClientModal] = useState(false)
   const [quickClient, setQuickClient] = useState({ name: '', phone: '', address: '' })
   const [editingGroup, setEditingGroup] = useState(null)
-  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
+  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions())
+const [docGuarantee, setDocGuarantee] = useState({
+  key: GUARANTEE_OPTIONS[0].key,
+  text: GUARANTEE_OPTIONS[0].text,
+})
   // Document modal
   const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
   const [saleDetail, setSaleDetail] = useState(null)
@@ -805,7 +811,7 @@ export default function VentesPage() {
         client_phone: '',
         total_amount: total,
         amount_in_words: '',
-        guarantee_text: '',
+        guarantee_text: docGuarantee.text || '',
         include_cachet: !!printOptions.includeCachet,
         include_signature: !!printOptions.includeSignature,
         status: 'finalized',
@@ -826,13 +832,14 @@ export default function VentesPage() {
     }
 
     printSaleDocument({
-      shop,
-      type: docType,
-      saleGroup: group,
-      invoiceNumber,
-      includeCachet: printOptions.includeCachet,
-      includeSignature: printOptions.includeSignature,
-    })
+  shop,
+  type: docType,
+  saleGroup: group,
+  invoiceNumber,
+  guaranteeText: docGuarantee.text || '',
+  includeCachet: printOptions.includeCachet,
+  includeSignature: printOptions.includeSignature,
+})
 
     setDocModal(null)
   }
@@ -937,7 +944,14 @@ export default function VentesPage() {
                     {!group.cancelled && (
                       <div className="flex gap-1 flex-none" onClick={e => e.stopPropagation()}>
                         <button
-                          onClick={() => setDocModal(group)}
+                          onClick={() => {
+  setPrintOptions(getDefaultDocumentOptions())
+  setDocGuarantee({
+    key: GUARANTEE_OPTIONS[0].key,
+    text: GUARANTEE_OPTIONS[0].text,
+  })
+  setDocModal(group)
+}}
                           className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
                           title="Imprimer un document"
                         >
@@ -1051,11 +1065,10 @@ export default function VentesPage() {
           <p className="text-sm text-gray-500 mb-4">
             Choisissez le type de document à générer pour cette vente.
           </p>
-          <DocumentPrintOptions
-            shop={shop}
-            value={printOptions}
-            onChange={setPrintOptions}
-          />
+          <GuaranteePicker
+  value={docGuarantee}
+  onChange={setDocGuarantee}
+/>
           {docModal && SALE_DOC_TYPES.map(doc => {
             const Icon = doc.icon
             return (

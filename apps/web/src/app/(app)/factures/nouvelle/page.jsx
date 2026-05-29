@@ -37,8 +37,8 @@ export default function NouvelleFacturePage() {
   const [invoiceId] = useState(existingId || uuid())
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [printOptions, setPrintOptions] = useState({
-    includeCachet: searchParams.get('cachet') !== '0',
-    includeSignature: searchParams.get('signature') !== '0',
+    includeCachet: searchParams.get('cachet') === '1',
+    includeSignature: searchParams.get('signature') === '1',
   })
   const [guarantee, setGuarantee] = useState({
     key: GUARANTEE_OPTIONS[0].key,
@@ -79,8 +79,8 @@ export default function NouvelleFacturePage() {
         })
 
         setPrintOptions({
-          includeCachet: inv.include_cachet ?? searchParams.get('cachet') !== '0',
-          includeSignature: inv.include_signature ?? searchParams.get('signature') !== '0',
+          includeCachet: inv.include_cachet ?? searchParams.get('cachet') === '1',
+          includeSignature: inv.include_signature ?? searchParams.get('signature') === '1',
         })
         if (lines.length > 0) setItems(lines)
       }
@@ -114,23 +114,23 @@ export default function NouvelleFacturePage() {
   const grandTotal = calculateInvoiceTotal(computedItems)
 
   async function ensureInvoiceNumber(dateValue) {
-  if (invoiceNumber) return invoiceNumber
+    if (invoiceNumber) return invoiceNumber
 
-  const allInvoices = await getAll('invoices', shop.id)
-  const nextNumber = generateDocumentNumber(allInvoices, 'facture', dateValue || new Date())
+    const allInvoices = await getAll('invoices', shop.id)
+    const nextNumber = generateDocumentNumber(allInvoices, 'facture', dateValue || new Date())
 
-  setInvoiceNumber(nextNumber)
-  return nextNumber
-}
+    setInvoiceNumber(nextNumber)
+    return nextNumber
+  }
 
   // ─── Save ─────────────────────────────────────────────────────────────────
   async function onSubmit(data, newStatus = status) {
     setSaving(true)
     try {
       const officialNumber =
-  newStatus === 'finalized'
-    ? await ensureInvoiceNumber(data.date)
-    : invoiceNumber
+        newStatus === 'finalized'
+          ? await ensureInvoiceNumber(data.date)
+          : invoiceNumber
       const invoice = {
         id: invoiceId,
         shop_id: shop.id,
@@ -184,40 +184,40 @@ export default function NouvelleFacturePage() {
   }
 
   // ─── Print: renders ONLY the invoice into a hidden iframe ─────────────────
-async function handlePrint() {
-  const formValues = watch ? watch() : {}
-  const officialNumber = await ensureInvoiceNumber(formValues.date)
+  async function handlePrint() {
+    const formValues = watch ? watch() : {}
+    const officialNumber = await ensureInvoiceNumber(formValues.date)
 
-  await onSubmit(formValues, 'finalized')
+    await onSubmit(formValues, 'finalized')
 
-  const html = renderToInvoiceHTML({
-    shop,
-    invoiceNumber: officialNumber,
-    formValues,
-    items: computedItems,
-    grandTotal,
-    type: 'facture',
-    guaranteeText: guarantee.text,
-    includeCachet: printOptions.includeCachet,
-    includeSignature: printOptions.includeSignature,
-  })
+    const html = renderToInvoiceHTML({
+      shop,
+      invoiceNumber: officialNumber,
+      formValues,
+      items: computedItems,
+      grandTotal,
+      type: 'facture',
+      guaranteeText: guarantee.text,
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
+    })
 
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
-  document.body.appendChild(iframe)
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
+    document.body.appendChild(iframe)
 
-  iframe.contentDocument.open()
-  iframe.contentDocument.write(html)
-  iframe.contentDocument.close()
+    iframe.contentDocument.open()
+    iframe.contentDocument.write(html)
+    iframe.contentDocument.close()
 
-  iframe.onload = () => {
-    setTimeout(() => {
-      iframe.contentWindow.focus()
-      iframe.contentWindow.print()
-      setTimeout(() => document.body.removeChild(iframe), 1000)
-    }, 300)
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow.focus()
+        iframe.contentWindow.print()
+        setTimeout(() => document.body.removeChild(iframe), 1000)
+      }, 300)
+    }
   }
-}
 
   const formValues = watch()
 

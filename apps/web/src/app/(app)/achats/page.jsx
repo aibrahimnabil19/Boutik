@@ -26,6 +26,8 @@ import PaymentBreakdownInput, {
   cleanPaymentBreakdown,
   sumPaymentBreakdown,
 } from '@/components/PaymentBreakdownInput'
+import GuaranteePicker from '@/components/GuaranteePicker'
+import { GUARANTEE_OPTIONS } from '@/lib/core/guarantees'
 
 // Document types for purchases
 const PURCHASE_DOC_TYPES = [
@@ -67,7 +69,11 @@ export default function AchatsPage() {
   const [paymentModal, setPaymentModal] = useState(null)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
-  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions(shop))
+  const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions())
+  const [docGuarantee, setDocGuarantee] = useState({
+    key: GUARANTEE_OPTIONS[0].key,
+    text: GUARANTEE_OPTIONS[0].text,
+  })
   const [chargeRows, setChargeRows] = useState([])
   const [paymentBreakdown, setPaymentBreakdown] = useState([])
 
@@ -428,6 +434,11 @@ export default function AchatsPage() {
     toast.success(editingPurchase ? 'Entrée de stock modifiée' : 'Entrée de stock enregistrée')
     setModal(false)
     setEditingPurchase(null)
+    setPrintOptions(getDefaultDocumentOptions())
+    setDocGuarantee({
+      key: GUARANTEE_OPTIONS[0].key,
+      text: GUARANTEE_OPTIONS[0].text,
+    })
     setDocModal(savedPurchases[0])
     load()
   }
@@ -486,6 +497,7 @@ export default function AchatsPage() {
       type: docType,
       purchase,
       invoiceNumber: `ACH-${purchase.date}-${purchase.id.slice(0, 4).toUpperCase()}`,
+      guaranteeText: docGuarantee.text || '',
       includeCachet: printOptions.includeCachet,
       includeSignature: printOptions.includeSignature,
     })
@@ -703,6 +715,10 @@ export default function AchatsPage() {
             shop={shop}
             value={printOptions}
             onChange={setPrintOptions}
+          />
+          <GuaranteePicker
+            value={docGuarantee}
+            onChange={setDocGuarantee}
           />
           {docModal && PURCHASE_DOC_TYPES.map(doc => {
             const Icon = doc.icon

@@ -1,9 +1,9 @@
 'use client'
 
-export function getDefaultDocumentOptions(shop) {
+export function getDefaultDocumentOptions() {
   return {
-    includeCachet: !!shop?.cachet_url,
-    includeSignature: !!shop?.signature_url,
+    includeCachet: false,
+    includeSignature: false,
   }
 }
 

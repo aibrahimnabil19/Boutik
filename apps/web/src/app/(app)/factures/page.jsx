@@ -27,10 +27,10 @@ export default function FacturesPage() {
   const [loading, setLoading] = useState(true)
   const [pendingSale, setPendingSale] = useState(null)
   const [docOptions, setDocOptions] = useState({
-    ...getDefaultDocumentOptions(shop),
-    guaranteeKey: GUARANTEE_OPTIONS[0].key,
-    guaranteeText: GUARANTEE_OPTIONS[0].text,
-  })
+  ...getDefaultDocumentOptions(),
+  guaranteeKey: GUARANTEE_OPTIONS[0].key,
+  guaranteeText: GUARANTEE_OPTIONS[0].text,
+})
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -146,13 +146,13 @@ export default function FacturesPage() {
   }
 
   function openCreateFactureOptions(group) {
-    setPendingSale(group)
-    setDocOptions({
-      ...getDefaultDocumentOptions(shop),
-      guaranteeKey: GUARANTEE_OPTIONS[0].key,
-      guaranteeText: GUARANTEE_OPTIONS[0].text,
-    })
-  }
+  setPendingSale(group)
+  setDocOptions({
+    ...getDefaultDocumentOptions(),
+    guaranteeKey: GUARANTEE_OPTIONS[0].key,
+    guaranteeText: GUARANTEE_OPTIONS[0].text,
+  })
+}
 
   return (
     <div className="p-6">

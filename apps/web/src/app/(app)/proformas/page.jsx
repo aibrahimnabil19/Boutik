@@ -25,10 +25,10 @@ export default function ProformasPage() {
   const [loading, setLoading] = useState(true)
   const [pendingSale, setPendingSale] = useState(null)
   const [docOptions, setDocOptions] = useState({
-    ...getDefaultDocumentOptions(shop),
-    guaranteeKey: GUARANTEE_OPTIONS[0].key,
-    guaranteeText: GUARANTEE_OPTIONS[0].text,
-  })
+  ...getDefaultDocumentOptions(),
+  guaranteeKey: GUARANTEE_OPTIONS[0].key,
+  guaranteeText: GUARANTEE_OPTIONS[0].text,
+})
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -93,10 +93,10 @@ export default function ProformasPage() {
   function openCreateProformaOptions(group) {
     setPendingSale(group)
     setDocOptions({
-      ...getDefaultDocumentOptions(shop),
-      guaranteeKey: GUARANTEE_OPTIONS[0].key,
-      guaranteeText: GUARANTEE_OPTIONS[0].text,
-    })
+  ...getDefaultDocumentOptions(),
+  guaranteeKey: GUARANTEE_OPTIONS[0].key,
+  guaranteeText: GUARANTEE_OPTIONS[0].text,
+})
   }
 
   async function createProformaFromSale(group, options = docOptions) {
