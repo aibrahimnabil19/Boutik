@@ -154,13 +154,39 @@ export function amountToWordsFCFA(amount, subject = "") {
   return `Arrêté la présente${safeSubject} à la somme de ${amountWordsOnlyFCFA(amount)}`;
 }
 
+export const DOCUMENT_NUMBER_CONFIG = {
+  facture: {
+    title: "FACTURE DE VENTE",
+    prefix: "V",
+  },
+  proforma: {
+    title: "FACTURE PROFORMA",
+    prefix: "P",
+  },
+  bon_livraison: {
+    title: "BON DE LIVRAISON",
+    prefix: "BL",
+  },
+  bon_commande: {
+    title: "BON DE COMMANDE",
+    prefix: "BC",
+  },
+};
+
+export function getDocumentConfig(type = "facture") {
+  return DOCUMENT_NUMBER_CONFIG[type] || DOCUMENT_NUMBER_CONFIG.facture;
+}
+
 /**
- * Generate next monthly document number.
- * Facture: V2026-04-12
- * Proforma: P2026-04-12
+ * Official document number format:
+ * FACTURE DE VENTE V2026-04-01
+ *
+ * IMPORTANT:
+ * This checks existing official documents only.
+ * It does NOT use the sale index.
  */
-export function generateMonthlyDocumentNumber(
-  existingInvoices,
+export function generateDocumentNumber(
+  existingInvoices = [],
   type = "facture",
   dateValue = new Date(),
 ) {
@@ -168,8 +194,8 @@ export function generateMonthlyDocumentNumber(
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
 
-  const prefix =
-    type === "proforma" ? `P${year}-${month}-` : `V${year}-${month}-`;
+  const config = getDocumentConfig(type);
+  const prefix = `${config.prefix}${year}-${month}-`;
 
   const indexes = (existingInvoices || [])
     .filter((inv) => inv.type === type)
@@ -183,15 +209,20 @@ export function generateMonthlyDocumentNumber(
   return `${prefix}${String(next).padStart(2, "0")}`;
 }
 
+export function formatOfficialDocumentTitle(type = "facture", number = "") {
+  const config = getDocumentConfig(type);
+  return `${config.title} ${number}`.trim();
+}
+
 /**
  * Backward-compatible wrapper.
  */
 export function generateInvoiceNumber(
-  existingInvoices,
+  existingInvoices = [],
   type = "facture",
   dateValue = new Date(),
 ) {
-  return generateMonthlyDocumentNumber(existingInvoices, type, dateValue);
+  return generateDocumentNumber(existingInvoices, type, dateValue);
 }
 
 // ─── Stock calculation ────────────────────────────────────────────────────────
@@ -237,7 +268,12 @@ export function calculateInvoiceTotal(items) {
   );
 }
 
-export function getMonthlyTotals(sales = [], purchases = [], expenses = [], months = 6) {
+export function getMonthlyTotals(
+  sales = [],
+  purchases = [],
+  expenses = [],
+  months = 6,
+) {
   return Array.from({ length: months }, (_, i) => {
     const date = subMonths(new Date(), months - 1 - i);
     const start = startOfMonth(date);

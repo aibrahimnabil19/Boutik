@@ -152,6 +152,8 @@ const REMOTE_COLUMNS = {
     "shop_id",
     "invoice_number",
     "type",
+    "source_type",
+"source_id",
     "client_id",
     "client_name",
     "client_address",

@@ -10,7 +10,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
-import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
+import { formatFCFA, amountToWordsFCFA, generateDocumentNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
 import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
 import DocumentPrintOptions from '@/components/DocumentPrintOptions'
@@ -79,9 +79,8 @@ export default function NouvelleProformaPage() {
         if (lines.length > 0) setItems(lines)
       }
     } else {
-      const num = generateInvoiceNumber(allInvoices.filter(i => i.type === 'proforma'), 'proforma')
-      setProformaNumber(num)
-    }
+  setProformaNumber('')
+}
   }, [shop?.id, existingId, reset])
 
   useEffect(() => { load() }, [load])
@@ -107,14 +106,25 @@ export default function NouvelleProformaPage() {
   }))
   const grandTotal = calculateInvoiceTotal(computedItems)
 
+  async function ensureProformaNumber(dateValue) {
+  if (proformaNumber) return proformaNumber
+
+  const allInvoices = await getAll('invoices', shop.id)
+  const nextNumber = generateDocumentNumber(allInvoices, 'proforma', dateValue || new Date())
+
+  setProformaNumber(nextNumber)
+  return nextNumber
+}
+
   async function onSubmit(data) {
     setSaving(true)
     try {
+      const officialNumber = await ensureProformaNumber(data.date)
       const proforma = {
         id: proformaId,
         shop_id: shop.id,
         type: 'proforma',
-        invoice_number: proformaNumber,
+        invoice_number: officialNumber,
         date: data.date,
         city: data.city || shop?.city || '',
         client_name: data.client_name,
@@ -164,35 +174,40 @@ export default function NouvelleProformaPage() {
   }
 
   // ─── Print via iframe (only the document, not the screen) ─────────────────
-  function handlePrint() {
-    const formValues = watch()
+async function handlePrint() {
+  const formValues = watch()
+  const officialNumber = await ensureProformaNumber(formValues.date)
 
-    const html = renderToInvoiceHTML({
-      shop,
-      invoiceNumber: proformaNumber,
-      formValues,
-      items: computedItems,
-      grandTotal,
-      type: 'proforma',
-      guaranteeText: guarantee.text,
-      includeCachet: printOptions.includeCachet,
-      includeSignature: printOptions.includeSignature,
-    })
+  await onSubmit(formValues)
 
-    const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
-    document.body.appendChild(iframe)
-    iframe.contentDocument.open()
-    iframe.contentDocument.write(html)
-    iframe.contentDocument.close()
-    iframe.onload = () => {
-      setTimeout(() => {
-        iframe.contentWindow.focus()
-        iframe.contentWindow.print()
-        setTimeout(() => document.body.removeChild(iframe), 1500)
-      }, 300)
-    }
+  const html = renderToInvoiceHTML({
+    shop,
+    invoiceNumber: officialNumber,
+    formValues,
+    items: computedItems,
+    grandTotal,
+    type: 'proforma',
+    guaranteeText: guarantee.text,
+    includeCachet: printOptions.includeCachet,
+    includeSignature: printOptions.includeSignature,
+  })
+
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
+  document.body.appendChild(iframe)
+
+  iframe.contentDocument.open()
+  iframe.contentDocument.write(html)
+  iframe.contentDocument.close()
+
+  iframe.onload = () => {
+    setTimeout(() => {
+      iframe.contentWindow.focus()
+      iframe.contentWindow.print()
+      setTimeout(() => document.body.removeChild(iframe), 1500)
+    }, 300)
   }
+}
 
   const formValues = watch()
 
@@ -204,7 +219,7 @@ export default function NouvelleProformaPage() {
           className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <h1 className="font-display font-bold text-gray-900">Proforma {proformaNumber}</h1>
+        <h1 className="font-display font-bold text-gray-900">{proformaNumber ? `Proforma ${proformaNumber}` : 'Proforma brouillon'}</h1>
         <div className="hidden lg:block w-64">
           <DocumentPrintOptions
             shop={shop}
@@ -384,7 +399,7 @@ function ProformaPreview({ shop, proformaNumber, formValues, items, grandTotal, 
       <div className="text-center mb-6">
         <h1 className="font-display text-xl font-bold uppercase tracking-wide"
           style={{ color: shop?.color_primary || '#1a56db' }}>
-          FACTURE PROFORMA N°{proformaNumber}
+          FACTURE PROFORMA {proformaNumber || 'BROUILLON'}
         </h1>
       </div>
 

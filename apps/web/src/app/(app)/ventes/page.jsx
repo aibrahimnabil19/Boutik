@@ -9,7 +9,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete, cancelSale } from '@/lib/db/local'
-import { formatFCFA, formatNumber } from '@/lib/core/calculations'
+import { formatFCFA, formatNumber, generateDocumentNumber } from '@/lib/core/calculations'
 import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, Badge, inputCls, selectCls
@@ -66,6 +66,7 @@ export default function VentesPage() {
   const [purchases, setPurchases] = useState([])
   const [clients, setClients] = useState([])
   const [clientTransactions, setClientTransactions] = useState([])
+  const [invoices, setInvoices] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
   const [confirm, setConfirm] = useState(null)
@@ -91,14 +92,16 @@ export default function VentesPage() {
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [s, p, pu, c, ct] = await Promise.all([
+    const [s, p, pu, c, ct, inv] = await Promise.all([
       getAll('sales', shop.id),
       getAll('products', shop.id),
       getAll('purchases', shop.id),
       getAll('clients', shop.id),
       getAll('client_transactions', shop.id),
+      getAll('invoices', shop.id),
     ])
     setClientTransactions(ct)
+    setInvoices(inv)
     setSales(s.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(p)
     setPurchases(pu)
@@ -769,12 +772,64 @@ export default function VentesPage() {
     load()
   }
 
-  function handlePrintDoc(group, docType) {
+  async function handlePrintDoc(group, docType) {
+    const now = new Date().toISOString()
+    const sourceId = String(group.key)
+
+    const existingDoc = invoices.find(inv =>
+      inv.type === docType &&
+      inv.source_type === 'sale' &&
+      inv.source_id === sourceId &&
+      inv.invoice_number
+    )
+
+    const invoiceNumber =
+      existingDoc?.invoice_number ||
+      generateDocumentNumber(invoices, docType, group.date || new Date())
+
+    if (!existingDoc) {
+      const total = group.items.reduce((sum, s) => sum + Number(s.total_sale || 0), 0)
+
+      await localUpsert('invoices', {
+        id: uuid(),
+        shop_id: shop.id,
+        type: docType,
+        source_type: 'sale',
+        source_id: sourceId,
+        invoice_number: invoiceNumber,
+        date: group.date,
+        city: shop?.city || '',
+        client_id: group.items?.[0]?.client_id || null,
+        client_name: group.client_name || '',
+        client_address: '',
+        client_phone: '',
+        total_amount: total,
+        amount_in_words: '',
+        guarantee_text: '',
+        include_cachet: !!printOptions.includeCachet,
+        include_signature: !!printOptions.includeSignature,
+        status: 'finalized',
+        created_at: now,
+        updated_at: now,
+        sync_status: 'pending',
+      })
+
+      setInvoices(prev => [
+        ...prev,
+        {
+          type: docType,
+          source_type: 'sale',
+          source_id: sourceId,
+          invoice_number: invoiceNumber,
+        },
+      ])
+    }
+
     printSaleDocument({
       shop,
       type: docType,
       saleGroup: group,
-      invoiceNumber: `VTE-${group.date}-${group.key.slice(0, 4).toUpperCase()}`,
+      invoiceNumber,
       includeCachet: printOptions.includeCachet,
       includeSignature: printOptions.includeSignature,
     })

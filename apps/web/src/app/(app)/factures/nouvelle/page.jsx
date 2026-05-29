@@ -14,7 +14,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
-import { formatFCFA, amountToWordsFCFA, generateInvoiceNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
+import { formatFCFA, amountToWordsFCFA, generateDocumentNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
 import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
 import DocumentPrintOptions from '@/components/DocumentPrintOptions'
@@ -85,8 +85,7 @@ export default function NouvelleFacturePage() {
         if (lines.length > 0) setItems(lines)
       }
     } else {
-      const num = generateInvoiceNumber(allInvoices.filter(i => i.type === 'facture'), 'facture')
-      setInvoiceNumber(num)
+      setInvoiceNumber('')
     }
   }, [shop?.id, existingId, reset])
 
@@ -114,15 +113,29 @@ export default function NouvelleFacturePage() {
   }))
   const grandTotal = calculateInvoiceTotal(computedItems)
 
+  async function ensureInvoiceNumber(dateValue) {
+  if (invoiceNumber) return invoiceNumber
+
+  const allInvoices = await getAll('invoices', shop.id)
+  const nextNumber = generateDocumentNumber(allInvoices, 'facture', dateValue || new Date())
+
+  setInvoiceNumber(nextNumber)
+  return nextNumber
+}
+
   // ─── Save ─────────────────────────────────────────────────────────────────
   async function onSubmit(data, newStatus = status) {
     setSaving(true)
     try {
+      const officialNumber =
+  newStatus === 'finalized'
+    ? await ensureInvoiceNumber(data.date)
+    : invoiceNumber
       const invoice = {
         id: invoiceId,
         shop_id: shop.id,
         type: 'facture',
-        invoice_number: invoiceNumber,
+        invoice_number: officialNumber || null,
         date: data.date,
         city: data.city || shop?.city || '',
         client_name: data.client_name,
@@ -171,37 +184,40 @@ export default function NouvelleFacturePage() {
   }
 
   // ─── Print: renders ONLY the invoice into a hidden iframe ─────────────────
-  function handlePrint() {
-    const formValues = watch ? watch() : {}
+async function handlePrint() {
+  const formValues = watch ? watch() : {}
+  const officialNumber = await ensureInvoiceNumber(formValues.date)
 
-    const html = renderToInvoiceHTML({
-      shop,
-      invoiceNumber,
-      formValues,
-      items: computedItems,
-      grandTotal,
-      type: 'facture',
-      guaranteeText: guarantee.text,
-      includeCachet: printOptions.includeCachet,
-      includeSignature: printOptions.includeSignature,
-    })
+  await onSubmit(formValues, 'finalized')
 
-    const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
-    document.body.appendChild(iframe)
+  const html = renderToInvoiceHTML({
+    shop,
+    invoiceNumber: officialNumber,
+    formValues,
+    items: computedItems,
+    grandTotal,
+    type: 'facture',
+    guaranteeText: guarantee.text,
+    includeCachet: printOptions.includeCachet,
+    includeSignature: printOptions.includeSignature,
+  })
 
-    iframe.contentDocument.open()
-    iframe.contentDocument.write(html)
-    iframe.contentDocument.close()
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
+  document.body.appendChild(iframe)
 
-    iframe.onload = () => {
-      setTimeout(() => {
-        iframe.contentWindow.focus()
-        iframe.contentWindow.print()
-        setTimeout(() => document.body.removeChild(iframe), 1000)
-      }, 300)
-    }
+  iframe.contentDocument.open()
+  iframe.contentDocument.write(html)
+  iframe.contentDocument.close()
+
+  iframe.onload = () => {
+    setTimeout(() => {
+      iframe.contentWindow.focus()
+      iframe.contentWindow.print()
+      setTimeout(() => document.body.removeChild(iframe), 1000)
+    }, 300)
   }
+}
 
   const formValues = watch()
 
@@ -214,7 +230,7 @@ export default function NouvelleFacturePage() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <h1 className="font-display font-bold text-gray-900">
-          Facture {invoiceNumber}
+          {invoiceNumber ? `Facture ${invoiceNumber}` : 'Facture brouillon'}
           {status === 'draft' && <span className="ml-2 text-xs font-normal text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full">Brouillon</span>}
           {status === 'finalized' && <span className="ml-2 text-xs font-normal text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Finalisée</span>}
         </h1>
@@ -414,7 +430,7 @@ export function InvoicePreview({ shop, invoiceNumber, formValues, items, grandTo
       <div className="text-center mb-6">
         <h1 className="font-display text-xl font-bold uppercase tracking-wide"
           style={{ color: shop?.color_primary || '#1a56db' }}>
-          FACTURE DE VENTE N°{invoiceNumber}
+          FACTURE DE VENTE {invoiceNumber || 'BROUILLON'}
         </h1>
       </div>
 

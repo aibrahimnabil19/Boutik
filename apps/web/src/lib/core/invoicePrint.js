@@ -53,8 +53,8 @@ export function renderToInvoiceHTML({
     includeCachet,
     includeSignature,
   });
-  const primary = "#1F4E79";
-  const orange = "#F39A21";
+  const primary = "#1D71B8";
+  const orange = "#F29100";
 
   const isProforma = type === "proforma";
   const isBonLivraison = type === "bon_livraison";
@@ -136,7 +136,7 @@ export function renderToInvoiceHTML({
     }
 
     .activity {
-      background: #F29100;
+      background: ${orange};
       color: white;
       font-weight: 800;
       text-align: center;
@@ -162,7 +162,7 @@ export function renderToInvoiceHTML({
     }
 
     .doc-title {
-      background: #F29100;
+      background: ${orange};
       color: white;
       text-align: center;
       font-weight: 800;
@@ -180,7 +180,7 @@ export function renderToInvoiceHTML({
     .client-strip {
       display: grid;
       grid-template-columns: 1.1fr 1fr 1fr;
-      background: #1D71B8;
+      background: ${primary};
       color: white;
       font-weight: 800;
       border-top: 2px solid white;
@@ -205,7 +205,7 @@ export function renderToInvoiceHTML({
     }
 
     th {
-      background: #1D71B8;
+      background: ${primary};
       color: white;
       padding: 1mm 2mm;
       font-size: 21px;
@@ -221,7 +221,7 @@ export function renderToInvoiceHTML({
     }
 
     .total-row td {
-      background: #1D71B8;
+      background: ${primary};
       color: white;
       font-weight: 800;
       padding: 1mm 2mm;
@@ -247,15 +247,6 @@ export function renderToInvoiceHTML({
 
     tr.alt .td {
       background: #D9E2F3;
-    }
-
-    .total-row td {
-      background: ${primary};
-      color: white;
-      font-weight: 800;
-      padding: 5px 6px;
-      border: 2px solid white;
-      font-size: 14px;
     }
 
     .words {
@@ -467,7 +458,7 @@ export function printSaleDocument({
   }));
 
   const grandTotal = items.reduce((a, i) => a + i.total_price, 0);
-  const num = invoiceNumber || `VTE-${saleGroup.date}`;
+  const num = invoiceNumber || `V-${saleGroup.date}`;
 
   const html = renderToInvoiceHTML({
     shop,
