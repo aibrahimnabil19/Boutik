@@ -34,6 +34,7 @@ const REMOTE_COLUMNS = {
   ],
   purchases: [
     "id",
+    "purchase_batch_id",
     "shop_id",
     "date",
     "supplier_id",
@@ -66,6 +67,7 @@ const REMOTE_COLUMNS = {
     "payment_status",
     "paid_amount",
     "remaining_amount",
+    "purchase_id",
     "product_id",
     "product_code",
     "product_name",

@@ -23,6 +23,8 @@ export default function DashboardPage() {
   const [recentSales, setRecentSales] = useState([])
   const [lowStock, setLowStock] = useState([])
   const [productSummary, setProductSummary] = useState([])
+  const [topProduct, setTopProduct] = useState(null)
+  const [evolutionTotals, setEvolutionTotals] = useState({ sales: 0, purchases: 0, expenses: 0, profit: 0 })
   const [period, setPeriod] = useState('month')
   const [rawSales, setRawSales] = useState([])
   const [rawPurchases, setRawPurchases] = useState([])
@@ -51,6 +53,30 @@ export default function DashboardPage() {
         const monthPurchases = purchases.filter(p => inMonth(p.date)).reduce((a, p) => a + (p.total_amount || 0), 0)
         const monthExpenses = expenses.filter(e => inMonth(e.date)).reduce((a, e) => a + (e.amount || 0), 0)
         const monthProfit = sales.filter(s => inMonth(s.date) && !s.cancelled_at).reduce((a, s) => a + (s.profit || 0), 0) - monthExpenses
+
+        const monthSalesRows = sales.filter(s => inMonth(s.date) && !s.cancelled_at)
+
+        const soldByProduct = {}
+        for (const sale of monthSalesRows) {
+          const key = sale.product_id || sale.product_code || sale.product_name
+          if (!key) continue
+
+          if (!soldByProduct[key]) {
+            soldByProduct[key] = {
+              name: sale.product_name || '—',
+              quantity: 0,
+              revenue: 0,
+            }
+          }
+
+          soldByProduct[key].quantity += Number(sale.quantity || 0)
+          soldByProduct[key].revenue += Number(sale.total_sale || 0)
+        }
+
+        const bestProduct =
+          Object.values(soldByProduct).sort((a, b) => b.quantity - a.quantity)[0] || null
+
+        setTopProduct(bestProduct)
 
         // Total client debt (positive amounts = clients owe us)
         const totalClientDebt = clientTx
@@ -121,8 +147,21 @@ export default function DashboardPage() {
 
   // 2. Separate top-level effect reacts to period or raw data changes
   useEffect(() => {
-    if (rawSales.length === 0 && rawPurchases.length === 0) return
-    setChartData(buildChartData({ sales: rawSales, purchases: rawPurchases, expenses: rawExpenses, period }))
+    const data = buildChartData({
+      sales: rawSales,
+      purchases: rawPurchases,
+      expenses: rawExpenses,
+      period,
+    })
+
+    setChartData(data)
+
+    setEvolutionTotals({
+      sales: data.reduce((s, r) => s + Number(r.ventes || 0), 0),
+      purchases: data.reduce((s, r) => s + Number(r.achats || 0), 0),
+      expenses: data.reduce((s, r) => s + Number(r.depenses || 0), 0),
+      profit: data.reduce((s, r) => s + Number(r.benefice || 0), 0),
+    })
   }, [period, rawSales, rawPurchases, rawExpenses])
 
   const primaryColor = shop?.color_primary || '#1a56db'
@@ -159,13 +198,65 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <KpiCard label="Ventes du mois" value={formatFCFA(kpis.sales)} icon={TrendingUp} color="blue" loading={loading} />
-        <KpiCard label="Bénéfice net" value={formatFCFA(kpis.profit)} icon={kpis.profit >= 0 ? TrendingUp : TrendingDown} color={kpis.profit >= 0 ? 'green' : 'red'} loading={loading} />
-        <KpiCard label="Charges du mois" value={formatFCFA(kpis.expenses)} icon={Wallet} color="amber" loading={loading} />
-        <KpiCard label="Achats du mois" value={formatFCFA(kpis.purchases)} icon={ShoppingCart} color="purple" loading={loading} />
-        <KpiCard label="Produits en stock" value={kpis.totalProducts} icon={Package} color="blue" loading={loading} />
-        <KpiCard label="Total créances" value={formatFCFA(kpis.totalDebt)} icon={TrendingDown} color={kpis.totalDebt > 0 ? 'amber' : 'green'} loading={loading} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          label="Ventes du mois"
+          value={formatFCFA(kpis.sales)}
+          icon={TrendingUp}
+          color="blue"
+          loading={loading}
+        />
+        <KpiCard
+          label="Bénéfice net"
+          value={formatFCFA(kpis.profit)}
+          icon={kpis.profit >= 0 ? TrendingUp : TrendingDown}
+          color={kpis.profit >= 0 ? 'green' : 'red'}
+          loading={loading}
+        />
+        <KpiCard
+          label="Charges du mois"
+          value={formatFCFA(kpis.expenses)}
+          icon={Wallet}
+          color="amber"
+          loading={loading}
+        />
+        <KpiCard
+          label="Achats du mois"
+          value={formatFCFA(kpis.purchases)}
+          icon={ShoppingCart}
+          color="purple"
+          loading={loading}
+        />
+        <KpiCard
+          label="Produit le plus vendu"
+          value={topProduct ? topProduct.name : '—'}
+          icon={Package}
+          color="green"
+          loading={loading}
+          sub={topProduct ? `${formatNumber(topProduct.quantity)} vendu · ${formatFCFA(topProduct.revenue)}` : 'Ce mois'}
+        />
+        <KpiCard
+          label="Total évolution"
+          value={formatFCFA(evolutionTotals.sales)}
+          icon={TrendingUp}
+          color="blue"
+          loading={loading}
+          sub={`Marge: ${formatFCFA(evolutionTotals.profit)}`}
+        />
+        <KpiCard
+          label="Produits en stock"
+          value={kpis.totalProducts}
+          icon={Package}
+          color="blue"
+          loading={loading}
+        />
+        <KpiCard
+          label="Total créances"
+          value={formatFCFA(kpis.totalDebt)}
+          icon={TrendingDown}
+          color={kpis.totalDebt > 0 ? 'amber' : 'green'}
+          loading={loading}
+        />
       </div>
 
       {/* Selector */}

@@ -35,6 +35,7 @@ function computeStock(product, purchases, sales) {
 const emptyLine = () => ({
   _key: uuid(),
   product_id: '',
+  purchase_id: '',
   product_name: '',
   product_code: '',
   unit_cost: 0,
@@ -255,54 +256,66 @@ export default function VentesPage() {
 
     const rows = purchases
       .filter(p => p.product_id === productId && !p.deleted_at)
-      .sort((a, b) => new Date(b.date || b.created_at || 0) - new Date(a.date || a.created_at || 0))
       .map(p => {
+        const soldFromThisPurchase = sales
+          .filter(s => s.purchase_id === p.id && !s.deleted_at && !s.cancelled_at)
+          .reduce((sum, s) => sum + Number(s.quantity || 0), 0)
+
+        const remainingQty = Number(p.quantity || 0) - soldFromThisPurchase
+
         const qty = Number(p.quantity || 0)
         const unit = Number(p.unit_price || 0)
         const charges = Number(p.charge_total || 0)
         const realUnitCost = qty > 0 ? unit + charges / qty : unit
 
         return {
+          purchaseId: p.id,
           value: realUnitCost,
-          label: `${formatFCFA(realUnitCost)} — ${format(new Date(p.date), 'dd MMM yyyy', { locale: fr })}${charges > 0 ? ` · charges incluses` : ''}`,
+          remainingQty,
+          date: p.date,
+          label: `${formatFCFA(realUnitCost)} — ${format(new Date(p.date), 'dd MMM yyyy', { locale: fr })} · reste ${formatNumber(Math.max(0, remainingQty))}${charges > 0 ? ' · charges incluses' : ''}`,
         }
       })
+      .filter(option => Number(option.value || 0) > 0 && option.remainingQty > 0)
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
 
     if (product?.purchase_price) {
       rows.push({
+        purchaseId: '',
         value: Number(product.purchase_price || 0),
+        remainingQty: null,
+        date: '',
         label: `${formatFCFA(product.purchase_price)} — prix catalogue`,
       })
     }
 
-    const seen = new Set()
-
-    return rows.filter(option => {
-      const key = String(Number(option.value || 0))
-      if (!Number(option.value || 0)) return false
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+    return rows
   }
 
   function getDefaultPurchaseCost(productId) {
     return getPurchaseCostOptions(productId)[0]?.value || 0
   }
 
-  function handleCostSelect(key, value) {
-    if (value === 'manual') {
+  function handleCostSelect(key, rawValue) {
+    if (rawValue === 'manual') {
       setCart(prev => prev.map(line =>
         line._key === key
-          ? { ...line, manual_cost: true, unit_cost: '' }
+          ? { ...line, manual_cost: true, purchase_id: '', unit_cost: '' }
           : line
       ))
       return
     }
 
+    const [purchaseId, cost] = String(rawValue).split('|')
+
     setCart(prev => prev.map(line =>
       line._key === key
-        ? { ...line, manual_cost: false, unit_cost: Number(value || 0) }
+        ? {
+          ...line,
+          manual_cost: false,
+          purchase_id: purchaseId || '',
+          unit_cost: Number(cost || 0),
+        }
         : line
     ))
   }
@@ -329,13 +342,17 @@ export default function VentesPage() {
     const prod = products.find(p => p.id === productId)
     if (!prod) return
 
+    const costOptions = getPurchaseCostOptions(prod.id)
+    const defaultCost = costOptions[0]
+
     setCart(prev => prev.map(line =>
       line._key === key ? {
         ...line,
         product_id: prod.id,
         product_name: prod.name,
         product_code: prod.code || '',
-        unit_cost: getDefaultPurchaseCost(prod.id) || prod.purchase_price || 0,
+        purchase_id: defaultCost?.purchaseId || '',
+        unit_cost: defaultCost?.value || prod.purchase_price || 0,
         manual_cost: false,
         unit_sale_price: prod.sale_price || '',
       } : line
@@ -504,6 +521,7 @@ export default function VentesPage() {
           paid_amount: linePaid,
           remaining_amount: lineRemaining,
           product_id: line.product_id,
+          purchase_id: line.purchase_id || null,
           product_code: line.product_code || '',
           product_name: line.product_name,
           quantity: q,
@@ -626,9 +644,11 @@ export default function VentesPage() {
         _key: uuid(),
         existing_id: item.id,
         product_id: item.product_id || '',
+        purchase_id: item.purchase_id || '',
         product_name: item.product_name || '',
         product_code: item.product_code || '',
         unit_cost: item.unit_purchase_cost || 0,
+        manual_cost: !item.purchase_id,
         quantity: item.quantity || 1,
         unit_sale_price: item.unit_sale_price || '',
       }))
@@ -1157,14 +1177,17 @@ export default function VentesPage() {
                         ) : (
                           <div className="flex gap-2">
                             <select
-                              value={Number(line.unit_cost || 0)}
+                              value={`${line.purchase_id || ''}|${Number(line.unit_cost || 0)}`}
                               onChange={(e) => handleCostSelect(line._key, e.target.value)}
                               className={selectCls}
                               disabled={!line.product_id}
                             >
                               <option value="">— Choisir —</option>
                               {getPurchaseCostOptions(line.product_id).map(option => (
-                                <option key={option.value} value={option.value}>
+                                <option
+                                  key={`${option.purchaseId || 'catalogue'}-${option.value}`}
+                                  value={`${option.purchaseId || ''}|${option.value}`}
+                                >
                                   {option.label}
                                 </option>
                               ))}

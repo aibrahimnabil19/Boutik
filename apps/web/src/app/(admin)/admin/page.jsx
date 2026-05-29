@@ -448,6 +448,7 @@ export default function AdminPage() {
 
     purchases: [
       'id',
+      'purchase_batch_id',
       'shop_id',
       'date',
       'supplier_id',
@@ -478,6 +479,7 @@ export default function AdminPage() {
       'store',
       'client_id',
       'client_name',
+      'purchase_id',
       'product_id',
       'product_code',
       'product_name',

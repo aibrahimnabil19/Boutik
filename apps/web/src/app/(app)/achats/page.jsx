@@ -29,6 +29,15 @@ const PURCHASE_DOC_TYPES = [
   { key: 'bon_livraison', label: 'Bon de réception', icon: Package, description: 'Confirme la réception des marchandises' },
 ]
 
+const emptyPurchaseLine = () => ({
+  _key: uuid(),
+  product_id: '',
+  product_code: '',
+  product_name: '',
+  quantity: 1,
+  unit_price: '',
+})
+
 export default function AchatsPage() {
   const shop = useAppStore(s => s.shop)
   const router = useRouter()
@@ -41,7 +50,7 @@ export default function AchatsPage() {
   const [modal, setModal] = useState(false)
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [selectedProduct, setSelectedProduct] = useState(null)
+  const [purchaseLines, setPurchaseLines] = useState([emptyPurchaseLine()])
   const [suppliers, setSuppliers] = useState([])
   const [purchaseDetail, setPurchaseDetail] = useState(null)
   const [editingPurchase, setEditingPurchase] = useState(null)
@@ -61,9 +70,11 @@ export default function AchatsPage() {
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
   })
 
-  const qty = Number(watch('quantity') || 0)
-  const price = Number(watch('unit_price') || 0)
-  const stockSubtotal = qty * price
+  const stockSubtotal = useMemo(() => {
+    return purchaseLines.reduce((sum, line) => {
+      return sum + Number(line.quantity || 0) * Number(line.unit_price || 0)
+    }, 0)
+  }, [purchaseLines])
 
   const chargeTotal = useMemo(() => {
     return chargeRows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
@@ -95,14 +106,51 @@ export default function AchatsPage() {
     router.replace('/achats', { scroll: false })
   }, [action, router])
 
-  function handleProductSelect(e) {
-    const prod = products.find(p => p.id === e.target.value)
-    setSelectedProduct(prod || null)
+  function updatePurchaseLine(key, field, value) {
+    setPurchaseLines(prev =>
+      prev.map(line =>
+        line._key === key ? { ...line, [field]: value } : line
+      )
+    )
+  }
 
-    if (prod) {
-      setValue('unit_price', prod.purchase_price || '')
-      setValue('supplier', prod.supplier || '')
+  function handlePurchaseProductSelect(key, productId) {
+    const prod = products.find(p => p.id === productId)
+
+    if (!prod) {
+      setPurchaseLines(prev =>
+        prev.map(line =>
+          line._key === key
+            ? { ...line, product_id: '', product_code: '', product_name: '', unit_price: '' }
+            : line
+        )
+      )
+      return
     }
+
+    setPurchaseLines(prev =>
+      prev.map(line =>
+        line._key === key
+          ? {
+            ...line,
+            product_id: prod.id,
+            product_code: prod.code || '',
+            product_name: prod.name || '',
+            unit_price: prod.purchase_price || '',
+          }
+          : line
+      )
+    )
+  }
+
+  function addPurchaseLine() {
+    setPurchaseLines(prev => [...prev, emptyPurchaseLine()])
+  }
+
+  function removePurchaseLine(key) {
+    setPurchaseLines(prev =>
+      prev.length <= 1 ? prev : prev.filter(line => line._key !== key)
+    )
   }
 
   function openPayment(purchase) {
@@ -226,21 +274,29 @@ export default function AchatsPage() {
       return
     }
 
-    const q = Number(data.quantity)
-    const up = Number(data.unit_price)
-    const cleanCharges = cleanChargeRows()
-    const chargesTotal = cleanCharges.reduce((sum, row) => sum + Number(row.amount || 0), 0)
-    const stockAmount = q * up
-    const totalAmount = stockAmount + chargesTotal
-    const supplier = suppliers.find(s => s.name === data.supplier) || null
-    if (!supplier) {
-      toast.error('Choisissez un fournisseur.')
+    const validLines = purchaseLines
+      .map(line => ({
+        ...line,
+        quantity: Number(line.quantity || 0),
+        unit_price: Number(line.unit_price || 0),
+      }))
+      .filter(line => line.product_id)
+
+    if (!validLines.length) {
+      toast.error('Ajoutez au moins un produit.')
       return
     }
 
-    if (!selectedProduct) {
-      toast.error('Choisissez un produit du catalogue.')
-      return
+    for (const line of validLines) {
+      if (line.quantity <= 0) {
+        toast.error(`Quantité invalide pour ${line.product_name}`)
+        return
+      }
+
+      if (line.unit_price <= 0) {
+        toast.error(`Prix unitaire invalide pour ${line.product_name}`)
+        return
+      }
     }
 
     const totalPaid = paymentMode === 'credit'
@@ -262,27 +318,49 @@ export default function AchatsPage() {
 
     const now = new Date().toISOString()
 
-    const record = {
-      id: editingPurchase?.id || uuid(),
-      shop_id: shop.id,
-      date: data.date,
-      supplier_id: supplier?.id || null,
-      supplier: supplier.name,
-      product_id: selectedProduct.id,
-      product_code: selectedProduct.code || '',
-      product_name: selectedProduct.name,
-      quantity: q,
-      unit_price: up,
-      charge_total: chargesTotal,
-      charges: cleanCharges,
-      total_amount: totalAmount,
-      payment_status: paymentStatus,
-      paid_amount: totalPaid,
-      remaining_amount: remainingAmount,
-      notes: data.notes || '',
-      created_at: editingPurchase?.created_at || now,
-      updated_at: now,
-      sync_status: 'pending',
+    const purchaseBatchId = editingPurchase?.purchase_batch_id || uuid()
+
+    const savedPurchases = []
+
+    for (const line of validLines) {
+      const lineStockAmount = Number(line.quantity || 0) * Number(line.unit_price || 0)
+      const chargeShare = stockSubtotal > 0
+        ? Math.round((lineStockAmount / stockSubtotal) * chargesTotal)
+        : 0
+
+      const lineTotal = lineStockAmount + chargeShare
+      const linePaid = totalAmount > 0
+        ? Math.round((lineTotal / totalAmount) * totalPaid)
+        : 0
+
+      const lineRemaining = Math.max(0, lineTotal - linePaid)
+
+      const record = {
+        id: editingPurchase?.id && validLines.length === 1 ? editingPurchase.id : uuid(),
+        purchase_batch_id: purchaseBatchId,
+        shop_id: shop.id,
+        date: data.date,
+        supplier_id: supplier?.id || null,
+        supplier: supplier.name,
+        product_id: line.product_id,
+        product_code: line.product_code || '',
+        product_name: line.product_name,
+        quantity: line.quantity,
+        unit_price: line.unit_price,
+        charge_total: chargeShare,
+        charges: cleanCharges,
+        total_amount: lineTotal,
+        payment_status: lineRemaining > 0 ? 'credit' : 'paid',
+        paid_amount: linePaid,
+        remaining_amount: lineRemaining,
+        notes: data.notes || '',
+        created_at: editingPurchase?.created_at || now,
+        updated_at: now,
+        sync_status: 'pending',
+      }
+
+      await localUpsert('purchases', record)
+      savedPurchases.push(record)
     }
 
     if (editingPurchase) {
@@ -301,15 +379,13 @@ export default function AchatsPage() {
       }
     }
 
-    await localUpsert('purchases', record)
-
     if (remainingAmount > 0 && supplier) {
       await localUpsert('supplier_transactions', {
         id: uuid(),
         shop_id: shop.id,
         supplier_id: supplier.id,
         date: data.date,
-        label: `Entrée de stock à crédit — ${record.id.slice(0, 8).toUpperCase()}`,
+        label: `Entrée de stock à crédit — ${purchaseBatchId.slice(0, 8).toUpperCase()}`,
         amount: remainingAmount,
         created_at: now,
         updated_at: now,
@@ -320,7 +396,7 @@ export default function AchatsPage() {
     toast.success(editingPurchase ? 'Entrée de stock modifiée' : 'Entrée de stock enregistrée')
     setModal(false)
     setEditingPurchase(null)
-    setDocModal(record)
+    setDocModal(savedPurchases[0])
     load()
   }
 
@@ -328,16 +404,24 @@ export default function AchatsPage() {
     setEditingPurchase(null)
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' })
     setChargeRows([])
-    setSelectedProduct(null)
+    setPurchaseLines([emptyPurchaseLine()])
     setPaymentMode('')
     setPaidAmount('')
     setModal(true)
   }
 
   function openEditPurchase(purchase) {
-    const product = products.find(p => p.id === purchase.product_id)
     setEditingPurchase(purchase)
-    setSelectedProduct(product || null)
+    setPurchaseLines([
+      {
+        _key: uuid(),
+        product_id: purchase.product_id || '',
+        product_code: purchase.product_code || '',
+        product_name: purchase.product_name || '',
+        quantity: purchase.quantity || 1,
+        unit_price: purchase.unit_price || '',
+      },
+    ])
     reset({
       date: purchase.date || format(new Date(), 'yyyy-MM-dd'),
       quantity: purchase.quantity || 1,
@@ -642,88 +726,75 @@ export default function AchatsPage() {
             </FormField>
           </div>
 
-          <FormField label="Produit du catalogue" required>
-            <select
-              onChange={handleProductSelect}
-              className={selectCls}
-              value={selectedProduct?.id || ''}
-              required
-            >
-              <option value="">— Choisir un produit —</option>
-              {purchaseProductOptions.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(p.currentStock)}
-                  {Number(p.currentStock || 0) <= 0 ? ' — rupture' : ''}
-                </option>
-              ))}
-            </select>
-          </FormField>
-
-          {selectedProduct && (
-            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 grid sm:grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
-                  ID du produit
-                </p>
-                <p className="font-mono text-xs text-blue-900 break-all">
-                  {selectedProduct.id}
-                </p>
+                <p className="font-semibold text-gray-900">Produits de l’entrée</p>
+                <p className="text-xs text-gray-400">Ajoutez un ou plusieurs produits dans cette entrée de stock.</p>
               </div>
 
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
-                  Code produit
-                </p>
-                <p className="font-mono text-sm font-bold text-blue-900">
-                  {selectedProduct.code || '—'}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-500">
-                  Stock restant actuel
-                </p>
-                <p className="text-lg font-bold text-blue-900">
-                  {formatNumber(calculateStock(selectedProduct, purchases, sales))}
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={addPurchaseLine}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-3 py-2 text-xs font-semibold hover:bg-blue-700"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Ajouter une ligne
+              </button>
             </div>
-          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Quantité" required>
-              <Controller
-                name="quantity"
-                control={control}
-                rules={{ required: true }}
-                render={({ field }) => (
-                  <FrenchInput
-                    value={field.value}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                    required
-                    className={inputCls}
-                  />
-                )}
-              />
-            </FormField>
-            <FormField label="Prix unitaire (FCFA)" required>
-              <Controller
-                name="unit_price"
-                control={control}
-                rules={{ required: true }}
-                render={({ field }) => (
-                  <FrenchInput
-                    value={field.value}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                    placeholder="0"
-                    required
-                    className={inputCls}
-                  />
-                )}
-              />
-            </FormField>
+            <div className="space-y-2">
+              {purchaseLines.map((line, index) => (
+                <div
+                  key={line._key}
+                  className="grid grid-cols-[1.7fr_110px_150px_36px] gap-2 items-end rounded-xl bg-gray-50 border border-gray-100 p-3"
+                >
+                  <FormField label={`Produit ${index + 1}`} required>
+                    <select
+                      value={line.product_id}
+                      onChange={(e) => handlePurchaseProductSelect(line._key, e.target.value)}
+                      className={selectCls}
+                      required
+                    >
+                      <option value="">— Choisir —</option>
+                      {purchaseProductOptions.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(p.currentStock)}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Qté" required>
+                    <FrenchInput
+                      value={line.quantity}
+                      onChange={(value) => updatePurchaseLine(line._key, 'quantity', value)}
+                      placeholder="1"
+                      className={inputCls}
+                    />
+                  </FormField>
+
+                  <FormField label="Prix unitaire" required>
+                    <FrenchInput
+                      value={line.unit_price}
+                      onChange={(value) => updatePurchaseLine(line._key, 'unit_price', value)}
+                      placeholder="0"
+                      className={inputCls}
+                    />
+                  </FormField>
+
+                  <button
+                    type="button"
+                    onClick={() => removePurchaseLine(line._key)}
+                    disabled={purchaseLines.length <= 1}
+                    className="h-11 w-9 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-500 disabled:opacity-30"
+                    title="Supprimer la ligne"
+                  >
+                    <Trash2 className="w-4 h-4 mx-auto" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-3">
