@@ -98,7 +98,7 @@ export default function BonsCommandePage() {
             description="Les bons de commande se génèrent à partir des achats enregistrés."
           />
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 zebra-list">
             {filtered.map(purchase => (
               <div key={purchase.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
                 <div className="flex items-start gap-4">

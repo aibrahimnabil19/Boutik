@@ -177,6 +177,34 @@ export async function parseGestionExcelFile(
   // In-memory dedup maps (name → entity record) for this import session
   const supplierByName = new Map();
   const clientByName = new Map();
+  function getOrCreateSupplierRecord(name, extra = {}) {
+    const supplierName = String(name || "").trim();
+    if (!supplierName) return null;
+
+    const key = normalize(supplierName);
+    let supplierRecord = supplierByName.get(key);
+
+    if (!supplierRecord) {
+      const adresseRaw = String(extra.address || extra.phone || "").trim();
+      const looksLikePhone = /^[\d\s\+\-]+$/.test(adresseRaw);
+
+      supplierRecord = {
+        id: uuid(),
+        shop_id: shopId,
+        name: supplierName,
+        phone: looksLikePhone ? adresseRaw : "",
+        address: looksLikePhone ? "" : adresseRaw,
+        created_at: now,
+        updated_at: now,
+        sync_status: "synced",
+      };
+
+      supplierByName.set(key, supplierRecord);
+      result.suppliers.push(supplierRecord);
+    }
+
+    return supplierRecord;
+  }
 
   const modes =
     importMode === "auto"
@@ -243,21 +271,7 @@ export async function parseGestionExcelFile(
       const supplierName = String(getValue(row, ["Fournisseur"]) || "").trim();
 
       // Deduplicate suppliers within this import
-      let supplierRecord = supplierByName.get(normalize(supplierName));
-      if (!supplierRecord && supplierName) {
-        supplierRecord = {
-          id: uuid(),
-          shop_id: shopId,
-          name: supplierName,
-          phone: "",
-          address: "",
-          created_at: now,
-          updated_at: now,
-          sync_status: "synced",
-        };
-        supplierByName.set(normalize(supplierName), supplierRecord);
-        result.suppliers.push(supplierRecord);
-      }
+      const supplierRecord = getOrCreateSupplierRecord(supplierName);
 
       const quantity = toNumber(
         getValue(row, ["Quantité", "Qte", "Qty", "Quantite"]),
@@ -495,26 +509,13 @@ export async function parseGestionExcelFile(
       if (amount === 0) continue;
 
       // Deduplicate suppliers
-      let supplierRecord = supplierByName.get(normalize(supplierName));
-      if (!supplierRecord) {
-        const adresseRaw = String(
-          getValue(row, ["Adresse", "Address", "Tel"]) || "",
-        ).trim();
-        const looksLikePhone = /^[\d\s\+\-]+$/.test(adresseRaw);
+      const adresseRaw = String(
+        getValue(row, ["Adresse", "Address", "Tel"]) || "",
+      ).trim();
 
-        supplierRecord = {
-          id: uuid(),
-          shop_id: shopId,
-          name: supplierName,
-          phone: looksLikePhone ? adresseRaw : "",
-          address: looksLikePhone ? "" : adresseRaw,
-          created_at: now,
-          updated_at: now,
-          sync_status: "synced",
-        };
-        supplierByName.set(normalize(supplierName), supplierRecord);
-        result.suppliers.push(supplierRecord);
-      }
+      const supplierRecord = getOrCreateSupplierRecord(supplierName, {
+        address: adresseRaw,
+      });
 
       const label =
         String(

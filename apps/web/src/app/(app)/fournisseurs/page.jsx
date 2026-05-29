@@ -13,6 +13,7 @@ import {
   Pencil,
   Printer,
   FileText,
+  ShoppingCart,
 } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -39,10 +40,12 @@ export default function FournisseursPage() {
 
   const [suppliers, setSuppliers] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [purchases, setPurchases] = useState([])
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('name')
   const [modal, setModal] = useState(false)
   const [txModal, setTxModal] = useState(false)
+  const [editingTx, setEditingTx] = useState(null)
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [editingSupplier, setEditingSupplier] = useState(null)
@@ -72,13 +75,15 @@ export default function FournisseursPage() {
   const load = useCallback(async () => {
     if (!shop?.id) return
 
-    const [s, t] = await Promise.all([
+    const [s, t, p] = await Promise.all([
       getAll('suppliers', shop.id),
       getAll('supplier_transactions', shop.id),
+      getAll('purchases', shop.id),
     ])
 
     setSuppliers(s)
     setTransactions(t)
+    setPurchases(p)
     setLoading(false)
   }, [shop?.id])
 
@@ -90,9 +95,26 @@ export default function FournisseursPage() {
       .reduce((sum, t) => sum + Number(t.amount || 0), 0)
   }
 
+  function normalizeText(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+  }
+
+  function purchaseBelongsToSupplier(purchase, supplier) {
+    if (!purchase || !supplier) return false
+
+    return (
+      purchase.supplier_id === supplier.id ||
+      normalizeText(purchase.supplier) === normalizeText(supplier.name)
+    )
+  }
+
   function getDateRange() {
     const today = new Date()
-    switch(periodFilter) {
+    switch (periodFilter) {
       case 'week':
         return { start: startOfWeek(today), end: endOfWeek(today) }
       case 'month':
@@ -155,39 +177,50 @@ export default function FournisseursPage() {
   }
 
   async function onAddTx(data) {
-    if (!selected) return
     if (submittingRef.current) return
     submittingRef.current = true
 
     try {
-      const amount = Number(data.amount || 0)
+      const amount = Number(data.amount)
       const signed = data.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
       const now = new Date().toISOString()
 
       const record = {
-        id: uuid(),
+        id: editingTx?.id || uuid(),
         shop_id: shop.id,
         supplier_id: selected.id,
         date: data.date,
         label: data.label,
         amount: signed,
         type: data.type,
-        created_at: now,
+        created_at: editingTx?.created_at || now,
         updated_at: now,
         sync_status: 'pending',
       }
 
       await localUpsert('supplier_transactions', record)
+      toast.success(editingTx ? 'Ligne fournisseur modifiée' : data.type === 'credit' ? 'Paiement fournisseur enregistré' : 'Dette fournisseur ajoutée')
 
-      toast.success(data.type === 'credit' ? 'Paiement fournisseur enregistré' : 'Dette fournisseur ajoutée')
       setTxModal(false)
-      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '' })
-      await load()
+      setEditingTx(null)
+      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '', label: '' })
+      setTimeout(() => load(), 500)
     } catch (err) {
       toast.error(err.message || 'Erreur')
     } finally {
       submittingRef.current = false
     }
+  }
+
+  function openEditTx(tx) {
+    setEditingTx(tx)
+    resetTx({
+      date: tx.date || format(new Date(), 'yyyy-MM-dd'),
+      type: Number(tx.amount || 0) < 0 ? 'credit' : 'debit',
+      label: tx.label || '',
+      amount: String(Math.abs(Number(tx.amount || 0))),
+    })
+    setTxModal(true)
   }
 
   async function handleDeleteSupplier(supplier) {
@@ -227,7 +260,7 @@ export default function FournisseursPage() {
 
   const withBalance = useMemo(() => {
     const suppliers = filtered.map(s => ({ ...s, balance: supplierBalance(s.id) }))
-    
+
     const sorted = [...suppliers].sort((a, b) => {
       switch (sortBy) {
         case 'name':
@@ -244,7 +277,7 @@ export default function FournisseursPage() {
           return 0
       }
     })
-    
+
     return sorted
   }, [filtered, transactions, sortBy])
 
@@ -260,6 +293,14 @@ export default function FournisseursPage() {
       .filter(t => t.supplier_id === selected.id && isWithinInterval(parseISO(t.date), { start, end }))
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [selected, transactions, periodFilter, customDateStart, customDateEnd])
+
+  const selectedPurchases = useMemo(() => {
+    if (!selected) return []
+
+    return purchases
+      .filter(p => purchaseBelongsToSupplier(p, selected))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [selected, purchases])
 
   if (selected) {
     const balance = supplierBalance(selected.id)
@@ -316,7 +357,7 @@ export default function FournisseursPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard
             label="Solde actuel"
             value={formatFCFA(Math.abs(balance))}
@@ -332,6 +373,13 @@ export default function FournisseursPage() {
             label="Total payé"
             value={formatFCFA(Math.abs(supplierTx.filter(t => t.amount < 0).reduce((s, t) => s + Number(t.amount || 0), 0)))}
             color="green"
+          />
+          <StatCard
+            label="Entrées de stock"
+            value={selectedPurchases.length}
+            color="purple"
+            icon={ShoppingCart}
+            sub={formatFCFA(selectedPurchases.reduce((s, p) => s + Number(p.total_amount || 0), 0))}
           />
         </div>
 
@@ -382,7 +430,7 @@ export default function FournisseursPage() {
               description="Ajoutez une dette ou un paiement fournisseur."
             />
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   {['Date', 'Libellé', 'Type', 'Montant'].map(h => (
@@ -407,6 +455,31 @@ export default function FournisseursPage() {
                     <td className={`px-4 py-3 font-bold ${tx.amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
                       {tx.amount > 0 ? '+' : ''}{formatFCFA(tx.amount)}
                     </td>
+
+                    <td className="px-4 py-3 no-print">
+                      <div className="flex gap-1 justify-end">
+                        <button
+                          onClick={() => openEditTx(tx)}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Modifier la ligne"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={async () => {
+                            await localDelete('supplier_transactions', tx.id)
+                            toast.success('Ligne supprimée')
+                            await load()
+                          }}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Supprimer la ligne"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+
                   </tr>
                 ))}
               </tbody>
@@ -419,6 +492,58 @@ export default function FournisseursPage() {
                 </tr>
               </tfoot>
             </table>
+          )}
+        </div>
+
+        <div className="card overflow-hidden mt-6">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+            <ShoppingCart className="w-4 h-4 text-purple-500" />
+            <h3 className="font-semibold text-gray-800">Entrées de stock liées à ce fournisseur</h3>
+          </div>
+
+          {selectedPurchases.length === 0 ? (
+            <EmptyState
+              icon={ShoppingCart}
+              title="Aucune entrée de stock"
+              description="Aucune entrée de stock liée à ce fournisseur n’a été trouvée."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm table-zebra">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    {['Date', 'Produit', 'Quantité', 'Prix unit.', 'Charges', 'Total', 'Paiement'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-gray-50">
+                  {selectedPurchases.map(p => (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                        {format(new Date(p.date), 'dd MMM yyyy', { locale: fr })}
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900">{p.product_name || '—'}</p>
+                        {p.product_code && <p className="text-xs text-gray-400">{p.product_code}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{p.quantity}</td>
+                      <td className="px-4 py-3 text-gray-700">{formatFCFA(p.unit_price || 0)}</td>
+                      <td className="px-4 py-3 text-gray-700">{formatFCFA(p.charge_total || 0)}</td>
+                      <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(p.total_amount || 0)}</td>
+                      <td className="px-4 py-3">
+                        <Badge color={Number(p.remaining_amount || 0) > 0 ? 'amber' : 'green'}>
+                          {Number(p.remaining_amount || 0) > 0 ? `Crédit ${formatFCFA(p.remaining_amount)}` : 'Payé'}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
@@ -541,7 +666,7 @@ export default function FournisseursPage() {
             action={<Btn icon={Plus} onClick={openAddSupplier}>Ajouter un fournisseur</Btn>}
           />
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 zebra-list">
             {withBalance.map(s => (
               <div
                 key={s.id}

@@ -881,7 +881,7 @@ export default function AdminPage() {
               ) : visibleCodes.length === 0 ? (
                 <div className="p-8 text-center text-slate-600 text-sm">Aucun code disponible</div>
               ) : (
-                <div className="divide-y divide-white/5">
+                <div className="divide-y divide-white/5 dark-zebra-list">
                   {visibleCodes.map((code) => (
                     <div key={code.id} className="flex items-center gap-4 px-5 py-3.5">
                       <div className="flex-none">
@@ -960,7 +960,7 @@ export default function AdminPage() {
             {loading ? (
               <div className="p-8 text-center text-slate-500 text-sm">Chargement…</div>
             ) : (
-              <div className="divide-y divide-white/5">
+              <div className="divide-y divide-white/5 dark-zebra-list">
                 {users.map((u) => (
                   <div key={u.id} className="flex items-center gap-4 px-5 py-3.5">
                     <div
@@ -1023,7 +1023,7 @@ export default function AdminPage() {
             ) : shops.length === 0 ? (
               <div className="p-8 text-center text-slate-600 text-sm">Aucune boutique</div>
             ) : (
-              <div className="divide-y divide-white/5">
+              <div className="divide-y divide-white/5 dark-zebra-list">
                 {shops.map((shop) => {
                   const shopUsers = users.filter(u => u.shop_id === shop.id)
 

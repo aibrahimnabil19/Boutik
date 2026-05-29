@@ -21,7 +21,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete } from '@/lib/db/local'
-import { formatFCFA } from '@/lib/core/calculations'
+import { calculateStock, formatFCFA } from '@/lib/core/calculations'
 import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, Badge, inputCls
@@ -34,10 +34,13 @@ export default function ClientsPage() {
   const [clients, setClients] = useState([])
   const [transactions, setTransactions] = useState([])
   const [sales, setSales] = useState([])
+  const [products, setProducts] = useState([])
+  const [purchases, setPurchases] = useState([])
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState('alpha')
   const [modal, setModal] = useState(false)
   const [txModal, setTxModal] = useState(false)
+  const [editingTx, setEditingTx] = useState(null)
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [editingClient, setEditingClient] = useState(null)
@@ -64,14 +67,19 @@ export default function ClientsPage() {
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [c, t, s] = await Promise.all([
+    const [c, t, s, p, pu] = await Promise.all([
       getAll('clients', shop.id),
       getAll('client_transactions', shop.id),
       getAll('sales', shop.id),
+      getAll('products', shop.id),
+      getAll('purchases', shop.id),
     ])
+
     setClients(c)
     setTransactions(t)
     setSales(s)
+    setProducts(p)
+    setPurchases(pu)
     setLoading(false)
   }, [shop?.id])
 
@@ -148,30 +156,44 @@ export default function ClientsPage() {
     try {
       const amount = Number(data.amount)
       const signed = data.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
+      const now = new Date().toISOString()
 
       const record = {
-        id: uuid(),
+        id: editingTx?.id || uuid(),
         shop_id: shop.id,
         client_id: selected.id,
         date: data.date,
         label: data.label,
         amount: signed,
         type: data.type,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: editingTx?.created_at || now,
+        updated_at: now,
         sync_status: 'pending',
       }
 
       await localUpsert('client_transactions', record)
-      toast.success(data.type === 'credit' ? 'Paiement enregistré' : 'Créance ajoutée')
+      toast.success(editingTx ? 'Ligne modifiée' : data.type === 'credit' ? 'Paiement enregistré' : 'Créance ajoutée')
+
       setTxModal(false)
-      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit' })
+      setEditingTx(null)
+      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '', label: '' })
       setTimeout(() => load(), 500)
     } catch (err) {
       toast.error(err.message || 'Erreur')
     } finally {
       submittingRef.current = false
     }
+  }
+
+  function openEditTx(tx) {
+    setEditingTx(tx)
+    resetTx({
+      date: tx.date || format(new Date(), 'yyyy-MM-dd'),
+      type: Number(tx.amount || 0) < 0 ? 'credit' : 'debit',
+      label: tx.label || '',
+      amount: String(Math.abs(Number(tx.amount || 0))),
+    })
+    setTxModal(true)
   }
 
   async function handleDeleteClient(client) {
@@ -250,6 +272,20 @@ export default function ClientsPage() {
 
   if (selected) {
     const balance = clientBalance(selected.id)
+    const clientCredit = Math.max(0, -balance)
+
+    const affordableProducts = products
+      .map(product => ({
+        ...product,
+        currentStock: calculateStock(product, purchases, sales),
+        salePrice: Number(product.sale_price || 0),
+      }))
+      .filter(product =>
+        product.salePrice > 0 &&
+        product.currentStock > 0 &&
+        product.salePrice <= clientCredit
+      )
+      .sort((a, b) => Number(b.salePrice || 0) - Number(a.salePrice || 0))
 
     return (
       <div className="p-6 print:p-0">
@@ -271,10 +307,23 @@ export default function ClientsPage() {
               Imprimer relevé
             </Btn>
             <Btn icon={Plus} onClick={() => {
-              resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit' })
+              setEditingTx(null)
+              resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '', label: '' })
               setTxModal(true)
             }}>
               Nouvelle ligne
+            </Btn>
+            <Btn icon={Plus} variant="secondary" onClick={() => {
+              setEditingTx(null)
+              resetTx({
+                date: format(new Date(), 'yyyy-MM-dd'),
+                type: 'credit',
+                label: 'Dépôt / avance client',
+                amount: '',
+              })
+              setTxModal(true)
+            }}>
+              Dépôt / avance
             </Btn>
             <Btn
               variant="secondary"
@@ -336,6 +385,46 @@ export default function ClientsPage() {
           />
         </div>
 
+        {clientCredit > 0 && (
+          <div className="card p-5 mb-6 border border-emerald-100">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="font-semibold text-gray-900">Crédit disponible du client</h3>
+                <p className="text-sm text-gray-500">
+                  Ce montant peut être utilisé pour payer une prochaine vente.
+                </p>
+              </div>
+
+              <p className="font-display text-xl font-bold text-emerald-600">
+                {formatFCFA(clientCredit)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                Produits que ce crédit peut acheter
+              </p>
+
+              {affordableProducts.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  Aucun produit en stock avec un prix de vente inférieur ou égal à ce crédit.
+                </p>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-2">
+                  {affordableProducts.slice(0, 8).map(product => (
+                    <div key={product.id} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                      <p className="font-medium text-gray-900">{product.name}</p>
+                      <p className="text-xs text-gray-400">
+                        Stock : {product.currentStock} · Prix : {formatFCFA(product.salePrice)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="card overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
@@ -350,10 +439,10 @@ export default function ClientsPage() {
                 description="Ajoutez une créance ou un paiement."
               />
             ) : (
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-zebra">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    {['Date', 'Libellé', 'Type', 'Montant'].map(h => (
+                    {['Date', 'Libellé', 'Type', 'Montant', ''].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                         {h}
                       </th>
@@ -375,12 +464,37 @@ export default function ClientsPage() {
                       <td className={`px-4 py-3 font-bold ${tx.amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {tx.amount > 0 ? '+' : ''}{formatFCFA(tx.amount)}
                       </td>
+
+                      <td className="px-4 py-3 no-print">
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            onClick={() => openEditTx(tx)}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                            title="Modifier la ligne"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              await localDelete('client_transactions', tx.id)
+                              toast.success('Ligne supprimée')
+                              await load()
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Supprimer la ligne"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td colSpan={3} className="px-4 py-3 font-semibold text-gray-700">Solde</td>
+                    <td colSpan={4} className="px-4 py-3 font-semibold text-gray-700">Solde</td>
                     <td className={`px-4 py-3 font-bold text-lg ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-green-600' : 'text-gray-600'}`}>
                       {formatFCFA(balance)}
                     </td>
@@ -419,7 +533,7 @@ export default function ClientsPage() {
                   </div>
                 </div>
 
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-zebra">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
                       {['Date', 'Produit', 'Qté', 'PU', 'Total'].map(h => (
@@ -464,7 +578,7 @@ export default function ClientsPage() {
           </div>
         </div>
 
-        <Modal open={txModal} onClose={() => setTxModal(false)} title="Nouvelle ligne" maxW="max-w-md">
+        <Modal open={txModal} onClose={() => setTxModal(false)} title={editingTx ? 'Modifier la ligne' : 'Nouvelle ligne'} maxW="max-w-md">
           <form onSubmit={handleTxSubmit(onAddTx)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Date" required>
@@ -587,7 +701,7 @@ export default function ClientsPage() {
             action={<Btn icon={Plus} onClick={() => setModal(true)}>Ajouter un client</Btn>}
           />
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 zebra-list">
             {withBalance.map(c => (
               <div
                 key={c.id}

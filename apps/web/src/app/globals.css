@@ -19,10 +19,20 @@
   }
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #f1f5f9; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
 
 @layer components {
   .btn-primary {
@@ -43,13 +53,61 @@
     @apply bg-white rounded-2xl border border-gray-100 shadow-sm;
   }
 
-  .text-brand { color: var(--color-primary); }
-  .bg-brand { background-color: var(--color-primary); }
-  .border-brand { border-color: var(--color-primary); }
-  .ring-brand { --tw-ring-color: var(--color-primary); }
+  .text-brand {
+    color: var(--color-primary);
+  }
+  .bg-brand {
+    background-color: var(--color-primary);
+  }
+  .border-brand {
+    border-color: var(--color-primary);
+  }
+  .ring-brand {
+    --tw-ring-color: var(--color-primary);
+  }
+
+  .table-zebra tbody tr:nth-child(odd) > * {
+    background-color: color-mix(in srgb, var(--color-primary) 5%, white);
+  }
+
+  .table-zebra tbody tr:nth-child(even) > * {
+    background-color: #ffffff;
+  }
+
+  .table-zebra tbody tr:hover > * {
+    background-color: color-mix(in srgb, var(--color-primary) 10%, white);
+  }
+
+  .zebra-list > *:nth-child(odd) {
+    background-color: color-mix(in srgb, var(--color-primary) 5%, white);
+  }
+
+  .zebra-list > *:nth-child(even) {
+    background-color: #ffffff;
+  }
+
+  .zebra-list > *:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 10%, white);
+  }
+
+  .dark-zebra-list > *:nth-child(odd) {
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+
+  .dark-zebra-list > *:nth-child(even) {
+    background-color: transparent;
+  }
+
+  .dark-zebra-list > *:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
 }
 
 @media print {
-  .no-print { display: none !important; }
-  body { background: white; }
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
 }

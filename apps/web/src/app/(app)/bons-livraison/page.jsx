@@ -124,7 +124,7 @@ export default function BonsLivraisonPage() {
             description="Les bons de livraison se génèrent à partir des ventes enregistrées."
           />
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 zebra-list">
             {filtered.map(group => (
               <div key={group.key} className="px-5 py-4 hover:bg-gray-50 transition-colors">
                 <div className="flex items-start gap-4">

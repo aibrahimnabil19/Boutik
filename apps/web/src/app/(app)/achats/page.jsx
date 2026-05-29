@@ -285,6 +285,22 @@ export default function AchatsPage() {
       sync_status: 'pending',
     }
 
+    if (editingPurchase) {
+      const oldKey = String(editingPurchase.id).slice(0, 8).toUpperCase()
+      const oldSupplierTx = await getAll('supplier_transactions', shop.id)
+
+      for (const tx of oldSupplierTx) {
+        const label = String(tx.label || '')
+        const isLinkedToThisPurchase =
+          label.includes(oldKey) &&
+          label.startsWith('Entrée de stock à crédit')
+
+        if (isLinkedToThisPurchase) {
+          await localDelete('supplier_transactions', tx.id)
+        }
+      }
+    }
+
     await localUpsert('purchases', record)
 
     if (remainingAmount > 0 && supplier) {
@@ -425,7 +441,7 @@ export default function AchatsPage() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   {['Date', 'Fournisseur', 'Produit', 'Quantité', 'Prix unit.', 'Charges', 'Total', ''].map(h => (

@@ -60,6 +60,7 @@ export default function VentesPage() {
   const [products, setProducts] = useState([])
   const [purchases, setPurchases] = useState([])
   const [clients, setClients] = useState([])
+  const [clientTransactions, setClientTransactions] = useState([])
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(false)
   const [confirm, setConfirm] = useState(null)
@@ -81,15 +82,18 @@ export default function VentesPage() {
   const [saleClientId, setSaleClientId] = useState('')
   const [paymentMode, setPaymentMode] = useState('')
   const [paidAmount, setPaidAmount] = useState('')
+  const [useClientCredit, setUseClientCredit] = useState(false)
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const [s, p, pu, c] = await Promise.all([
+    const [s, p, pu, c, ct] = await Promise.all([
       getAll('sales', shop.id),
       getAll('products', shop.id),
       getAll('purchases', shop.id),
       getAll('clients', shop.id),
+      getAll('client_transactions', shop.id),
     ])
+    setClientTransactions(ct)
     setSales(s.sort((a, b) => new Date(b.date) - new Date(a.date)))
     setProducts(p)
     setPurchases(pu)
@@ -102,6 +106,12 @@ export default function VentesPage() {
       String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
     )
   }, [clients])
+
+  function clientBalance(clientId) {
+    return clientTransactions
+      .filter(t => t.client_id === clientId)
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0)
+  }
 
   function openPayment(group) {
     if (!group || Number(group.remaining_amount || 0) <= 0) {
@@ -354,9 +364,18 @@ export default function VentesPage() {
     }
   }, { revenue: 0, cost: 0, profit: 0 }), [cart])
 
-  const paidPreview = paymentMode === 'credit'
-    ? Math.max(0, Number(paidAmount || 0))
-    : cartTotals.revenue
+  const selectedClientForSale = clients.find(c => c.id === saleClientId) || null
+  const selectedClientBalance = selectedClientForSale ? clientBalance(selectedClientForSale.id) : 0
+  const selectedClientCredit = Math.max(0, -selectedClientBalance)
+  const clientCreditUsed = useClientCredit
+    ? Math.min(selectedClientCredit, cartTotals.revenue)
+    : 0
+
+  const paidPreview = clientCreditUsed + (
+    paymentMode === 'credit'
+      ? Math.max(0, Number(paidAmount || 0))
+      : Math.max(0, cartTotals.revenue - clientCreditUsed)
+  )
 
   const remainingPreview = Math.max(0, cartTotals.revenue - paidPreview)
 
@@ -417,9 +436,11 @@ export default function VentesPage() {
     }
 
     const selectedClient = clients.find(c => c.id === saleClientId) || null
-    const totalPaid = paymentMode === 'credit'
+    const cashPaid = paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
-      : cartTotals.revenue
+      : Math.max(0, cartTotals.revenue - clientCreditUsed)
+
+    const totalPaid = clientCreditUsed + cashPaid
     const remainingAmount = Math.max(0, cartTotals.revenue - totalPaid)
     const paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
 
@@ -442,6 +463,23 @@ export default function VentesPage() {
 
         for (const oldSale of oldSales) {
           await localDelete('sales', oldSale.id)
+        }
+
+        const oldKey = String(editingGroup.key).slice(0, 8).toUpperCase()
+        const oldClientTx = await getAll('client_transactions', shop.id)
+
+        for (const tx of oldClientTx) {
+          const label = String(tx.label || '')
+          const isLinkedToThisSale =
+            label.includes(oldKey) &&
+            (
+              label.startsWith('Vente à crédit') ||
+              label.startsWith('Utilisation avance client')
+            )
+
+          if (isLinkedToThisSale) {
+            await localDelete('client_transactions', tx.id)
+          }
         }
       }
       const savedSales = []
@@ -490,6 +528,20 @@ export default function VentesPage() {
           date: saleDate,
           label: `Vente à crédit — ${sessionId.slice(0, 8).toUpperCase()}`,
           amount: remainingAmount,
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+
+      if (clientCreditUsed > 0 && selectedClient) {
+        await localUpsert('client_transactions', {
+          id: uuid(),
+          shop_id: shop.id,
+          client_id: selectedClient.id,
+          date: saleDate,
+          label: `Utilisation avance client — ${sessionId.slice(0, 8).toUpperCase()}`,
+          amount: clientCreditUsed,
           created_at: now,
           updated_at: now,
           sync_status: 'pending',
@@ -582,6 +634,7 @@ export default function VentesPage() {
       }))
     )
 
+    setUseClientCredit(false)
     setModal(true)
   }
 
@@ -592,6 +645,7 @@ export default function VentesPage() {
     setSaleClientId('')
     setPaymentMode('')
     setPaidAmount('')
+    setUseClientCredit(false)
     setModal(true)
   }
 
@@ -725,7 +779,7 @@ export default function VentesPage() {
             action={<Btn icon={Plus} onClick={openAdd}>Nouvelle vente</Btn>}
           />
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 zebra-list">
             {groupedSales.map(group => {
               const groupTotal = group.items.reduce((a, s) => a + (s.total_sale || 0), 0)
               const groupProfit = group.items.reduce((a, s) => a + (s.profit || 0), 0)
@@ -986,7 +1040,7 @@ export default function VentesPage() {
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Articles</span>
             </div>
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-gray-50 zebra-list">
               {cart.map((line, idx) => {
                 const qty = Number(line.quantity || 0)
                 const price = Number(line.unit_sale_price || 0)
@@ -1268,6 +1322,36 @@ export default function VentesPage() {
               />
             </FormField>
           </div>
+
+          {selectedClientForSale && selectedClientCredit > 0 && (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-900">
+                    Crédit client disponible : {formatFCFA(selectedClientCredit)}
+                  </p>
+                  <p className="text-xs text-emerald-700">
+                    Vous pouvez utiliser cette avance pour payer cette vente.
+                  </p>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm font-medium text-emerald-900">
+                  <input
+                    type="checkbox"
+                    checked={useClientCredit}
+                    onChange={e => setUseClientCredit(e.target.checked)}
+                  />
+                  Utiliser l’avance
+                </label>
+              </div>
+
+              {useClientCredit && (
+                <p className="text-xs text-emerald-800 mt-2">
+                  Montant utilisé : {formatFCFA(clientCreditUsed)}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-3 justify-end pt-2">
             <Btn variant="secondary" onClick={() => setClientModal(false)}>Annuler</Btn>

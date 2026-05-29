@@ -212,7 +212,7 @@ export default function RentabilitePage() {
         />
 
         <StatCard
-          label="Dépenses"
+          label="Charges"
           value={formatFCFA(totalExpAmount)}
           color="red"
         />
@@ -264,7 +264,7 @@ export default function RentabilitePage() {
           <div className="p-10 text-center text-gray-400 text-sm">Aucune vente sur cette période</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   {['#', 'Produit', 'Qté vendue', 'CA total', 'Coût total', 'Marge brute', 'Marge %'].map(h => (

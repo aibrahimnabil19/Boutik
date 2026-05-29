@@ -184,7 +184,7 @@ export default function FacturesPage() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   {['N° Facture', 'Date', 'Client', 'Montant', 'Statut', ''].map(h => (
@@ -245,7 +245,7 @@ export default function FacturesPage() {
         {saleGroups.length === 0 ? (
           <div className="p-6 text-sm text-gray-400">Aucune vente disponible.</div>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 zebra-list">
             {saleGroups.map(group => {
               const total = group.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
 

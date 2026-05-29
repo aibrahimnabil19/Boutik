@@ -162,7 +162,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <KpiCard label="Ventes du mois" value={formatFCFA(kpis.sales)} icon={TrendingUp} color="blue" loading={loading} />
         <KpiCard label="Bénéfice net" value={formatFCFA(kpis.profit)} icon={kpis.profit >= 0 ? TrendingUp : TrendingDown} color={kpis.profit >= 0 ? 'green' : 'red'} loading={loading} />
-        <KpiCard label="Dépenses du mois" value={formatFCFA(kpis.expenses)} icon={Wallet} color="amber" loading={loading} />
+        <KpiCard label="Charges du mois" value={formatFCFA(kpis.expenses)} icon={Wallet} color="amber" loading={loading} />
         <KpiCard label="Achats du mois" value={formatFCFA(kpis.purchases)} icon={ShoppingCart} color="purple" loading={loading} />
         <KpiCard label="Produits en stock" value={kpis.totalProducts} icon={Package} color="blue" loading={loading} />
         <KpiCard label="Total créances" value={formatFCFA(kpis.totalDebt)} icon={TrendingDown} color={kpis.totalDebt > 0 ? 'amber' : 'green'} loading={loading} />
@@ -242,7 +242,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   {['Produit', 'ID / Code', 'Stock initial', 'Acheté', 'Vendu', 'Stock restant', 'Valeur achetée', 'Valeur stock'].map(h => (

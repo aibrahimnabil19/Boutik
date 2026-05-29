@@ -56,7 +56,7 @@ export default function DepensesPage() {
       sync_status: 'pending',
     }
     await localUpsert('expenses', record)
-    toast.success(editingExpense ? 'Dépense modifiée' : 'Dépense enregistrée')
+    toast.success(editingExpense ? 'Charge modifiée' : 'Charge enregistrée')
     setModal(false)
     setEditingExpense(null)
     load()
@@ -94,13 +94,24 @@ export default function DepensesPage() {
   return (
     <div className="p-6">
       <PageHeader
-        title="Dépenses"
-        subtitle={`${expenses.length} dépense${expenses.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={() => { reset({ date: format(new Date(), 'yyyy-MM-dd') }); setModal(true) }}>Nouvelle dépense</Btn>}
+        title="Charges"
+        subtitle={`${expenses.length} charge${expenses.length !== 1 ? 's' : ''}`}
+        action={<Btn icon={Plus} onClick={() => {
+          setEditingExpense(null)
+          reset({
+            date: format(new Date(), 'yyyy-MM-dd'),
+            description: '',
+            amount: '',
+            category: 'Autre',
+          })
+          setModal(true)
+        }}>
+          Nouvelle charge
+        </Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <StatCard label="Total dépenses" value={formatFCFA(total)} color="red" icon={Wallet} />
+        <StatCard label="Total charges" value={formatFCFA(total)} color="red" icon={Wallet} />
         <StatCard label="Ce mois-ci" value={formatFCFA(byMonth)} color="amber" />
         <StatCard label="Nombre" value={expenses.length} color="blue" />
       </div>
@@ -115,12 +126,25 @@ export default function DepensesPage() {
         {loading ? (
           <div className="p-10 text-center text-gray-400 text-sm">Chargement…</div>
         ) : filtered.length === 0 ? (
-          <EmptyState icon={Wallet} title="Aucune dépense"
-            action={<Btn icon={Plus} onClick={() => setModal(true)}>Ajouter</Btn>}
+          <EmptyState icon={Wallet} title="Aucune charge"
+            action={
+              <Btn icon={Plus} onClick={() => {
+                setEditingExpense(null)
+                reset({
+                  date: format(new Date(), 'yyyy-MM-dd'),
+                  description: '',
+                  amount: '',
+                  category: 'Autre',
+                })
+                setModal(true)
+              }}>
+                Ajouter
+              </Btn>
+            }
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   {['Date', 'Description', 'Catégorie', 'Montant', ''].map(h => (
@@ -131,8 +155,8 @@ export default function DepensesPage() {
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(e => (
                   <tr key={e.id}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => openExpenseDetail(e)}>
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => openExpenseDetail(e)}>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(e.date), 'dd MMM yy', { locale: fr })}
                     </td>
@@ -171,7 +195,7 @@ export default function DepensesPage() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => { setModal(false); setEditingExpense(null) }} title={editingExpense ? 'Modifier la dépense' : 'Nouvelle dépense'}>
+      <Modal open={modal} onClose={() => { setModal(false); setEditingExpense(null) }} title={editingExpense ? 'Modifier la charge' : 'Nouvelle charge'}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Date" required>
@@ -211,7 +235,7 @@ export default function DepensesPage() {
         </form>
       </Modal>
 
-      <Modal open={!!expenseDetail} onClose={() => setExpenseDetail(null)} title="Détails de la dépense" maxW="max-w-md">
+      <Modal open={!!expenseDetail} onClose={() => setExpenseDetail(null)} title="Détails de la charge" maxW="max-w-md">
         {expenseDetail && (
           <div className="space-y-4 text-sm text-gray-700">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -231,8 +255,8 @@ export default function DepensesPage() {
         )}
       </Modal>
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
-        onConfirm={() => { localDelete('expenses', confirm); load(); toast.success('Dépense supprimée') }}
-        title="Supprimer la dépense" message="Êtes-vous sûr ?" />
+        onConfirm={() => { localDelete('expenses', confirm); load(); toast.success('Charge supprimée') }}
+        title="Supprimer la charge" message="Êtes-vous sûr ?" />
     </div>
   )
 }

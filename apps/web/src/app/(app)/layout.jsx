@@ -11,7 +11,7 @@ import { useAppStore } from '@/context/store'
 import { startSyncListener, runSync, pullFromRemote } from '@/lib/sync/engine'
 import {
   LayoutDashboard, Package, ShoppingCart, TrendingUp,
-  FileText, Users, Truck, PieChart, Wallet,
+  FileText, Users, Truck, PieChart, Wallet, BookOpen,
   Settings, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
 } from 'lucide-react'
 import AppUpdatePrompt from '@/components/AppUpdatePrompt'
@@ -22,7 +22,7 @@ const NAV = [
   { separator: 'Opérations' },
   { label: 'Ventes', href: '/ventes', icon: TrendingUp },
   { label: 'Entrées de stock', href: '/achats', icon: ShoppingCart },
-  { label: 'Dépenses', href: '/depenses', icon: Wallet },
+  { label: 'Charges', href: '/depenses', icon: Wallet },
 
   { separator: 'Tiers' },
   { label: 'Clients', href: '/clients', icon: Users },
@@ -34,6 +34,7 @@ const NAV = [
   { separator: 'Catalogue & Analyse' },
   { label: 'Catalogue / Stock', href: '/produits', icon: Package },
   { label: 'Rentabilité', href: '/rentabilite', icon: PieChart },
+  { label: 'Rapports financiers', href: '/rapports-financiers', icon: BookOpen },
 ]
 
 export default function AppLayout({ children }) {
