@@ -79,10 +79,10 @@ export default function VentesPage() {
   const [quickClient, setQuickClient] = useState({ name: '', phone: '', address: '' })
   const [editingGroup, setEditingGroup] = useState(null)
   const [printOptions, setPrintOptions] = useState(getDefaultDocumentOptions())
-const [docGuarantee, setDocGuarantee] = useState({
-  key: GUARANTEE_OPTIONS[0].key,
-  text: GUARANTEE_OPTIONS[0].text,
-})
+  const [docGuarantee, setDocGuarantee] = useState({
+    key: GUARANTEE_OPTIONS[0].key,
+    text: GUARANTEE_OPTIONS[0].text,
+  })
   // Document modal
   const [docModal, setDocModal] = useState(null) // { group } - the sale group to print
   const [saleDetail, setSaleDetail] = useState(null)
@@ -832,14 +832,14 @@ const [docGuarantee, setDocGuarantee] = useState({
     }
 
     printSaleDocument({
-  shop,
-  type: docType,
-  saleGroup: group,
-  invoiceNumber,
-  guaranteeText: docGuarantee.text || '',
-  includeCachet: printOptions.includeCachet,
-  includeSignature: printOptions.includeSignature,
-})
+      shop,
+      type: docType,
+      saleGroup: group,
+      invoiceNumber,
+      guaranteeText: docGuarantee.text || '',
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
+    })
 
     setDocModal(null)
   }
@@ -945,13 +945,13 @@ const [docGuarantee, setDocGuarantee] = useState({
                       <div className="flex gap-1 flex-none" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => {
-  setPrintOptions(getDefaultDocumentOptions())
-  setDocGuarantee({
-    key: GUARANTEE_OPTIONS[0].key,
-    text: GUARANTEE_OPTIONS[0].text,
-  })
-  setDocModal(group)
-}}
+                            setPrintOptions(getDefaultDocumentOptions())
+                            setDocGuarantee({
+                              key: GUARANTEE_OPTIONS[0].key,
+                              text: GUARANTEE_OPTIONS[0].text,
+                            })
+                            setDocModal(group)
+                          }}
                           className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
                           title="Imprimer un document"
                         >
@@ -1065,10 +1065,15 @@ const [docGuarantee, setDocGuarantee] = useState({
           <p className="text-sm text-gray-500 mb-4">
             Choisissez le type de document à générer pour cette vente.
           </p>
+          <DocumentPrintOptions
+            shop={shop}
+            value={printOptions}
+            onChange={setPrintOptions}
+          />
           <GuaranteePicker
-  value={docGuarantee}
-  onChange={setDocGuarantee}
-/>
+            value={docGuarantee}
+            onChange={setDocGuarantee}
+          />
           {docModal && SALE_DOC_TYPES.map(doc => {
             const Icon = doc.icon
             return (
