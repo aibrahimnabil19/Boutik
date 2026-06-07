@@ -86,6 +86,7 @@ const REMOTE_COLUMNS = {
     "updated_at",
     "deleted_at",
     "cancelled_at",
+    "is_charge",
   ],
   expenses: [
     "id",
@@ -153,7 +154,7 @@ const REMOTE_COLUMNS = {
     "invoice_number",
     "type",
     "source_type",
-"source_id",
+    "source_id",
     "client_id",
     "client_name",
     "client_address",
@@ -170,6 +171,7 @@ const REMOTE_COLUMNS = {
     "created_at",
     "updated_at",
     "deleted_at",
+    "orientation",
   ],
   invoice_items: [
     "id",

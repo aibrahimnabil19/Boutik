@@ -39,6 +39,21 @@ localDb.version(6).stores({
   app_settings: "key",
 });
 
+localDb.version(7).stores({
+  products: 'id, shop_id, code, name, sync_status, sync_error, deleted_at',
+  purchases: 'id, purchase_batch_id, shop_id, supplier_id, product_id, date, sync_status, sync_error, deleted_at',
+  sales: 'id, session_id, sale_batch_id, shop_id, client_id, date, product_id, purchase_id, payment_status, is_charge, sync_status, sync_error, deleted_at, cancelled_at',
+  expenses: 'id, shop_id, date, sync_status, sync_error, deleted_at',
+  clients: 'id, shop_id, name, sync_status, sync_error, deleted_at',
+  client_transactions: 'id, shop_id, client_id, date, sync_status, sync_error, deleted_at',
+  suppliers: 'id, shop_id, name, sync_status, sync_error, deleted_at',
+  supplier_transactions: 'id, shop_id, supplier_id, date, sync_status, sync_error, deleted_at',
+  invoices: 'id, shop_id, type, invoice_number, date, source_type, source_id, sync_status, sync_error, deleted_at',
+  invoice_items: 'id, invoice_id, shop_id, sync_status, sync_error, deleted_at',
+  app_settings: 'key',
+  sync_queue: '++id, table_name, record_id, operation, created_at',
+})
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Get a setting value from local storage */

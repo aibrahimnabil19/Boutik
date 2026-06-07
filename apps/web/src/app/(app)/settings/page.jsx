@@ -98,6 +98,17 @@ export default function SettingsPage() {
     return publicUrl
   }
 
+  function fileToDataUrl(file) {
+    if (!file) return Promise.resolve(null)
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
   async function onSaveShop(data) {
     if (!shop?.id) return
     setSaving(true)
@@ -109,9 +120,20 @@ export default function SettingsPage() {
         signatureFile ? uploadFile(supabase, signatureFile, `${shop.id}/signature`) : Promise.resolve(shop.signature_url),
       ])
 
+      const [logoDataUrl, cachetDataUrl, signatureDataUrl] = await Promise.all([
+        logoFile ? fileToDataUrl(logoFile) : Promise.resolve(shop.logo_data_url || null),
+        cachetFile ? fileToDataUrl(cachetFile) : Promise.resolve(shop.cachet_data_url || null),
+        signatureFile ? fileToDataUrl(signatureFile) : Promise.resolve(shop.signature_data_url || null),
+      ])
+
       const updates = {
         ...data,
-        logo_url: logoUrl, cachet_url: cachetUrl, signature_url: signatureUrl,
+        logo_url: logoUrl,
+        cachet_url: cachetUrl,
+        signature_url: signatureUrl,
+        logo_data_url: logoDataUrl,
+        cachet_data_url: cachetDataUrl,
+        signature_data_url: signatureDataUrl,
         updated_at: new Date().toISOString(),
       }
 
@@ -119,6 +141,8 @@ export default function SettingsPage() {
       if (error) throw error
 
       setShop({ ...shop, ...updates })
+      await setSetting('cached_shop', { ...shop, ...updates })
+      await setSetting('offline_ready', true)
       applyTheme()
       toast.success('Boutique mise à jour !')
     } catch (err) {

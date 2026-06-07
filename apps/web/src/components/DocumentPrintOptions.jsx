@@ -4,6 +4,7 @@ export function getDefaultDocumentOptions() {
   return {
     includeCachet: false,
     includeSignature: false,
+    orientation: 'landscape',
   }
 }
 
@@ -12,6 +13,10 @@ export default function DocumentPrintOptions({ shop, value, onChange }) {
 
   function update(key, checked) {
     onChange({ ...options, [key]: checked })
+  }
+
+  function updateValue(key, value) {
+    onChange({ ...options, [key]: value })
   }
 
   return (
@@ -40,6 +45,18 @@ export default function DocumentPrintOptions({ shop, value, onChange }) {
         />
         Inclure la signature
         {!shop?.signature_url && <span className="text-xs text-gray-400">(non configurée)</span>}
+      </label>
+
+      <label className="block text-sm text-gray-700">
+        <span className="block mb-1">Orientation</span>
+        <select
+          value={options.orientation || 'landscape'}
+          onChange={(e) => updateValue('orientation', e.target.value)}
+          className="w-full h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm"
+        >
+          <option value="landscape">Paysage</option>
+          <option value="portrait">Portrait</option>
+        </select>
       </label>
     </div>
   )

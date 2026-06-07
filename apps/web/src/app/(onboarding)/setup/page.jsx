@@ -13,6 +13,17 @@ import {
 } from 'lucide-react'
 import Image from 'next/image'
 
+function fileToDataUrl(file) {
+  if (!file) return Promise.resolve(null)
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 const THEMES = [
   { name: 'Bleu océan', primary: '#1a56db', accent: '#e3a008' },
   { name: 'Vert nature', primary: '#057a55', accent: '#e3a008' },
@@ -111,21 +122,42 @@ export default function SetupPage() {
       const shopId = crypto.randomUUID()
       const primary = customPrimary || selectedTheme.primary
 
+      // Upload to Supabase storage
       const [logoUrl, cachetUrl, signatureUrl] = await Promise.all([
         logoFile ? uploadFile(supabase, logoFile, `${shopId}/logo`) : null,
         cachetFile ? uploadFile(supabase, cachetFile, `${shopId}/cachet`) : null,
         signatureFile ? uploadFile(supabase, signatureFile, `${shopId}/signature`) : null,
       ])
 
+      // Convert to data URLs for offline/print use
+      const [logoDataUrl, cachetDataUrl, signatureDataUrl] = await Promise.all([
+        logoFile ? fileToDataUrl(logoFile) : Promise.resolve(null),
+        cachetFile ? fileToDataUrl(cachetFile) : Promise.resolve(null),
+        signatureFile ? fileToDataUrl(signatureFile) : Promise.resolve(null),
+      ])
+
       const shopData = {
-        id: shopId, owner_id: user.id,
+        id: shopId,
+        owner_id: user.id,
         name: data.name || 'Ma Boutique',
-        address: data.address || null, phone: data.phone || null,
-        whatsapp: data.whatsapp || null, email: data.email || null,
-        nif: data.nif || null, city: data.city || null,
-        logo_url: logoUrl, cachet_url: cachetUrl, signature_url: signatureUrl,
-        color_primary: primary, color_secondary: darkenHex(primary),
-        color_accent: selectedTheme.accent, currency: 'FCFA',
+        address: data.address || null,
+        phone: data.phone || null,
+        whatsapp: data.whatsapp || null,
+        email: data.email || null,
+        nif: data.nif || null,
+        city: data.city || null,
+        logo_url: logoUrl,
+        cachet_url: cachetUrl,
+        signature_url: signatureUrl,
+        logo_data_url: logoDataUrl,
+        cachet_data_url: cachetDataUrl,
+        signature_data_url: signatureDataUrl,
+        color_primary: primary,
+        color_secondary: darkenHex(primary),
+        color_accent: selectedTheme.accent,
+        currency: 'FCFA',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }
 
       const { error: shopError } = await supabase.from('shops').insert(shopData)
@@ -273,7 +305,7 @@ export default function SetupPage() {
                     <button key={theme.name} type="button"
                       onClick={() => { setSelectedTheme(theme); setCustomPrimary('') }}
                       className={`relative p-3 rounded-xl border-2 transition-all ${selectedTheme.name === theme.name && !customPrimary
-                          ? 'border-white/60 scale-105' : 'border-white/10 hover:border-white/30'
+                        ? 'border-white/60 scale-105' : 'border-white/10 hover:border-white/30'
                         }`}
                       style={{ background: theme.primary + '33' }}
                     >

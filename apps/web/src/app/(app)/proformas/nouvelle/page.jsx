@@ -12,7 +12,11 @@ import { useAppStore } from '@/context/store'
 import { localDb, getAll, localUpsert, localDelete } from '@/lib/db/local'
 import { formatFCFA, amountToWordsFCFA, generateDocumentNumber, calculateInvoiceTotal } from '@/lib/core/calculations'
 import { FormField, inputCls, Btn } from '@/components/ui'
-import { renderToInvoiceHTML } from '@/lib/core/invoicePrint'
+import {
+  renderToInvoiceHTML,
+  preparePrintableShop,
+  printHtmlDocument,
+} from '@/lib/core/invoicePrint'
 import DocumentPrintOptions from '@/components/DocumentPrintOptions'
 import FrenchInput from '@/components/FrenchInput'
 import GuaranteePicker from '@/components/GuaranteePicker'
@@ -136,6 +140,7 @@ export default function NouvelleProformaPage() {
         guarantee_text: guarantee.text || '',
         include_cachet: !!printOptions.includeCachet,
         include_signature: !!printOptions.includeSignature,
+        orientation: printOptions.orientation || 'landscape',
         status: 'finalized',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -175,13 +180,17 @@ export default function NouvelleProformaPage() {
 
   // ─── Print via iframe (only the document, not the screen) ─────────────────
 async function handlePrint() {
-  const formValues = watch()
-  const officialNumber = await ensureProformaNumber(formValues.date)
+  const formValues = watch ? watch() : {}
+  const officialNumber = await ensureInvoiceNumber(formValues.date)
 
-  await onSubmit(formValues)
+  await onSubmit(formValues, 'finalized')
+
+  // Prepare shop with data URLs for printing
+  const printableShop = await preparePrintableShop(shop)
+  const orientation = printOptions.orientation || 'landscape'
 
   const html = renderToInvoiceHTML({
-    shop,
+    shop: printableShop,
     invoiceNumber: officialNumber,
     formValues,
     items: computedItems,
@@ -190,23 +199,10 @@ async function handlePrint() {
     guaranteeText: guarantee.text,
     includeCachet: printOptions.includeCachet,
     includeSignature: printOptions.includeSignature,
+    orientation,
   })
 
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;'
-  document.body.appendChild(iframe)
-
-  iframe.contentDocument.open()
-  iframe.contentDocument.write(html)
-  iframe.contentDocument.close()
-
-  iframe.onload = () => {
-    setTimeout(() => {
-      iframe.contentWindow.focus()
-      iframe.contentWindow.print()
-      setTimeout(() => document.body.removeChild(iframe), 1500)
-    }, 300)
-  }
+  printHtmlDocument(html, orientation)
 }
 
   const formValues = watch()

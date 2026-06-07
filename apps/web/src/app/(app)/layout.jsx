@@ -51,12 +51,36 @@ export default function AppLayout({ children }) {
 
     async function init() {
       try {
+        const cachedShopId = await getSetting('shop_id')
+        const cachedShop = await getSetting('cached_shop')
+        const offlineReady = await getSetting('offline_ready')
+
+        if (!navigator.onLine && offlineReady && cachedShopId) {
+          if (cachedShop) {
+            setShop(cachedShop)
+            applyTheme(cachedShop)
+          }
+
+          setLoaded(true)
+          cleanupSync = startSyncListener(cachedShopId)
+          return
+        }
+
+        if (cachedShopId && cachedShop) {
+          setShop(cachedShop)
+          applyTheme(cachedShop)
+          setLoaded(true)
+        }
+
         const supabase = getSupabaseClient()
 
         // Add timeout so the app never hangs forever
         const sessionPromise = supabase.auth.getSession()
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Session timeout')), 8000)
+          setTimeout(
+            () => reject(new Error('Session timeout')),
+            navigator.onLine ? 2500 : 300
+          )
         )
 
         let session
@@ -65,7 +89,7 @@ export default function AppLayout({ children }) {
           session = data?.session
         } catch (err) {
           // On timeout or network error, check if we have cached shop data
-          const shopId = await getSetting('shop_id')
+          const shopId = cachedShopId
           if (!shopId) {
             router.replace('/auth')
             return

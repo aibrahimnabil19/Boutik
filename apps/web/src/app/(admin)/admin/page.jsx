@@ -501,6 +501,7 @@ export default function AdminPage() {
       'updated_at',
       'deleted_at',
       'cancelled_at',
+      'is_charge',
     ],
 
     expenses: [

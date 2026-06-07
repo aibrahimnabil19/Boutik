@@ -20,9 +20,125 @@ export function askIncludeStamp(shop) {
 
 export function normalizeDocumentOptions(shop, options = {}) {
   return {
-    includeCachet: !!options.includeCachet && !!shop?.cachet_url,
-    includeSignature: !!options.includeSignature && !!shop?.signature_url,
+    includeCachet:
+      !!options.includeCachet &&
+      !!(shop?.cachet_print_src || shop?.cachet_data_url || shop?.cachet_url),
+
+    includeSignature:
+      !!options.includeSignature &&
+      !!(
+        shop?.signature_print_src ||
+        shop?.signature_data_url ||
+        shop?.signature_url
+      ),
+
+    orientation: getOrientation(options),
+  };
+}
+
+const PRINT_LAYOUT = {
+  landscape: {
+    pageSize: "A4 landscape",
+    iframe: "width:297mm;height:210mm",
+    pageWidth: "287.7mm",
+    pageMinHeight: "209.5mm",
+    topGrid: "70.54mm 112.18mm 87.66mm",
+    logoW: "70.54mm",
+    logoH: "39.18mm",
+    activityW: "87.66mm",
+    activityH: "22.82mm",
+    bodyFont: "13px",
+    tableFont: "20px",
+  },
+  portrait: {
+    pageSize: "A4 portrait",
+    iframe: "width:210mm;height:297mm",
+    pageWidth: "200.7mm",
+    pageMinHeight: "287mm",
+    topGrid: "48mm 76mm 67mm",
+    logoW: "48mm",
+    logoH: "26.66mm",
+    activityW: "67mm",
+    activityH: "24mm",
+    bodyFont: "12px",
+    tableFont: "15px",
+  },
+};
+
+function getOrientation(options = {}) {
+  return options.orientation === "portrait" ? "portrait" : "landscape";
+}
+
+function getAssetSrc(shop, key) {
+  return shop?.[`${key}_data_url`] || shop?.[`${key}_url`] || "";
+}
+
+async function imageUrlToDataUrl(url) {
+  if (!url || url.startsWith("data:")) return url || "";
+
+  try {
+    const res = await fetch(url, { cache: "force-cache" });
+    if (!res.ok) throw new Error(`Image HTTP ${res.status}`);
+
+    const blob = await res.blob();
+
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return url;
   }
+}
+
+export async function preparePrintableShop(shop = {}) {
+  return {
+    ...shop,
+    logo_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "logo")),
+    cachet_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "cachet")),
+    signature_print_src: await imageUrlToDataUrl(
+      getAssetSrc(shop, "signature"),
+    ),
+  };
+}
+
+function waitForPrintAssets(doc) {
+  const images = Array.from(doc.images || []);
+
+  if (!images.length) return Promise.resolve();
+
+  return Promise.all(
+    images.map((img) => {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+
+      return new Promise((resolve) => {
+        img.onload = resolve;
+        img.onerror = resolve;
+        setTimeout(resolve, 2500);
+      });
+    }),
+  );
+}
+
+export function printHtmlDocument(html, orientation = "landscape") {
+  const layout = PRINT_LAYOUT[getOrientation({ orientation })];
+
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;${layout.iframe};border:none;`;
+  document.body.appendChild(iframe);
+
+  iframe.contentDocument.open();
+  iframe.contentDocument.write(html);
+  iframe.contentDocument.close();
+
+  iframe.onload = async () => {
+    await waitForPrintAssets(iframe.contentDocument);
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+    setTimeout(() => document.body.removeChild(iframe), 1500);
+  };
 }
 
 /**
@@ -37,8 +153,9 @@ export function renderToInvoiceHTML({
   grandTotal,
   type = "facture",
   guaranteeText = "",
-  includeCachet,
-  includeSignature,
+  includeCachet = false,
+  includeSignature = false,
+  orientation = "landscape",
 }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), "dd MMMM yyyy", { locale: fr })
@@ -49,6 +166,7 @@ export function renderToInvoiceHTML({
     includeCachet,
     includeSignature,
   });
+  const layout = PRINT_LAYOUT[documentOptions.orientation];
   const primary = "#1D71B8";
   const orange = "#F29100";
 
@@ -94,53 +212,65 @@ export function renderToInvoiceHTML({
   <title>${title} ${invoiceNumber}</title>
   <style>
     @page {
-      size: A4 landscape;
-      margin: 7mm 5mm 5mm 5mm;
-    }
-
-    * {
-      box-sizing: border-box;
+      size: ${layout.pageSize};
+      margin: 0.21mm 1.9mm 0.21mm 7.4mm;
     }
 
     body {
       margin: 0;
+      padding: 0;
       background: white;
+      color: #000;
       font-family: "Times New Roman", Times, serif;
-      color: #111827;
-      font-size: 13px;
+      font-size: ${layout.bodyFont};
     }
 
     .page {
-      width: 287mm;
-      min-height: 195mm;
-      padding: 0;
+      width: ${layout.pageWidth};
+      min-height: ${layout.pageMinHeight};
+      box-sizing: border-box;
       position: relative;
     }
 
     .top {
       display: grid;
-      grid-template-columns: 92mm 90mm 95mm;
-      align-items: start;
+      grid-template-columns: ${layout.topGrid};
       column-gap: 6mm;
-      min-height: 33mm;
+      align-items: start;
     }
 
     .logo {
-      max-width: 78mm;
-      max-height: 32mm;
+      width: ${layout.logoW};
+      height: ${layout.logoH};
+      max-width: ${layout.logoW};
+      max-height: ${layout.logoH};
       object-fit: contain;
     }
 
     .activity {
-      background: ${orange};
-      color: white;
-      font-weight: 800;
-      text-align: center;
-      padding: 3mm 5mm;
+      width: ${layout.activityW};
+      min-height: ${layout.activityH};
+      background: #F29100;
       border-radius: 7mm;
-      font-size: 18px;
-      line-height: 1.25;
-      text-transform: uppercase;
+      color: #fff;
+      font-weight: bold;
+      text-align: center;
+      padding: 3mm;
+      box-sizing: border-box;
+      font-size: ${documentOptions.orientation === "portrait" ? "13px" : "18px"};
+    }
+
+    .doc-title {
+      background: #F29100;
+      color: white;
+      font-size: ${documentOptions.orientation === "portrait" ? "18px" : "22px"};
+      font-weight: bold;
+      text-align: center;
+      padding: 2mm 0;
+    }
+
+    td, th {
+      font-size: ${layout.tableFont};
     }
 
     .company {
@@ -155,16 +285,6 @@ export function renderToInvoiceHTML({
       grid-template-columns: 1fr 410px 1fr;
       align-items: center;
       margin-top: 8px;
-    }
-
-    .doc-title {
-      background: ${orange};
-      color: white;
-      text-align: center;
-      font-weight: 800;
-      font-size: 22px;
-      padding: 1mm 2mm;
-      margin-top: 6mm;
     }
 
     .date {
@@ -324,7 +444,7 @@ export function renderToInvoiceHTML({
   <div class="page">
     <div class="top">
       <div>
-        ${shop?.logo_url ? `<img class="logo" src="${shop.logo_url}" alt="Logo" />` : ""}
+        ${getAssetSrc(shop, 'logo') ? `<img class="logo" src="${shop.logo_print_src || getAssetSrc(shop, 'logo')}" alt="Logo" />` : ''}
       </div>
 
       <div class="company">
@@ -390,20 +510,27 @@ export function renderToInvoiceHTML({
     }
 
     ${
-  !guaranteeText
-    ? ""
-    : `
+      !guaranteeText
+        ? ""
+        : `
       <div class="garantie">
         <span>GARANTIE</span> : ${guaranteeText}
       </div>
     `
-}
+    }
 
     <div class="signature">
       <div class="signature-box">
         SIGNATURE
-        ${documentOptions.includeSignature && shop?.signature_url ? `<br/><img class="signature-img" src="${shop.signature_url}" />` : ""}
-        ${documentOptions.includeCachet && shop?.cachet_url ? `<br/><img class="signature-img" src="${shop.cachet_url}" />` : ""}
+        ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
+          ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+          : ''
+        }
+
+        ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
+          ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+          : ''
+        }
       </div>
     </div>
 

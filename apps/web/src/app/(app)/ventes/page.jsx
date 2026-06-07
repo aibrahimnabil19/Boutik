@@ -8,7 +8,7 @@ import { TrendingUp, Plus, Trash2, Pencil, PlusCircle, FileText, Printer, Receip
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
-import { getAll, localUpsert, localDelete, cancelSale } from '@/lib/db/local'
+import { localDb, getAll, localUpsert, localDelete, cancelSale } from '@/lib/db/local'
 import { formatFCFA, formatNumber, generateDocumentNumber } from '@/lib/core/calculations'
 import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
@@ -89,6 +89,7 @@ export default function VentesPage() {
   const [dateFilter, setDateFilter] = useState(defaultDateFilter())
 
   const [cart, setCart] = useState([emptyLine()])
+  const [saleCharges, setSaleCharges] = useState([])
   const [newLineKey, setNewLineKey] = useState(null)
   const [saleDate, setSaleDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [saleClientId, setSaleClientId] = useState('')
@@ -135,6 +136,77 @@ export default function VentesPage() {
 
     setPaymentModal(group)
     setPaymentAmount('')
+  }
+
+  function emptyCharge() {
+    return {
+      _key: uuid(),
+      label: 'Charge supplémentaire',
+      amount: '',
+    }
+  }
+
+  function addSaleCharge() {
+    setSaleCharges((prev) => [...prev, emptyCharge()])
+  }
+
+  function updateSaleCharge(key, field, value) {
+    setSaleCharges((prev) =>
+      prev.map((row) =>
+        row._key === key ? { ...row, [field]: value } : row
+      )
+    )
+  }
+
+  function removeSaleCharge(key) {
+    setSaleCharges((prev) => prev.filter((row) => row._key !== key))
+  }
+
+  const cleanSaleCharges = useMemo(() => {
+    return saleCharges
+      .map((row) => ({
+        label: String(row.label || 'Charge supplémentaire').trim() || 'Charge supplémentaire',
+        amount: Number(row.amount || 0),
+      }))
+      .filter((row) => row.amount > 0)
+  }, [saleCharges])
+
+  const saleChargeTotal = useMemo(() => {
+    return cleanSaleCharges.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+  }, [cleanSaleCharges])
+
+  function saleKeyLabel(key) {
+    return String(key || '').slice(0, 8).toUpperCase()
+  }
+
+  async function cleanupSettledCreditLabels(saleKey, clientId) {
+    if (!shop?.id || !clientId) return
+
+    const key = saleKeyLabel(saleKey)
+    const txs = await getAll('client_transactions', shop.id)
+
+    const linked = txs.filter((tx) => {
+      const label = String(tx.label || '')
+
+      return (
+        tx.client_id === clientId &&
+        label.includes(key) &&
+        (
+          label.startsWith('Vente à crédit') ||
+          label.startsWith('Paiement vente')
+        )
+      )
+    })
+
+    if (!linked.length) return
+
+    const net = linked.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
+
+    if (Math.abs(net) > 0.01) return
+
+    for (const tx of linked) {
+      await localDelete('client_transactions', tx.id)
+    }
   }
 
   async function handleCreditPayment(e) {
@@ -231,6 +303,10 @@ export default function VentesPage() {
       updated_at: now,
       sync_status: 'pending',
     })
+
+    if (Math.abs(amount - remaining) <= 0.01) {
+      await cleanupSettledCreditLabels(paymentModal.key, clientId)
+    }
 
     toast.success('Paiement enregistré')
     setPaymentModal(null)
@@ -394,24 +470,26 @@ export default function VentesPage() {
     }
   }, { revenue: 0, cost: 0, profit: 0 }), [cart])
 
+  const saleGrandTotal = cartTotals.revenue + saleChargeTotal
+
   const selectedClientForSale = clients.find(c => c.id === saleClientId) || null
   const selectedClientBalance = selectedClientForSale ? clientBalance(selectedClientForSale.id) : 0
   const selectedClientCredit = Math.max(0, -selectedClientBalance)
   const clientCreditUsed =
     paymentMode === 'advance'
-      ? Math.min(selectedClientCredit, cartTotals.revenue)
+      ? Math.min(selectedClientCredit, saleGrandTotal)
       : 0
 
   const cashPaid =
     paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
       : paymentMode === 'paid'
-        ? cartTotals.revenue
+        ? saleGrandTotal
         : 0
 
   const paidPreview = clientCreditUsed + cashPaid
 
-  const remainingPreview = Math.max(0, cartTotals.revenue - paidPreview)
+  const remainingPreview = Math.max(0, saleGrandTotal - paidPreview)
 
   // ─── Submit ────────────────────────────────────────────────────────────────
   async function onSubmit(e) {
@@ -440,7 +518,7 @@ export default function VentesPage() {
         return
       }
 
-      if (Math.abs(breakdownTotal - cartTotals.revenue) > 0.01) {
+      if (Math.abs(breakdownTotal - saleGrandTotal) > 0.01) {
         toast.error('La somme des moyens de paiement doit être égale au total de la vente.')
         return
       }
@@ -497,11 +575,11 @@ export default function VentesPage() {
     const cashPaid = paymentMode === 'credit'
       ? Math.max(0, Number(paidAmount || 0))
       : paymentMode === 'paid'
-        ? cartTotals.revenue
+        ? saleGrandTotal
         : 0
 
     const totalPaid = clientCreditUsed + cashPaid
-    const remainingAmount = Math.max(0, cartTotals.revenue - totalPaid)
+    const remainingAmount = Math.max(0, saleGrandTotal - totalPaid)
     const paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
 
     if (paymentStatus === 'credit' && !selectedClient) {
@@ -509,7 +587,7 @@ export default function VentesPage() {
       return
     }
 
-    if (totalPaid > cartTotals.revenue) {
+    if (totalPaid > saleGrandTotal) {
       toast.error('Le montant payé ne peut pas dépasser le total de la vente.')
       return
     }
@@ -534,7 +612,8 @@ export default function VentesPage() {
             label.includes(oldKey) &&
             (
               label.startsWith('Vente à crédit') ||
-              label.startsWith('Utilisation avance client')
+              label.startsWith('Utilisation avance client') ||
+              label.startsWith('Paiement vente')
             )
 
           if (isLinkedToThisSale) {
@@ -542,41 +621,109 @@ export default function VentesPage() {
           }
         }
       }
-      const savedSales = []
-      for (const line of cart) {
-        const q = Number(line.quantity)
-        const price = Number(line.unit_sale_price)
-        const cost = Number(line.unit_cost)
+      const saleGrandTotal = saleGrandTotal + saleChargeTotal
+      let paidLeft = totalPaid
+
+      const rowsToSave = cart.map((line) => {
+        const q = Number(line.quantity || 0)
+        const price = Number(line.unitsaleprice || 0)
         const lineTotal = q * price
-        const linePaid = cartTotals.revenue > 0
-          ? Math.round((lineTotal / cartTotals.revenue) * totalPaid)
-          : 0
+
+        const linePaid = Math.min(lineTotal, paidLeft)
+        paidLeft -= linePaid
+
+        return {
+          kind: 'product',
+          line,
+          lineTotal,
+          linePaid,
+          lineRemaining: Math.max(0, lineTotal - linePaid),
+        }
+      })
+      const savedSales = []
+      for (const row of rowsToSave) {
+        const line = row.line
+        const q = Number(line.quantity)
+        const price = Number(line.unitsaleprice)
+        const cost = Number(line.unitcost)
+        const lineTotal = row.lineTotal
+        const linePaid = row.linePaid
+        const lineRemaining = row.lineRemaining
+        const saleRecord = {
+          id: uuid(),
+          shopid: shop.id,
+          sessionid: sessionId,
+          date: saleDate,
+          store: '',
+          clientid: selectedClient?.id || null,
+          clientname: selectedClient?.name || '',
+          paymentmethod: paymentMode,
+          paymentbreakdown: paymentMode === 'paid' ? cleanPaymentBreakdown(paymentBreakdown) : [],
+          advanceused: clientCreditUsed || 0,
+          payment_status: lineRemaining <= 0 ? 'paid' : 'credit',
+          paid_amount: linePaid,
+          remaining_amount: lineRemaining,
+          is_charge: false,
+          productid: line.productid,
+          purchaseid: line.purchaseid || null,
+          productcode: line.productcode,
+          productname: line.productname,
+          quantity: q,
+          unitsaleprice: price,
+          totalsale: lineTotal,
+          unitpurchasecost: cost,
+          totalpurchasecost: q * cost,
+          profit: q * price - q * cost,
+          createdat: now,
+          updatedat: now,
+          syncstatus: 'pending',
+        }
+        await localUpsert('sales', saleRecord)
+        savedSales.push(saleRecord)
+      }
+
+      for (const charge of cleanSaleCharges) {
+        const lineTotal = Number(charge.amount || 0)
+
+        const linePaid = Math.min(lineTotal, paidLeft)
+        paidLeft -= linePaid
+
         const lineRemaining = Math.max(0, lineTotal - linePaid)
+
         const saleRecord = {
           id: uuid(),
           shop_id: shop.id,
           session_id: sessionId,
+          sale_batch_id: sessionId,
           date: saleDate,
           store: '',
           client_id: selectedClient?.id || null,
           client_name: selectedClient?.name || '',
-          payment_method: paymentMode,
-          payment_breakdown: paymentMode === 'paid' ? cleanPaymentBreakdown(paymentBreakdown) : [],
-          advance_used: clientCreditUsed,
-          product_id: line.product_id,
-          purchase_id: line.purchase_id || null,
-          product_code: line.product_code || '',
-          product_name: line.product_name,
-          quantity: q,
-          unit_sale_price: price,
+          purchase_id: null,
+          product_id: null,
+          product_code: '',
+          product_name: charge.label || 'Charge supplémentaire',
+          quantity: 1,
+          unit_sale_price: lineTotal,
           total_sale: lineTotal,
-          unit_purchase_cost: cost,
-          total_purchase_cost: q * cost,
-          profit: q * price - q * cost,
+          unit_purchase_cost: 0,
+          total_purchase_cost: 0,
+          profit: lineTotal,
+          payment_status: lineRemaining <= 0 ? 'paid' : 'credit',
+          payment_method: paymentMode,
+          payment_breakdown:
+            paymentMode === 'paid'
+              ? cleanPaymentBreakdown(paymentBreakdown)
+              : [],
+          advance_used: clientCreditUsed,
+          paid_amount: linePaid,
+          remaining_amount: lineRemaining,
+          is_charge: true,
           created_at: now,
           updated_at: now,
           sync_status: 'pending',
         }
+
         await localUpsert('sales', saleRecord)
         savedSales.push(saleRecord)
       }
@@ -682,8 +829,14 @@ export default function VentesPage() {
     setPaymentMode(Number(group.remaining_amount || 0) > 0 ? 'credit' : 'paid')
     setPaidAmount(String(group.paid_amount || ''))
 
+    const productItems =
+      (group.items || []).filter((item) => !item.is_charge)
+
+    const chargeItems =
+      (group.items || []).filter((item) => item.is_charge)
+
     setCart(
-      (group.items || []).map(item => ({
+      productItems.map(item => ({
         _key: uuid(),
         existing_id: item.id,
         product_id: item.product_id || '',
@@ -697,6 +850,15 @@ export default function VentesPage() {
       }))
     )
 
+    setSaleCharges(
+      chargeItems.map((item) => ({
+        _key: uuid(),
+        existing_id: item.id,
+        label: item.product_name || 'Charge supplémentaire',
+        amount: item.total_sale || item.unit_sale_price || '',
+      }))
+    )
+
     setPaymentBreakdown(firstItem?.payment_breakdown || [])
     setModal(true)
   }
@@ -704,6 +866,7 @@ export default function VentesPage() {
   function openAdd() {
     setEditingGroup(null)
     setCart([emptyLine()])
+    setSaleCharges([])
     setSaleDate(format(new Date(), 'yyyy-MM-dd'))
     setSaleClientId('')
     setPaymentMode('')
@@ -1180,7 +1343,7 @@ export default function VentesPage() {
             <PaymentBreakdownInput
               value={paymentBreakdown}
               onChange={setPaymentBreakdown}
-              total={cartTotals.revenue}
+              total={saleGrandTotal}
             />
           )}
 
@@ -1199,6 +1362,54 @@ export default function VentesPage() {
               )}
             </div>
           )}
+
+          <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Charges supplémentaires
+              </span>
+
+              <button
+                type="button"
+                onClick={addSaleCharge}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+              >
+                Ajouter
+              </button>
+            </div>
+
+            <div className="p-3 space-y-2">
+              {saleCharges.length === 0 ? (
+                <p className="text-xs text-gray-400">Aucune charge supplémentaire.</p>
+              ) : (
+                saleCharges.map((row) => (
+                  <div key={row._key} className="grid grid-cols-[1fr_160px_36px] gap-2">
+                    <input
+                      value={row.label}
+                      onChange={(e) => updateSaleCharge(row._key, 'label', e.target.value)}
+                      placeholder="Libellé de la charge"
+                      className={inputCls}
+                    />
+
+                    <FrenchInput
+                      value={row.amount}
+                      onChange={(value) => updateSaleCharge(row._key, 'amount', value)}
+                      placeholder="Montant"
+                      className={inputCls}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => removeSaleCharge(row._key)}
+                      className="h-11 rounded-xl text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4 mx-auto" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
 
           <div className="border border-gray-100 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
@@ -1387,11 +1598,11 @@ export default function VentesPage() {
             </div>
           </div>
 
-          {cartTotals.revenue > 0 && (
+          {saleGrandTotal > 0 && (
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
               <div>
                 <p className="text-xs text-blue-500">Total vente</p>
-                <p className="font-bold text-blue-900">{formatFCFA(cartTotals.revenue)}</p>
+                <p className="font-bold text-blue-900">{formatFCFA(saleGrandTotal)}</p>
               </div>
               <div>
                 <p className="text-xs text-blue-500">Coût total</p>
