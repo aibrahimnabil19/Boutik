@@ -470,7 +470,7 @@ export default function VentesPage() {
     }
   }, { revenue: 0, cost: 0, profit: 0 }), [cart])
 
-  const saleGrandTotal = cartTotals.revenue + saleChargeTotal
+  const saleGrandTotal = cartTotals.revenue
 
   const selectedClientForSale = clients.find(c => c.id === saleClientId) || null
   const selectedClientBalance = selectedClientForSale ? clientBalance(selectedClientForSale.id) : 0
@@ -520,6 +520,15 @@ export default function VentesPage() {
 
       if (Math.abs(breakdownTotal - saleGrandTotal) > 0.01) {
         toast.error('La somme des moyens de paiement doit être égale au total de la vente.')
+        return
+      }
+    }
+
+    if (paymentMode === 'credit' && paymentBreakdown.length > 0) {
+      const breakdownTotal = sumPaymentBreakdown(paymentBreakdown)
+      const creditPaid = Number(paidAmount || 0)
+      if (Math.abs(breakdownTotal - creditPaid) > 0.01) {
+        toast.error('La somme des moyens de paiement doit correspondre au montant payé.')
         return
       }
     }
@@ -621,7 +630,6 @@ export default function VentesPage() {
           }
         }
       }
-      const saleGrandTotal = saleGrandTotal + saleChargeTotal
       let paidLeft = totalPaid
 
       const rowsToSave = cart.map((line) => {
@@ -658,7 +666,7 @@ export default function VentesPage() {
           clientid: selectedClient?.id || null,
           clientname: selectedClient?.name || '',
           paymentmethod: paymentMode,
-          paymentbreakdown: paymentMode === 'paid' ? cleanPaymentBreakdown(paymentBreakdown) : [],
+          paymentbreakdown: (paymentMode === 'paid' || paymentMode === 'credit') ? cleanPaymentBreakdown(paymentBreakdown) : [],
           advanceused: clientCreditUsed || 0,
           payment_status: lineRemaining <= 0 ? 'paid' : 'credit',
           paid_amount: linePaid,
@@ -684,11 +692,8 @@ export default function VentesPage() {
 
       for (const charge of cleanSaleCharges) {
         const lineTotal = Number(charge.amount || 0)
-
-        const linePaid = Math.min(lineTotal, paidLeft)
-        paidLeft -= linePaid
-
-        const lineRemaining = Math.max(0, lineTotal - linePaid)
+        const linePaid = lineTotal
+        const lineRemaining = 0
 
         const saleRecord = {
           id: uuid(),
@@ -711,10 +716,7 @@ export default function VentesPage() {
           profit: lineTotal,
           payment_status: lineRemaining <= 0 ? 'paid' : 'credit',
           payment_method: paymentMode,
-          payment_breakdown:
-            paymentMode === 'paid'
-              ? cleanPaymentBreakdown(paymentBreakdown)
-              : [],
+          payment_breakdown: (paymentMode === 'paid' || paymentMode === 'credit') ? cleanPaymentBreakdown(paymentBreakdown) : [],
           advance_used: clientCreditUsed,
           paid_amount: linePaid,
           remaining_amount: lineRemaining,
@@ -1328,14 +1330,28 @@ export default function VentesPage() {
             </FormField>
 
             {paymentMode === 'credit' && (
-              <FormField label="Montant payé">
-                <FrenchInput
-                  value={paidAmount}
-                  onChange={setPaidAmount}
-                  placeholder="0"
-                  className={inputCls}
+              <div className="space-y-3">
+                <FormField label="Montant payé d'avance (optionnel)">
+                  <FrenchInput
+                    value={paidAmount}
+                    onChange={v => {
+                      setPaidAmount(v)
+                      // keep breakdown total in sync
+                    }}
+                    placeholder="0"
+                    className={inputCls}
+                  />
+                </FormField>
+                <PaymentBreakdownInput
+                  value={paymentBreakdown}
+                  onChange={breakdown => {
+                    setPaymentBreakdown(breakdown)
+                    const total = sumPaymentBreakdown(breakdown)
+                    setPaidAmount(total > 0 ? String(total) : '')
+                  }}
+                  total={Number(paidAmount || 0)}
                 />
-              </FormField>
+              </div>
             )}
           </div>
 
