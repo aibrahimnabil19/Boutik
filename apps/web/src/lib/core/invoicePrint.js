@@ -1,6 +1,5 @@
 // lib/core/invoicePrint.js
 // Renders a self-contained HTML string for printing via iframe.
-// This avoids the "print screenshot of screen" problem entirely.
 
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -8,11 +7,8 @@ import { formatFCFA, amountToWordsFCFA } from "./calculations";
 
 export function askIncludeStamp(shop) {
   if (typeof window === "undefined") return true;
-
   const hasStamp = !!shop?.signature_url || !!shop?.cachet_url;
-
   if (!hasStamp) return false;
-
   return window.confirm(
     "Voulez-vous générer ce document avec cachet/signature ?\n\nOK = Avec cachet/signature\nAnnuler = Sans cachet/signature",
   );
@@ -23,7 +19,6 @@ export function normalizeDocumentOptions(shop, options = {}) {
     includeCachet:
       !!options.includeCachet &&
       !!(shop?.cachet_print_src || shop?.cachet_data_url || shop?.cachet_url),
-
     includeSignature:
       !!options.includeSignature &&
       !!(
@@ -31,39 +26,9 @@ export function normalizeDocumentOptions(shop, options = {}) {
         shop?.signature_data_url ||
         shop?.signature_url
       ),
-
     orientation: getOrientation(options),
   };
 }
-
-const PRINT_LAYOUT = {
-  landscape: {
-    pageSize: "A4 landscape",
-    iframe: "width:297mm;height:210mm",
-    pageWidth: "287.7mm",
-    pageMinHeight: "209.5mm",
-    topGrid: "70.54mm 112.18mm 87.66mm",
-    logoW: "70.54mm",
-    logoH: "39.18mm",
-    activityW: "87.66mm",
-    activityH: "22.82mm",
-    bodyFont: "13px",
-    tableFont: "20px",
-  },
-  portrait: {
-    pageSize: "A4 portrait",
-    iframe: "width:210mm;height:297mm",
-    pageWidth: "200.7mm",
-    pageMinHeight: "287mm",
-    topGrid: "48mm 76mm 67mm",
-    logoW: "48mm",
-    logoH: "26.66mm",
-    activityW: "67mm",
-    activityH: "24mm",
-    bodyFont: "12px",
-    tableFont: "15px",
-  },
-};
 
 function getOrientation(options = {}) {
   return options.orientation === "portrait" ? "portrait" : "landscape";
@@ -75,13 +40,10 @@ function getAssetSrc(shop, key) {
 
 async function imageUrlToDataUrl(url) {
   if (!url || url.startsWith("data:")) return url || "";
-
   try {
     const res = await fetch(url, { cache: "force-cache" });
     if (!res.ok) throw new Error(`Image HTTP ${res.status}`);
-
     const blob = await res.blob();
-
     return await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
@@ -98,21 +60,16 @@ export async function preparePrintableShop(shop = {}) {
     ...shop,
     logo_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "logo")),
     cachet_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "cachet")),
-    signature_print_src: await imageUrlToDataUrl(
-      getAssetSrc(shop, "signature"),
-    ),
+    signature_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "signature")),
   };
 }
 
 function waitForPrintAssets(doc) {
   const images = Array.from(doc.images || []);
-
   if (!images.length) return Promise.resolve();
-
   return Promise.all(
     images.map((img) => {
       if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-
       return new Promise((resolve) => {
         img.onload = resolve;
         img.onerror = resolve;
@@ -123,16 +80,12 @@ function waitForPrintAssets(doc) {
 }
 
 export function printHtmlDocument(html, orientation = "landscape") {
-  const layout = PRINT_LAYOUT[getOrientation({ orientation })];
-
   const iframe = document.createElement("iframe");
-  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;${layout.iframe};border:none;`;
+  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;`;
   document.body.appendChild(iframe);
-
   iframe.contentDocument.open();
   iframe.contentDocument.write(html);
   iframe.contentDocument.close();
-
   iframe.onload = async () => {
     await waitForPrintAssets(iframe.contentDocument);
     iframe.contentWindow.focus();
@@ -142,8 +95,19 @@ export function printHtmlDocument(html, orientation = "landscape") {
 }
 
 /**
- * Renders a complete standalone HTML document for a facture or proforma.
- * Used for iframe-based printing (no browser chrome, no sidebar, just the doc).
+ * Renders a complete standalone HTML document matching the Excel facture_avril design exactly.
+ *
+ * Layout (landscape A4):
+ *   Row 1–7:  Logo (left) | Company info (center) | Activity box+Date (right)
+ *   Row 8:    Orange title bar: "FACTURE DE VENTE V2026-04-13"
+ *   Row 9:    Blue client strip: CLIENT | ADRESSE | Tél
+ *   Row 11:   Blue table header: Désignation | Quantité | Unité | Prix Unitaire CFA | Prix Total CFA
+ *   Row 12+:  Light-blue #D9E1F2 data rows
+ *   Total:    Blue row — "MONTANT TOTAL" spans left cols, value right-aligned in last col
+ *   Words:    Amount in words
+ *   Garantie: If present
+ *   Signature: Top-right, just "SIGNATURE" label + optional img
+ *   NO footer bar at bottom
  */
 export function renderToInvoiceHTML({
   shop,
@@ -162,13 +126,11 @@ export function renderToInvoiceHTML({
     : "—";
 
   const city = formValues.city || shop?.city || "Niamey";
-  const documentOptions = normalizeDocumentOptions(shop, {
-    includeCachet,
-    includeSignature,
-  });
-  const layout = PRINT_LAYOUT[documentOptions.orientation];
+  const documentOptions = normalizeDocumentOptions(shop, { includeCachet, includeSignature });
+
   const primary = "#1D71B8";
   const orange = "#F29100";
+  const rowBg = "#D9E1F2";
 
   const isProforma = type === "proforma";
   const isBonLivraison = type === "bon_livraison";
@@ -181,377 +143,313 @@ export function renderToInvoiceHTML({
 
   const showPrices = !isBonLivraison && !isBonCommande;
 
-  const itemsHTML = items
+  // Filter out charge items from the printed invoice (charges are internal)
+  const printItems = items.filter(item => !item.is_charge);
+
+  const itemsHTML = printItems
     .map(
       (item, i) => `
-    <tr class="${i % 2 === 1 ? "alt" : ""}">
-      <td class="td designation">${item.designation || item.product_name || "—"}</td>
-      <td class="td center">${item.quantity || 0}</td>
-      <td class="td center">${item.unit || "Pièces"}</td>
-      ${
-        showPrices
-          ? `
-            <td class="td right">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
-            <td class="td right bold">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>
-          `
-          : ""
-      }
-    </tr>
-  `,
+    <tr>
+      <td class="td-cell td-left">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-center">${item.quantity || 0}</td>
+      <td class="td-cell td-center">${item.unit || "Pièces"}</td>
+      ${showPrices
+        ? `<td class="td-cell td-right">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
+           <td class="td-cell td-right td-bold">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
+        : ""}
+    </tr>`,
     )
     .join("");
 
-  const colCount = showPrices ? 5 : 3;
-  const totalColSpan = showPrices ? 4 : 2;
+  // Recalculate grandTotal excluding charges (only product items)
+  const printGrandTotal = printItems.reduce((sum, item) => sum + Number(item.total_price || item.total_sale || 0), 0);
 
-  return `
-<!doctype html>
+  return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${title} ${invoiceNumber}</title>
   <style>
     @page {
-      size: ${layout.pageSize};
-      margin: 0.21mm 1.9mm 0.21mm 7.4mm;
+      size: A4 landscape;
+      margin: 4mm 6mm 4mm 6mm;
     }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
-      padding: 0;
       background: white;
       color: #000;
       font-family: "Times New Roman", Times, serif;
-      font-size: ${layout.bodyFont};
+      font-size: 13px;
     }
-
     .page {
-      width: ${layout.pageWidth};
-      min-height: ${layout.pageMinHeight};
-      box-sizing: border-box;
-      position: relative;
+      width: 285mm;
     }
 
+    /* ── TOP SECTION: Logo | Company | Activity+Date ── */
     .top {
       display: grid;
-      grid-template-columns: ${layout.topGrid};
-      column-gap: 6mm;
+      grid-template-columns: 72mm 110mm 1fr;
+      gap: 5mm;
       align-items: start;
+      margin-bottom: 3mm;
     }
-
-    .logo {
-      width: ${layout.logoW};
-      height: ${layout.logoH};
-      max-width: ${layout.logoW};
-      max-height: ${layout.logoH};
+    .logo-cell img {
+      max-width: 70mm;
+      max-height: 38mm;
       object-fit: contain;
+      display: block;
     }
-
-    .activity {
-      width: ${layout.activityW};
-      min-height: ${layout.activityH};
-      background: #F29100;
-      border-radius: 7mm;
+    .logo-placeholder {
+      width: 70mm;
+      height: 38mm;
+    }
+    .company-info {
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 700;
+      padding-top: 2mm;
+    }
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2mm;
+    }
+    .activity-box {
+      background: ${orange};
       color: #fff;
       font-weight: bold;
+      font-size: 13px;
       text-align: center;
-      padding: 3mm;
-      box-sizing: border-box;
-      font-size: ${documentOptions.orientation === "portrait" ? "13px" : "18px"};
+      border-radius: 5mm;
+      padding: 3mm 4mm;
+      width: 100%;
+    }
+    /* Date: right-aligned, size 15, below activity box */
+    .date-line {
+      text-align: right;
+      font-size: 15px;
+      font-weight: normal;
+      white-space: nowrap;
+      width: 100%;
+      margin-top: 2mm;
     }
 
+    /* ── ORANGE TITLE BAR ── */
     .doc-title {
-      background: #F29100;
-      color: white;
-      font-size: ${documentOptions.orientation === "portrait" ? "18px" : "22px"};
+      background: ${orange};
+      color: #fff;
+      font-size: 16px;
       font-weight: bold;
       text-align: center;
-      padding: 2mm 0;
+      padding: 2.5mm 0;
+      margin-bottom: 0;
     }
 
-    td, th {
-      font-size: ${layout.tableFont};
-    }
-
-    .company {
-      text-align: left;
-      font-size: 19px;
-      font-weight: 700;
-      line-height: 1.28;
-    }
-
-    .title-row {
-      display: grid;
-      grid-template-columns: 1fr 410px 1fr;
-      align-items: center;
-      margin-top: 8px;
-    }
-
-    .date {
-      text-align: right;
-      font-size: 14px;
-      white-space: nowrap;
-    }
-
+    /* ── CLIENT STRIP ── */
     .client-strip {
       display: grid;
       grid-template-columns: 1.1fr 1fr 1fr;
       background: ${primary};
-      color: white;
+      color: #fff;
       font-weight: 800;
-      border-top: 2px solid white;
+      margin-bottom: 0;
     }
-
     .client-cell {
-      padding: 1mm 2mm;
-      border-right: 2px solid white;
+      padding: 1.5mm 3mm;
+      border-right: 2px solid #fff;
       text-align: center;
-      font-size: 22px;
+      font-size: 14px;
     }
+    .client-cell:last-child { border-right: 0; }
 
-    .client-cell:last-child {
-      border-right: 0;
-    }
-
+    /* ── TABLE ── */
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 8mm;
-      font-size: 20px;
+      margin-top: 4mm;
     }
-
     th {
       background: ${primary};
-      color: white;
-      padding: 1mm 2mm;
-      font-size: 21px;
-      border: 2px solid white;
+      color: #fff;
+      padding: 1.5mm 2mm;
+      font-size: 14px;
+      border: 2px solid #fff;
       font-weight: 800;
     }
+    .th-left  { text-align: left; }
+    .th-center { text-align: center; }
+    .th-right { text-align: right; }
 
-    .td {
-      padding: 1mm 2mm;
-      border: 2px solid white;
-      background: #D9E2F3;
-      font-size: 20px;
+    .td-cell {
+      padding: 1.5mm 2mm;
+      border: 2px solid #fff;
+      background: ${rowBg};
+      font-size: 13px;
     }
+    .td-left   { text-align: left; }
+    .td-center { text-align: center; }
+    .td-right  { text-align: right; }
+    .td-bold   { font-weight: 700; }
 
+    /* Total row — blue bg, white text */
     .total-row td {
       background: ${primary};
-      color: white;
+      color: #fff;
       font-weight: 800;
-      padding: 1mm 2mm;
-      border: 2px solid white;
-      font-size: 21px;
+      padding: 1.5mm 2mm;
+      border: 2px solid #fff;
+      font-size: 14px;
     }
+    .total-label { text-align: center; }
+    .total-value { text-align: right; }
 
-    .designation {
-      width: 45%;
-    }
-
-    .center {
-      text-align: center;
-    }
-
-    .right {
-      text-align: right;
-    }
-
-    .bold {
-      font-weight: 700;
-    }
-
-    tr.alt .td {
-      background: #D9E2F3;
-    }
-
+    /* ── AMOUNT IN WORDS ── */
     .words {
-      margin-top: 8mm;
-      font-size: 20px;
-      line-height: 1.35;
+      margin-top: 5mm;
+      font-size: 14px;
+      line-height: 1.4;
     }
+    .words strong { font-weight: 900; }
 
-    .words strong {
-      font-weight: 900;
-    }
-
+    /* ── GARANTIE ── */
     .garantie {
-      margin-top: 9mm;
-      font-size: 20px;
-      line-height: 1.35;
+      margin-top: 4mm;
+      font-size: 13px;
+      line-height: 1.4;
     }
-
-    .garantie span {
+    .garantie .label {
       color: red;
       text-decoration: underline;
       font-weight: 900;
     }
 
-    .signature {
-      margin-top: 1mm;
+    /* ── SIGNATURE — top-right, just label + optional img ── */
+    .signature-wrap {
+      margin-top: 4mm;
       display: flex;
       justify-content: flex-end;
-      padding-right: 10mm;
     }
-
     .signature-box {
-      width: 48mm;
+      width: 52mm;
       text-align: center;
+      font-size: 15px;
       font-weight: 900;
-      font-size: 22px;
     }
-
     .signature-img {
-      max-width: 42mm;
-      max-height: 22mm;
+      max-width: 44mm;
+      max-height: 24mm;
       object-fit: contain;
       margin-top: 2mm;
-    }
-
-    .footer {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      display: grid;
-      grid-template-columns: 1.25fr 0.9fr 0.9fr;
-      background: ${primary};
-      color: white;
-      font-weight: 800;
-      font-style: italic;
-      font-size: 16px;
-    }
-
-    .footer div {
-      padding: 5px 10px;
-      text-align: center;
-      border-right: 2px solid white;
-    }
-
-    .footer div:last-child {
-      border-right: 0;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     @media print {
-      body {
-        print-color-adjust: exact;
-        -webkit-print-color-adjust: exact;
-      }
+      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     }
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="top">
-      <div>
-        ${getAssetSrc(shop, 'logo') ? `<img class="logo" src="${shop.logo_print_src || getAssetSrc(shop, 'logo')}" alt="Logo" />` : ''}
-      </div>
+<div class="page">
 
-      <div class="company">
-        <div>Situé à ${shop?.address || "DAR ES SALAM derrière ESCAE"}</div>
-        <div>Tél : ${shop?.phone || "+ 227 90 27 54 53 / 94 29 29 19"}</div>
-        <div>Email : ${shop?.email || "elso.niger@gmail.com"}</div>
-        <div>NIF: ${shop?.nif || "50873"} ${shop?.rccm ? `– RCCM : ${shop.rccm}` : "– RCCM : NE-NIA-2019-A-467"}</div>
-        <div>${(shop?.city || "NIAMEY").toUpperCase()} - NIGER</div>
-      </div>
-
-      <div>
-        <div class="activity">
-          ${shop?.activity || "VENTE, INSTALLATION D’ÉQUIPEMENTS SOLAIRES, ENTRETIEN ET DÉPANNAGE"}
-        </div>
-        <div class="date">${city}, le ${dateStr}</div>
-      </div>
+  <!-- TOP: Logo | Company | Activity + Date -->
+  <div class="top">
+    <div class="logo-cell">
+      ${getAssetSrc(shop, 'logo')
+        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, 'logo')}" alt="Logo" />`
+        : '<div class="logo-placeholder"></div>'}
     </div>
 
-    <div class="doc-title">${title} ${invoiceNumber}</div>
-
-    <div class="client-strip">
-      <div class="client-cell">CLIENT : ${formValues.client_name || "—"}</div>
-      <div class="client-cell">ADRESSE : ${formValues.client_address || "—"}</div>
-      <div class="client-cell">Tél : ${formValues.client_phone || "—"}</div>
-    </div>
-
-    <table>
-      <thead>
-        <tr>
-          <th style="text-align:left">Désignation</th>
-          <th>Quantité</th>
-          <th>Unité</th>
-          ${showPrices ? '<th style="text-align:right">Prix Unitaire</th><th style="text-align:right">Prix Total</th>' : ""}
-        </tr>
-      </thead>
-      <tbody>
-        ${itemsHTML || `<tr><td class="td" colspan="${colCount}">Aucun article</td></tr>`}
-      </tbody>
-      ${
-        showPrices
-          ? `
-            <tfoot>
-              <tr class="total-row">
-                <td colspan="${totalColSpan}" class="right">MONTANT TOTAL</td>
-                <td class="right">${formatFCFA(grandTotal).replace(" FCFA", "")}</td>
-              </tr>
-            </tfoot>
-          `
-          : ""
-      }
-    </table>
-
-    ${
-      showPrices
-        ? `<div class="words">${amountToWordsFCFA(
-            grandTotal,
-            isProforma ? "proforma" : "facture",
-          ).replace(
-            /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
-            "$1<strong>$2</strong>",
-          )}</div>`
-        : ""
-    }
-
-    ${
-      !guaranteeText
-        ? ""
-        : `
-      <div class="garantie">
-        <span>GARANTIE</span> : ${guaranteeText}
-      </div>
-    `
-    }
-
-    <div class="signature">
-      <div class="signature-box">
-        SIGNATURE
-        ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
-          ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
-          : ''
-        }
-
-        ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
-          ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
-          : ''
-        }
-      </div>
-    </div>
-
-    <div class="footer">
-      <div>Tél : ${shop?.phone || "(+227) 90 27 54 53 / 94 29 29 19"}</div>
-      <div>WhatsApp : ${shop?.whatsapp || "+227 94 29 29 19"}</div>
+    <div class="company-info">
+      <div>${shop?.name || ''}</div>
+      <div>Situé à ${shop?.address || "DAR ES SALAM derrière ESCAE"}</div>
+      <div>Tél : ${shop?.phone || "+ 227 90 27 54 53 / 94 29 29 19"}</div>
       <div>Email : ${shop?.email || "elso.niger@gmail.com"}</div>
+      <div>NIF : ${shop?.nif || "50873"}${shop?.rccm ? ` – RCCM : ${shop.rccm}` : " – RCCM : NE-NIA-2019-A-467"}</div>
+      <div>${(shop?.city || "NIAMEY").toUpperCase()} - NIGER</div>
+    </div>
+
+    <div class="right-col">
+      <div class="activity-box">
+        ${shop?.activity || "VENTE, INSTALLATION D'ÉQUIPEMENTS SOLAIRES, ENTRETIEN ET DÉPANNAGE"}
+      </div>
+      <div class="date-line">${city}, le ${dateStr}</div>
     </div>
   </div>
+
+  <!-- ORANGE TITLE BAR -->
+  <div class="doc-title">${title} ${invoiceNumber}</div>
+
+  <!-- BLUE CLIENT STRIP -->
+  <div class="client-strip">
+    <div class="client-cell">CLIENT : ${formValues.client_name || "—"}</div>
+    <div class="client-cell">ADRESSE : ${formValues.client_address || "—"}</div>
+    <div class="client-cell">Tél : ${formValues.client_phone || "—"}</div>
+  </div>
+
+  <!-- ITEMS TABLE -->
+  <table>
+    <thead>
+      <tr>
+        <th class="th-left" style="width:45%">Désignation</th>
+        <th class="th-center" style="width:10%">Quantité</th>
+        <th class="th-center" style="width:10%">Unité</th>
+        ${showPrices
+          ? `<th class="th-right" style="width:17%">Prix Unitaire CFA</th>
+             <th class="th-right" style="width:18%">Prix Total CFA</th>`
+          : ""}
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsHTML || `<tr><td class="td-cell td-left" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
+    </tbody>
+    ${showPrices
+      ? `<tfoot>
+           <tr class="total-row">
+             <td colspan="4" class="total-label">MONTANT TOTAL</td>
+             <td class="total-value">${formatFCFA(printGrandTotal).replace(" FCFA", "")}</td>
+           </tr>
+         </tfoot>`
+      : ""}
+  </table>
+
+  ${showPrices
+    ? `<div class="words">${amountToWordsFCFA(
+        printGrandTotal,
+        isProforma ? "proforma" : "facture",
+      ).replace(
+        /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+        "$1<strong>$2</strong>",
+      )}</div>`
+    : ""}
+
+  ${guaranteeText
+    ? `<div class="garantie"><span class="label">GARANTIE</span> : ${guaranteeText}</div>`
+    : ""}
+
+  <div class="signature-wrap">
+    <div class="signature-box">
+      SIGNATURE
+      ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
+        ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+        : ''}
+      ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
+        ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+        : ''}
+    </div>
+  </div>
+
+</div>
 </body>
-</html>
-`;
+</html>`;
 }
 
 /**
- * Opens a print dialog for a sale, showing the appropriate document type.
- * @param {object} params
- * @param {object} params.shop
- * @param {string} params.type - 'facture' | 'proforma' | 'bon_livraison' | 'bon_commande'
- * @param {object} params.saleGroup - { date, client_name, items: [{product_name, quantity, unit_sale_price, total_sale}] }
- * @param {string} params.invoiceNumber - optional
+ * Opens a print dialog for a sale (facture, proforma, bon_livraison, bon_commande).
+ * Charge supplémentaire items are EXCLUDED from the printed document
+ * (they are internal costs, not billed to the client).
  */
 export function printSaleDocument({
   shop,
@@ -562,23 +460,30 @@ export function printSaleDocument({
   includeCachet,
   includeSignature,
 }) {
+  // Look up full client info from the first non-charge item
+  const firstItem = (saleGroup.items || []).find(s => !s.is_charge) || saleGroup.items?.[0] || {}
+
   const formValues = {
     date: saleGroup.date,
     city: shop?.city || "",
-    client_name: saleGroup.client_name || "",
-    client_address: "",
-    client_phone: "",
+    client_name: saleGroup.client_name || firstItem.client_name || "",
+    client_address: saleGroup.client_address || firstItem.client_address || "",
+    client_phone: saleGroup.client_phone || firstItem.client_phone || "",
     validity: "30 jours",
   };
 
-  const items = saleGroup.items.map((s) => ({
-    id: s.id,
-    designation: s.product_name,
-    quantity: s.quantity,
-    unit: s.unit || "Pièces",
-    unit_price: s.unit_sale_price || 0,
-    total_price: s.total_sale || 0,
-  }));
+  // Only include product items — exclude charges
+  const items = (saleGroup.items || [])
+    .filter(s => !s.is_charge)
+    .map((s) => ({
+      id: s.id,
+      is_charge: false,
+      designation: s.product_name,
+      quantity: s.quantity,
+      unit: s.unit || "Pièces",
+      unit_price: s.unit_sale_price || 0,
+      total_price: s.total_sale || 0,
+    }));
 
   const grandTotal = items.reduce((a, i) => a + i.total_price, 0);
   const num = invoiceNumber || `V-${saleGroup.date}`;
@@ -634,6 +539,7 @@ export function printPurchaseDocument({
   const items = [
     {
       id: purchase.id,
+      is_charge: false,
       designation: purchase.product_name,
       quantity: purchase.quantity,
       unit: "Pièces",
