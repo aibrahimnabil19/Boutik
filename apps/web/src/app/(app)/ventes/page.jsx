@@ -33,7 +33,7 @@ function computeStock(product, purchases, sales) {
     .filter((p) => p.product_id === product.id)
     .reduce((a, p) => a + Number(p.quantity || 0), 0)
   const sold = sales
-    .filter((s) => s.product_id === product.id && !s.cancelled_at)
+    .filter((s) => s.product_id === product.id && !s.cancelled_at && s.status !== 'pending_advance')
     .reduce((a, s) => a + Number(s.quantity || 0), 0)
   return Number(product.stock_initial || 0) + bought - sold
 }
@@ -260,6 +260,35 @@ export default function VentesPage() {
     await load()
   }
 
+  async function handleCompleteAdvanceSale(group) {
+    const sessionSales = sales.filter(s => (s.session_id || s.id) === group.key)
+    const now = new Date().toISOString()
+
+    for (const item of sessionSales.filter(s => !s.is_charge)) {
+      const prod = products.find(p => p.id === item.product_id)
+      if (!prod) continue
+      const otherSales = sales.filter(s => (s.session_id || s.id) !== group.key)
+      const currentStock = computeStock(prod, purchases, otherSales)
+      if (Number(item.quantity || 0) > currentStock) {
+        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${formatNumber(currentStock)}`)
+        return
+      }
+    }
+
+    for (const s of sessionSales) {
+      await localUpsert('sales', {
+        ...s,
+        status: 'completed',
+        payment_status: 'paid',
+        remaining_amount: 0,
+        updated_at: now,
+        sync_status: 'pending',
+      })
+    }
+    toast.success('Vente finalisée — stock déduit')
+    load()
+  }
+
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
@@ -437,16 +466,18 @@ export default function VentesPage() {
       requestedByProduct.set(line.product_id, (requestedByProduct.get(line.product_id) || 0) + q)
     }
 
-    for (const [productId, requestedQty] of requestedByProduct.entries()) {
-      const prod = products.find(p => p.id === productId)
-      if (!prod) continue
-      const stockSales = editingGroup
-        ? sales.filter(s => (s.session_id || s.id) !== editingGroup.key)
-        : sales
-      const currentStock = computeStock(prod, purchases, stockSales)
-      if (requestedQty > currentStock) {
-        toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${formatNumber(currentStock)}`)
-        return
+    if (paymentMode !== 'advance') {
+      for (const [productId, requestedQty] of requestedByProduct.entries()) {
+        const prod = products.find(p => p.id === productId)
+        if (!prod) continue
+        const stockSales = editingGroup
+          ? sales.filter(s => (s.session_id || s.id) !== editingGroup.key)
+          : sales
+        const currentStock = computeStock(prod, purchases, stockSales)
+        if (requestedQty > currentStock) {
+          toast.error(`Stock insuffisant pour ${prod.name}. Disponible : ${formatNumber(currentStock)}`)
+          return
+        }
       }
     }
 
@@ -1098,12 +1129,13 @@ export default function VentesPage() {
               <option value="">— Choisir le mode de paiement —</option>
               <option value="paid">Payé comptant</option>
               <option value="credit">Vente à crédit</option>
-              <option value="advance" disabled={!selectedClientForSale || selectedClientCredit <= 0}>
-                Paiement depuis avance
+              <option value="advance" disabled={!selectedClientForSale}>
+                Réservation / Avance client
                 {selectedClientForSale && selectedClientCredit > 0
-                  ? ` (${formatFCFA(selectedClientCredit)})`
-                  : ' — indisponible'}
+                  ? ` (avance dispo: ${formatFCFA(selectedClientCredit)})`
+                  : selectedClientForSale ? ' — sans avance préalable' : ' — choisir un client'}
               </option>
+
             </select>
           </FormField>
 
@@ -1212,6 +1244,7 @@ export default function VentesPage() {
                 const lineProfit = qty * price - qty * line.unit_cost
                 const prod = products.find(p => p.id === line.product_id)
                 const availStock = prod ? computeStock(prod, purchases, sales) : null
+
 
                 return (
                   <div key={line._key}

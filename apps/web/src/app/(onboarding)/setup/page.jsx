@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { setSetting } from '@/lib/db/local'
+import { setSetting, getSetting } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
 import { toast } from 'sonner'
 import {
@@ -115,6 +115,54 @@ export default function SetupPage() {
   async function onSubmit(data) {
     setLoading(true)
     try {
+      const isDemoMode = process.env.NEXT_PUBLIC_IS_DEMO === 'true'
+
+      if (isDemoMode) {
+        const shopId = crypto.randomUUID()
+        const primary = customPrimary || selectedTheme.primary
+        const ownerId = (await getSetting('user_id')) || 'demo-user'
+
+        const [logoDataUrl, cachetDataUrl, signatureDataUrl] = await Promise.all([
+          logoFile ? fileToDataUrl(logoFile) : Promise.resolve(null),
+          cachetFile ? fileToDataUrl(cachetFile) : Promise.resolve(null),
+          signatureFile ? fileToDataUrl(signatureFile) : Promise.resolve(null),
+        ])
+
+        const shopData = {
+          id: shopId,
+          owner_id: ownerId,
+          name: data.name || 'Boutique Démo',
+          address: data.address || null,
+          phone: data.phone || null,
+          whatsapp: data.whatsapp || null,
+          email: data.email || null,
+          nif: data.nif || null,
+          city: data.city || null,
+          logo_url: logoDataUrl,
+          cachet_url: cachetDataUrl,
+          signature_url: signatureDataUrl,
+          logo_data_url: logoDataUrl,
+          cachet_data_url: cachetDataUrl,
+          signature_data_url: signatureDataUrl,
+          color_primary: primary,
+          color_secondary: darkenHex(primary),
+          color_accent: selectedTheme.accent,
+          currency: 'FCFA',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+
+        await setSetting('shop_id', shopId)
+        await setSetting('cached_shop', shopData)
+        await setSetting('offline_ready', true)
+
+        setShop(shopData)
+        applyTheme()
+
+        toast.success('Boutique démo configurée !')
+        router.push('/dashboard')
+        return
+      }
       const supabase = getSupabaseClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Non authentifié')

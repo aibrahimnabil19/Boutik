@@ -113,6 +113,36 @@ export default function SettingsPage() {
     if (!shop?.id) return
     setSaving(true)
     try {
+      const isDemoMode = process.env.NEXT_PUBLIC_IS_DEMO === 'true'
+
+      if (isDemoMode) {
+        const [logoDataUrl, cachetDataUrl, signatureDataUrl] = await Promise.all([
+          logoFile ? fileToDataUrl(logoFile) : Promise.resolve(shop.logo_data_url || shop.logo_url || null),
+          cachetFile ? fileToDataUrl(cachetFile) : Promise.resolve(shop.cachet_data_url || shop.cachet_url || null),
+          signatureFile ? fileToDataUrl(signatureFile) : Promise.resolve(shop.signature_data_url || shop.signature_url || null),
+        ])
+
+        const updates = {
+          ...data,
+          logo_url: logoDataUrl,
+          cachet_url: cachetDataUrl,
+          signature_url: signatureDataUrl,
+          logo_data_url: logoDataUrl,
+          cachet_data_url: cachetDataUrl,
+          signature_data_url: signatureDataUrl,
+          updated_at: new Date().toISOString(),
+        }
+
+        const nextShop = { ...shop, ...updates }
+
+        setShop(nextShop)
+        await setSetting('cached_shop', nextShop)
+        await setSetting('offline_ready', true)
+        applyTheme()
+
+        toast.success('Boutique démo mise à jour !')
+        return
+      }
       const supabase = getSupabaseClient()
       const [logoUrl, cachetUrl, signatureUrl] = await Promise.all([
         logoFile ? uploadFile(supabase, logoFile, `${shop.id}/logo`) : Promise.resolve(shop.logo_url),
@@ -156,6 +186,23 @@ export default function SettingsPage() {
     if (!shop?.id) return
     setSaving(true)
     try {
+      const isDemoMode = process.env.NEXT_PUBLIC_IS_DEMO === 'true'
+
+      if (isDemoMode) {
+        const updates = {
+          color_primary: customPrimary,
+          color_accent: shop.color_accent,
+        }
+
+        const nextShop = { ...shop, ...updates }
+
+        setShop(nextShop)
+        await setSetting('cached_shop', nextShop)
+        applyTheme()
+
+        toast.success('Thème démo mis à jour !')
+        return
+      }
       const supabase = getSupabaseClient()
       const updates = { color_primary: customPrimary, color_accent: shop.color_accent }
       const { error } = await supabase.from('shops').update(updates).eq('id', shop.id)

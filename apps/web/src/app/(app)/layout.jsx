@@ -15,6 +15,7 @@ import {
   Settings, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
 } from 'lucide-react'
 import AppUpdatePrompt from '@/components/AppUpdatePrompt'
+import { isDemo, resetDemoStorageIfNeeded } from '@/lib/demo'
 
 const NAV = [
   { label: 'Tableau de bord', href: '/dashboard', icon: LayoutDashboard },
@@ -50,6 +51,30 @@ export default function AppLayout({ children }) {
     let mounted = true
 
     async function init() {
+      if (isDemo()) {
+        await resetDemoStorageIfNeeded()
+        await setSetting('access_granted', true)
+
+        const demoUser = await getSetting('demo_auth_user')
+        const shopId = await getSetting('shop_id')
+        const cachedShop = await getSetting('cached_shop')
+
+        if (!demoUser) {
+          router.replace('/auth')
+          return
+        }
+
+        if (!shopId || !cachedShop) {
+          router.replace('/setup')
+          return
+        }
+
+        setUser(demoUser)
+        setShop(cachedShop)
+        applyTheme()
+        setLoaded(true)
+        return
+      }
       try {
         const cachedShopId = await getSetting('shop_id')
         const cachedShop = await getSetting('cached_shop')
@@ -226,6 +251,11 @@ export default function AppLayout({ children }) {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
+      {process.env.NEXT_PUBLIC_IS_DEMO === 'true' && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] bg-amber-500 text-white text-xs font-semibold text-center py-1.5">
+          🧪 Version démo — les données sont temporaires et peuvent être réinitialisées
+        </div>
+      )}
       {/* ── Sidebar ── */}
       <aside className={`
         flex flex-col h-full border-r border-gray-100 bg-white transition-all duration-300 z-20
@@ -325,7 +355,7 @@ export default function AppLayout({ children }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className={`flex-1 overflow-y-auto ${process.env.NEXT_PUBLIC_IS_DEMO === 'true' ? 'pt-7' : ''}`}>
           {children}
         </main>
 

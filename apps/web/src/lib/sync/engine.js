@@ -3,6 +3,10 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 
 let syncInProgress = false;
 
+const IS_DEMO_LOCAL_ONLY =
+  process.env.NEXT_PUBLIC_IS_DEMO === 'true' ||
+  process.env.NEXT_PUBLIC_DEMO_LOCAL_ONLY === 'true'
+
 const TABLES = [
   "products",
   "purchases",
@@ -270,8 +274,9 @@ async function handleStockConflict(item, message) {
 }
 
 export async function runSync(shopId) {
-  if (syncInProgress) return;
-  if (!shopId) return;
+  if (IS_DEMO_LOCAL_ONLY) return
+  if (syncInProgress) return
+  if (!shopId) return
 
   syncInProgress = true;
   const supabase = getSupabaseClient();
@@ -356,7 +361,8 @@ export async function runSync(shopId) {
 }
 
 export async function pullFromRemote(shopId) {
-  if (!shopId) return;
+  if (IS_DEMO_LOCAL_ONLY) return
+  if (!shopId) return
 
   const supabase = getSupabaseClient();
 
@@ -416,8 +422,9 @@ export async function pullFromRemote(shopId) {
 }
 
 export function startSyncListener(shopId) {
-  if (typeof window === "undefined") return () => {};
-  if (!shopId) return () => {};
+  if (IS_DEMO_LOCAL_ONLY) return () => {}
+  if (typeof window === "undefined") return () => {}
+  if (!shopId) return () => {}
 
   const handleOnline = () => runSync(shopId);
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { setSetting } from '@/lib/db/local'
@@ -16,6 +16,19 @@ export default function AccessCodePage() {
   const [groups, setGroups] = useState(['', '', '', ''])
   const [loading, setLoading] = useState(false)
   const inputRefs = useRef([])
+
+  const isDemoMode = process.env.NEXT_PUBLIC_IS_DEMO === 'true'
+
+  useEffect(() => {
+    if (!isDemoMode) return
+
+    async function skipDemoAccessCode() {
+      await setSetting('access_granted', true)
+      router.replace('/auth')
+    }
+
+    skipDemoAccessCode()
+  }, [isDemoMode, router])
 
   const fullCode = groups.join('').toUpperCase()
 
@@ -73,6 +86,14 @@ export default function AccessCodePage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (isDemoMode) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <p className="text-white text-sm">Chargement de la démo…</p>
+      </div>
+    )
   }
 
   return (

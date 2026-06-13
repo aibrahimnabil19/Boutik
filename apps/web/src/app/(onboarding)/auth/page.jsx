@@ -18,9 +18,39 @@ export default function AuthPage() {
 
   async function onSubmit(data) {
     setLoading(true)
-    const supabase = getSupabaseClient()
 
     try {
+      const isDemoMode = process.env.NEXT_PUBLIC_IS_DEMO === 'true'
+
+      if (isDemoMode) {
+        const userId = (await getSetting('user_id')) || crypto.randomUUID()
+
+        const demoUser = {
+          id: userId,
+          email: data.email.trim().toLowerCase(),
+          user_metadata: {
+            full_name: data.full_name?.trim() || '',
+          },
+        }
+
+        await setSetting('access_granted', true)
+        await setSetting('user_id', userId)
+        await setSetting('demo_auth_user', demoUser)
+        await setSetting('offline_ready', true)
+
+        const shopId = await getSetting('shop_id')
+
+        toast.success(
+          mode === 'signup'
+            ? 'Compte démo créé !'
+            : 'Connexion démo réussie !'
+        )
+
+        router.push(shopId ? '/dashboard' : '/setup')
+        return
+      }
+
+      const supabase = getSupabaseClient()
       if (mode === 'signup') {
         const pendingCode = await getSetting('pending_code')
 

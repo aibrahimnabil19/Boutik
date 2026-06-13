@@ -3,6 +3,10 @@
 
 import Dexie from "dexie";
 
+const IS_DEMO_LOCAL_ONLY =
+  process.env.NEXT_PUBLIC_IS_DEMO === 'true' ||
+  process.env.NEXT_PUBLIC_DEMO_LOCAL_ONLY === 'true'
+
 export const localDb = new Dexie("BmSuiteDB");
 
 localDb.version(5).stores({
@@ -84,24 +88,39 @@ let syncDebounceTimer = null;
 
 /** Generic upsert that also queues for sync */
 export async function localUpsert(table, record, operation = "upsert") {
-  await localDb[table].put(record);
-  await queueSync(table, operation, record.id, record);
-  scheduleSyncNow(record.shop_id);
-  return record;
+  const row = IS_DEMO_LOCAL_ONLY
+    ? { ...record, sync_status: 'local' }
+    : record
+
+  await localDb[table].put(row)
+
+  if (IS_DEMO_LOCAL_ONLY) {
+    return row
+  }
+
+  await queueSync(table, operation, record.id, record)
+  scheduleSyncNow(record.shop_id)
+
+  return record
 }
 
 /** Soft delete a record */
 export async function localDelete(table, id) {
-  const existing = await localDb[table].where("id").equals(id).first();
-  const now = new Date().toISOString();
+  const existing = await localDb[table].where("id").equals(id).first()
+  const now = new Date().toISOString()
+
+  if (IS_DEMO_LOCAL_ONLY) {
+    await localDb[table].delete(id)
+    return
+  }
 
   await localDb[table]
     .where("id")
     .equals(id)
-    .modify({ deleted_at: now, sync_status: "pending" });
+    .modify({ deleted_at: now, sync_status: "pending" })
 
-  await queueSync(table, "delete", id, { id, deleted_at: now });
-  scheduleSyncNow(existing?.shop_id);
+  await queueSync(table, "delete", id, { id, deleted_at: now })
+  scheduleSyncNow(existing?.shop_id)
 }
 
 /** Get all non-deleted records for a shop */
@@ -146,11 +165,18 @@ export async function getAllIncludingDeleted(table, shopId) {
 
 /** Cancel a sale (removes from stock/totals but keeps in history) */
 export async function cancelSale(id, shopId) {
-  const now = new Date().toISOString();
+  const now = new Date().toISOString()
+
   await localDb.sales
     .where("id")
     .equals(id)
-    .modify({ cancelled_at: now, sync_status: "pending" });
-  await queueSync("sales", "upsert", id, { id, cancelled_at: now });
-  scheduleSyncNow(shopId);
+    .modify({
+      cancelled_at: now,
+      sync_status: IS_DEMO_LOCAL_ONLY ? "local" : "pending",
+    })
+
+  if (IS_DEMO_LOCAL_ONLY) return
+
+  await queueSync("sales", "upsert", id, { id, cancelled_at: now })
+  scheduleSyncNow(shopId)
 }

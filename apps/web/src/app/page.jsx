@@ -2,7 +2,8 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSetting } from '@/lib/db/local'
+import { getSetting, setSetting } from '@/lib/db/local'
+import { isDemo, resetDemoStorageIfNeeded } from '@/lib/demo'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
 export default function RootPage() {
@@ -13,6 +14,27 @@ export default function RootPage() {
       const accessGranted = await getSetting('access_granted')
       const shopId = await getSetting('shop_id')
       const offlineReady = await getSetting('offline_ready')
+
+      if (isDemo()) {
+        await resetDemoStorageIfNeeded()
+        await setSetting('access_granted', true)
+
+        const demoUser = await getSetting('demo_auth_user')
+        const shopId = await getSetting('shop_id')
+
+        if (!demoUser) {
+          router.replace('/auth')
+          return
+        }
+
+        if (!shopId) {
+          router.replace('/setup')
+          return
+        }
+
+        router.replace('/dashboard')
+        return
+      }
 
       if (!accessGranted) {
         router.replace('/access-code')

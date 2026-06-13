@@ -13,6 +13,7 @@ export default function DesktopDownloadBanner() {
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
+    if (process.env.NEXT_PUBLIC_IS_DEMO === 'true') return
     if (process.env.NEXT_PUBLIC_NATIVE_BUILD === 'true') return
     if (typeof window === 'undefined') return
     if (window.__TAURI_INTERNALS__) return

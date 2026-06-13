@@ -6,6 +6,8 @@ import { Download, X, RefreshCw } from 'lucide-react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { useAppStore } from '@/context/store'
 
+const isDemoMode = process.env.NEXT_PUBLIC_IS_DEMO === 'true'
+
 function isTauriDesktop() {
     return typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__
 }
@@ -15,9 +17,11 @@ export default function AppUpdatePrompt() {
     const [target, setTarget] = useState(null)
     const [loading, setLoading] = useState(false)
 
-    const supabase = getSupabaseClient()
+    const supabase = isDemoMode ? null : getSupabaseClient()
 
     const loadPendingUpdate = useCallback(async () => {
+        if (isDemoMode) return
+        if (!supabase) return
         if (!shop?.id) return
 
         const { data, error } = await supabase
@@ -62,7 +66,9 @@ export default function AppUpdatePrompt() {
     }, [shop?.id, supabase])
 
     useEffect(() => {
+        if(isDemoMode) return
         if (!shop?.id) return
+        if(!supabase) return
 
         loadPendingUpdate()
 
@@ -154,6 +160,9 @@ export default function AppUpdatePrompt() {
     }
 
     if (!target?.release) return null
+
+    if (isDemoMode) return null
+if (!target?.release) return null
 
     return (
         <div className="fixed bottom-5 right-5 z-[9999] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
