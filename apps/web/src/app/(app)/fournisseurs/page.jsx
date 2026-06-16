@@ -14,8 +14,21 @@ import {
   Printer,
   FileText,
   ShoppingCart,
+  CreditCard,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO, isWithinInterval } from 'date-fns'
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  startOfYear,
+  endOfYear,
+  parseISO,
+  isWithinInterval,
+} from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
 import { getAll, localUpsert, localDelete } from '@/lib/db/local'
@@ -35,6 +48,325 @@ import {
 import FrenchInput from '@/components/FrenchInput'
 import PhoneInput from '@/components/PhoneInput'
 
+// ─── Payment Modal ────────────────────────────────────────────────────────────
+// Replaces the old "Nouvelle ligne fournisseur" modal.
+// Shows only unpaid/partial purchases; user selects which ones to pay and
+// enters the amount paid per purchase. One supplier_transaction is created
+// per selected purchase.
+function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
+  // purchases prop = all purchases for this supplier with remaining_amount > 0
+  const [selections, setSelections] = useState({}) // { [purchaseId]: amountString }
+  const [submitting, setSubmitting] = useState(false)
+  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [label, setLabel] = useState('')
+
+  // Reset state whenever modal opens
+  useEffect(() => {
+    if (open) {
+      setDate(format(new Date(), 'yyyy-MM-dd'))
+      setLabel('')
+      // Pre-select all unpaid purchases, pre-fill with their remaining amount
+      const initial = {}
+      purchases.forEach(p => {
+        initial[p.id] = String(Math.round(Number(p.remaining_amount || 0)))
+      })
+      setSelections(initial)
+    }
+  }, [open, purchases])
+
+  function togglePurchase(purchaseId, remaining) {
+    setSelections(prev => {
+      if (purchaseId in prev) {
+        // Deselect: remove key
+        const next = { ...prev }
+        delete next[purchaseId]
+        return next
+      } else {
+        // Select: default to remaining amount
+        return { ...prev, [purchaseId]: String(Math.round(remaining)) }
+      }
+    })
+  }
+
+  function setAmount(purchaseId, value) {
+    setSelections(prev => ({ ...prev, [purchaseId]: value }))
+  }
+
+  const selectedCount = Object.keys(selections).length
+  const totalPaying = Object.values(selections).reduce(
+    (sum, v) => sum + (Number(v) || 0),
+    0
+  )
+
+  async function handleSubmit() {
+    if (selectedCount === 0) {
+      toast.error('Sélectionnez au moins une entrée de stock à régler.')
+      return
+    }
+    if (!label.trim()) {
+      toast.error('Ajoutez un libellé pour ce paiement.')
+      return
+    }
+    for (const [pid, amt] of Object.entries(selections)) {
+      if (!amt || Number(amt) <= 0) {
+        toast.error('Chaque montant doit être supérieur à 0.')
+        return
+      }
+    }
+
+    setSubmitting(true)
+    try {
+      const now = new Date().toISOString()
+
+      for (const [purchaseId, amtStr] of Object.entries(selections)) {
+        const purchase = purchases.find(p => p.id === purchaseId)
+        if (!purchase) continue
+
+        const paying = Math.abs(Number(amtStr))
+        const newPaid = Number(purchase.paid_amount || 0) + paying
+        const newRemaining = Math.max(0, Number(purchase.total_amount || 0) - newPaid)
+
+        // 1. Update the purchase's payment tracking
+        await localUpsert('purchases', {
+          ...purchase,
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+
+        // 2. Create one supplier_transaction (credit = negative amount)
+        await localUpsert('supplier_transactions', {
+          id: uuid(),
+          shop_id: shop.id,
+          supplier_id: supplier.id,
+          date,
+          label: `${label.trim()} — ${purchase.product_name || 'Entrée #' + purchaseId.slice(0, 6)}`,
+          amount: -paying, // credit: reduces the balance owed
+          type: 'credit',
+          purchase_id: purchaseId, // link back for traceability
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+
+      toast.success(
+        selectedCount === 1
+          ? 'Paiement enregistré'
+          : `${selectedCount} paiements enregistrés`
+      )
+      onClose()
+      onSaved()
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de l\'enregistrement')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const hasPurchases = purchases.length > 0
+
+  return (
+    <Modal open={open} onClose={onClose} title="Régler des dettes fournisseur" maxW="max-w-2xl">
+      <div className="space-y-4">
+        {/* Date + Label row */}
+        <div className="grid grid-cols-2 gap-4">
+          <FormField label="Date du paiement" required>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className={inputCls}
+            />
+          </FormField>
+          <FormField label="Libellé / Référence" required>
+            <input
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              placeholder="Ex: Virement bancaire, Espèces…"
+              className={inputCls}
+            />
+          </FormField>
+        </div>
+
+        {/* Purchase list */}
+        {!hasPurchases ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 py-10 text-center">
+            <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
+            <p className="text-sm font-medium text-gray-700">Toutes les entrées de stock sont réglées</p>
+            <p className="text-xs text-gray-400 mt-1">Il n'y a aucune dette en attente pour ce fournisseur.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Entrées de stock avec solde dû
+              </p>
+              <button
+                onClick={() => {
+                  // Toggle: if all selected, deselect all; else select all
+                  if (selectedCount === purchases.length) {
+                    setSelections({})
+                  } else {
+                    const all = {}
+                    purchases.forEach(p => {
+                      all[p.id] = String(Math.round(Number(p.remaining_amount || 0)))
+                    })
+                    setSelections(all)
+                  }
+                }}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                {selectedCount === purchases.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
+              {purchases.map(p => {
+                const isSelected = p.id in selections
+                const totalAmt = Number(p.total_amount || 0)
+                const paidAmt = Number(p.paid_amount || 0)
+                const remainingAmt = Number(p.remaining_amount || 0)
+                const isPartial = paidAmt > 0 && remainingAmt > 0
+
+                return (
+                  <div
+                    key={p.id}
+                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${
+                      isSelected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    {/* Checkbox */}
+                    <button
+                      onClick={() => togglePurchase(p.id, remainingAmt)}
+                      className={`mt-0.5 flex-none w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                        isSelected
+                          ? 'bg-blue-600 border-blue-600'
+                          : 'border-gray-300 hover:border-blue-400'
+                      }`}
+                    >
+                      {isSelected && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+
+                    {/* Purchase info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">
+                            {p.product_name || '—'}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {format(new Date(p.date), 'dd MMM yyyy', { locale: fr })}
+                            {p.product_code && ` · ${p.product_code}`}
+                            {` · ${p.quantity} unité${p.quantity > 1 ? 's' : ''}`}
+                          </p>
+                        </div>
+
+                        {/* Debt status pill */}
+                        <div className="flex-none text-right">
+                          {isPartial ? (
+                            <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200">
+                              <AlertCircle className="w-3 h-3 text-amber-500 flex-none" />
+                              <div className="text-right">
+                                <p className="text-xs font-bold text-amber-700">
+                                  {formatFCFA(paidAmt)} / {formatFCFA(totalAmt)}
+                                </p>
+                                <p className="text-xs text-amber-600">
+                                  reste {formatFCFA(remainingAmt)}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200">
+                              <div className="text-right">
+                                <p className="text-xs font-bold text-red-700">
+                                  {formatFCFA(remainingAmt)}
+                                </p>
+                                <p className="text-xs text-red-500">non réglé</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Amount input when selected */}
+                      {isSelected && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <label className="text-xs text-gray-500 whitespace-nowrap">
+                            Montant réglé :
+                          </label>
+                          <div className="relative flex-1 max-w-[180px]">
+                            <FrenchInput
+                              value={selections[p.id]}
+                              onChange={val => setAmount(p.id, val)}
+                              placeholder="0"
+                              className={inputCls + ' pr-14 text-sm'}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">
+                              FCFA
+                            </span>
+                          </div>
+                          {/* Quick-fill button */}
+                          {Number(selections[p.id]) !== remainingAmt && (
+                            <button
+                              onClick={() => setAmount(p.id, String(Math.round(remainingAmt)))}
+                              className="text-xs text-blue-600 hover:text-blue-700 whitespace-nowrap font-medium"
+                            >
+                              Tout régler
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Footer summary + actions */}
+        {hasPurchases && (
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <div>
+              {selectedCount > 0 ? (
+                <p className="text-sm text-gray-600">
+                  <span className="font-bold text-gray-900">{selectedCount}</span> entrée{selectedCount > 1 ? 's' : ''} sélectionnée{selectedCount > 1 ? 's' : ''} ·{' '}
+                  <span className="font-bold text-blue-700">{formatFCFA(totalPaying)}</span> à enregistrer
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400">Aucune entrée sélectionnée</p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <Btn variant="secondary" onClick={onClose}>Annuler</Btn>
+              <Btn
+                icon={CreditCard}
+                onClick={handleSubmit}
+                disabled={submitting || selectedCount === 0 || !hasPurchases}
+              >
+                {submitting ? 'Enregistrement…' : 'Enregistrer le paiement'}
+              </Btn>
+            </div>
+          </div>
+        )}
+
+        {!hasPurchases && (
+          <div className="flex justify-end pt-2 border-t border-gray-100">
+            <Btn variant="secondary" onClick={onClose}>Fermer</Btn>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FournisseursPage() {
   const shop = useAppStore(s => s.shop)
 
@@ -44,8 +376,9 @@ export default function FournisseursPage() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('name')
   const [modal, setModal] = useState(false)
-  const [txModal, setTxModal] = useState(false)
+  const [paymentModal, setPaymentModal] = useState(false)
   const [editingTx, setEditingTx] = useState(null)
+  const [txEditModal, setTxEditModal] = useState(false)
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [editingSupplier, setEditingSupplier] = useState(null)
@@ -69,18 +402,16 @@ export default function FournisseursPage() {
     reset: resetTx,
     control: controlTx,
   } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '' },
+    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), amount: '' },
   })
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-
     const [s, t, p] = await Promise.all([
       getAll('suppliers', shop.id),
       getAll('supplier_transactions', shop.id),
       getAll('purchases', shop.id),
     ])
-
     setSuppliers(s)
     setTransactions(t)
     setPurchases(p)
@@ -88,6 +419,14 @@ export default function FournisseursPage() {
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
+
+  // Keep `selected` in sync after a reload (so balance refreshes)
+  useEffect(() => {
+    if (selected) {
+      const refreshed = suppliers.find(s => s.id === selected.id)
+      if (refreshed) setSelected(refreshed)
+    }
+  }, [suppliers])
 
   function supplierBalance(supplierId) {
     return transactions
@@ -105,7 +444,6 @@ export default function FournisseursPage() {
 
   function purchaseBelongsToSupplier(purchase, supplier) {
     if (!purchase || !supplier) return false
-
     return (
       purchase.supplier_id === supplier.id ||
       normalizeText(purchase.supplier) === normalizeText(supplier.name)
@@ -115,16 +453,11 @@ export default function FournisseursPage() {
   function getDateRange() {
     const today = new Date()
     switch (periodFilter) {
-      case 'week':
-        return { start: startOfWeek(today), end: endOfWeek(today) }
-      case 'month':
-        return { start: startOfMonth(today), end: endOfMonth(today) }
-      case 'year':
-        return { start: startOfYear(today), end: endOfYear(today) }
-      case 'custom':
-        return { start: parseISO(customDateStart), end: parseISO(customDateEnd) }
-      default:
-        return { start: new Date(1900, 0, 1), end: new Date(2100, 0, 1) }
+      case 'week':  return { start: startOfWeek(today),  end: endOfWeek(today) }
+      case 'month': return { start: startOfMonth(today), end: endOfMonth(today) }
+      case 'year':  return { start: startOfYear(today),  end: endOfYear(today) }
+      case 'custom':return { start: parseISO(customDateStart), end: parseISO(customDateEnd) }
+      default:      return { start: new Date(1900, 0, 1), end: new Date(2100, 0, 1) }
     }
   }
 
@@ -147,10 +480,8 @@ export default function FournisseursPage() {
   async function onSaveSupplier(data) {
     if (submittingRef.current) return
     submittingRef.current = true
-
     try {
       const now = new Date().toISOString()
-
       const record = {
         id: editingSupplier?.id || uuid(),
         shop_id: shop.id,
@@ -161,9 +492,7 @@ export default function FournisseursPage() {
         updated_at: now,
         sync_status: 'pending',
       }
-
       await localUpsert('suppliers', record)
-
       toast.success(editingSupplier ? 'Fournisseur modifié' : 'Fournisseur ajouté')
       setModal(false)
       setEditingSupplier(null)
@@ -176,35 +505,28 @@ export default function FournisseursPage() {
     }
   }
 
-  async function onAddTx(data) {
+  // Edit an existing transaction line (pencil icon in history table)
+  async function onEditTx(data) {
     if (submittingRef.current) return
     submittingRef.current = true
-
     try {
       const amount = Number(data.amount)
-      const signed = data.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
+      const signed = editingTx.type === 'credit' ? -Math.abs(amount) : Math.abs(amount)
       const now = new Date().toISOString()
-
       const record = {
-        id: editingTx?.id || uuid(),
-        shop_id: shop.id,
-        supplier_id: selected.id,
+        ...editingTx,
         date: data.date,
         label: data.label,
         amount: signed,
-        type: data.type,
-        created_at: editingTx?.created_at || now,
         updated_at: now,
         sync_status: 'pending',
       }
-
       await localUpsert('supplier_transactions', record)
-      toast.success(editingTx ? 'Ligne fournisseur modifiée' : data.type === 'credit' ? 'Paiement fournisseur enregistré' : 'Dette fournisseur ajoutée')
-
-      setTxModal(false)
+      toast.success('Ligne modifiée')
+      setTxEditModal(false)
       setEditingTx(null)
-      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '', label: '' })
-      setTimeout(() => load(), 500)
+      resetTx({ date: format(new Date(), 'yyyy-MM-dd'), amount: '' })
+      await load()
     } catch (err) {
       toast.error(err.message || 'Erreur')
     } finally {
@@ -216,27 +538,20 @@ export default function FournisseursPage() {
     setEditingTx(tx)
     resetTx({
       date: tx.date || format(new Date(), 'yyyy-MM-dd'),
-      type: Number(tx.amount || 0) < 0 ? 'credit' : 'debit',
       label: tx.label || '',
       amount: String(Math.abs(Number(tx.amount || 0))),
     })
-    setTxModal(true)
+    setTxEditModal(true)
   }
 
   async function handleDeleteSupplier(supplier) {
     try {
       const relatedTransactions = transactions.filter(t => t.supplier_id === supplier.id)
-
       for (const tx of relatedTransactions) {
         await localDelete('supplier_transactions', tx.id)
       }
-
       await localDelete('suppliers', supplier.id)
-
-      if (selected?.id === supplier.id) {
-        setSelected(null)
-      }
-
+      if (selected?.id === supplier.id) setSelected(null)
       toast.success('Fournisseur supprimé')
       setConfirm(null)
       await load()
@@ -249,6 +564,14 @@ export default function FournisseursPage() {
     window.print()
   }
 
+  // Purchases for the selected supplier that still have a remaining balance
+  const supplierUnpaidPurchases = useMemo(() => {
+    if (!selected) return []
+    return purchases
+      .filter(p => purchaseBelongsToSupplier(p, selected) && Number(p.remaining_amount || 0) > 0)
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+  }, [selected, purchases])
+
   const filtered = useMemo(() =>
     suppliers.filter(s =>
       s.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -259,26 +582,17 @@ export default function FournisseursPage() {
   )
 
   const withBalance = useMemo(() => {
-    const suppliers = filtered.map(s => ({ ...s, balance: supplierBalance(s.id) }))
-
-    const sorted = [...suppliers].sort((a, b) => {
+    const list = filtered.map(s => ({ ...s, balance: supplierBalance(s.id) }))
+    return [...list].sort((a, b) => {
       switch (sortBy) {
-        case 'name':
-          return (a.name || '').localeCompare(b.name || '', 'fr')
-        case 'balance-desc':
-          return (b.balance || 0) - (a.balance || 0)
-        case 'balance-asc':
-          return (a.balance || 0) - (b.balance || 0)
-        case 'phone':
-          return (a.phone || '').localeCompare(b.phone || '', 'fr')
-        case 'address':
-          return (a.address || '').localeCompare(b.address || '', 'fr')
-        default:
-          return 0
+        case 'name':         return (a.name || '').localeCompare(b.name || '', 'fr')
+        case 'balance-desc': return (b.balance || 0) - (a.balance || 0)
+        case 'balance-asc':  return (a.balance || 0) - (b.balance || 0)
+        case 'phone':        return (a.phone || '').localeCompare(b.phone || '', 'fr')
+        case 'address':      return (a.address || '').localeCompare(b.address || '', 'fr')
+        default:             return 0
       }
     })
-
-    return sorted
   }, [filtered, transactions, sortBy])
 
   const totalDebt = useMemo(() =>
@@ -290,23 +604,27 @@ export default function FournisseursPage() {
     if (!selected) return []
     const { start, end } = getDateRange()
     return transactions
-      .filter(t => t.supplier_id === selected.id && isWithinInterval(parseISO(t.date), { start, end }))
+      .filter(t =>
+        t.supplier_id === selected.id &&
+        isWithinInterval(parseISO(t.date), { start, end })
+      )
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [selected, transactions, periodFilter, customDateStart, customDateEnd])
 
   const selectedPurchases = useMemo(() => {
     if (!selected) return []
-
     return purchases
       .filter(p => purchaseBelongsToSupplier(p, selected))
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [selected, purchases])
 
+  // ─── Detail view (supplier selected) ───────────────────────────────────────
   if (selected) {
     const balance = supplierBalance(selected.id)
 
     return (
       <div className="p-6 print:p-0">
+        {/* Header */}
         <div className="no-print flex items-center gap-3 mb-6">
           <button
             onClick={() => setSelected(null)}
@@ -314,12 +632,10 @@ export default function FournisseursPage() {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-
           <div>
             <h1 className="font-display text-2xl font-bold text-gray-900">{selected.name}</h1>
             <p className="text-gray-500 text-sm">{selected.phone || selected.address || '—'}</p>
           </div>
-
           <div className="ml-auto flex items-center gap-2">
             <Btn variant="secondary" icon={Printer} onClick={handlePrintStatement}>
               Imprimer relevé
@@ -327,11 +643,11 @@ export default function FournisseursPage() {
             <Btn variant="secondary" icon={Pencil} onClick={() => openEditSupplier(selected)}>
               Modifier
             </Btn>
-            <Btn icon={Plus} onClick={() => {
-              resetTx({ date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '' })
-              setTxModal(true)
-            }}>
-              Nouvelle ligne
+            <Btn
+              icon={CreditCard}
+              onClick={() => setPaymentModal(true)}
+            >
+              Régler une dette
             </Btn>
             <Btn variant="secondary" icon={Trash2} onClick={() => setConfirm(selected)}>
               Supprimer
@@ -339,6 +655,7 @@ export default function FournisseursPage() {
           </div>
         </div>
 
+        {/* Print header */}
         <div className="print-only mb-8">
           <div className="flex justify-between items-start border-b border-gray-200 pb-4">
             <div>
@@ -357,6 +674,7 @@ export default function FournisseursPage() {
           </div>
         </div>
 
+        {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard
             label="Solde actuel"
@@ -383,42 +701,51 @@ export default function FournisseursPage() {
           />
         </div>
 
+        {/* Transaction history */}
         <div className="card overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
             <FileText className="w-4 h-4 text-blue-500" />
             <h3 className="font-semibold text-gray-800">Historique fournisseur</h3>
           </div>
 
+          {/* Period filter */}
           <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
             <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Période</p>
             <div className="flex flex-wrap gap-2 mb-2">
-              <button onClick={() => setPeriodFilter('all')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                Tous les temps
-              </button>
-              <button onClick={() => setPeriodFilter('week')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'week' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                Cette semaine
-              </button>
-              <button onClick={() => setPeriodFilter('month')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'month' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                Ce mois
-              </button>
-              <button onClick={() => setPeriodFilter('year')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'year' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                Cette année
-              </button>
-              <button onClick={() => setPeriodFilter('custom')}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === 'custom' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                Personnalisé
-              </button>
+              {[
+                { value: 'all',    label: 'Tous les temps' },
+                { value: 'week',   label: 'Cette semaine' },
+                { value: 'month',  label: 'Ce mois' },
+                { value: 'year',   label: 'Cette année' },
+                { value: 'custom', label: 'Personnalisé' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setPeriodFilter(opt.value)}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                    periodFilter === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
             {periodFilter === 'custom' && (
               <div className="flex gap-2">
-                <input type="date" value={customDateStart} onChange={e => setCustomDateStart(e.target.value)}
-                  className="px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-                <input type="date" value={customDateEnd} onChange={e => setCustomDateEnd(e.target.value)}
-                  className="px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                <input
+                  type="date"
+                  value={customDateStart}
+                  onChange={e => setCustomDateStart(e.target.value)}
+                  className="px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <input
+                  type="date"
+                  value={customDateEnd}
+                  onChange={e => setCustomDateEnd(e.target.value)}
+                  className="px-2 py-1.5 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
               </div>
             )}
           </div>
@@ -427,13 +754,13 @@ export default function FournisseursPage() {
             <EmptyState
               icon={Truck}
               title="Aucune transaction"
-              description="Ajoutez une dette ou un paiement fournisseur."
+              description="Réglez une dette fournisseur pour commencer l'historique."
             />
           ) : (
             <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Date', 'Libellé', 'Type', 'Montant'].map(h => (
+                  {['Date', 'Libellé', 'Type', 'Montant', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -455,7 +782,6 @@ export default function FournisseursPage() {
                     <td className={`px-4 py-3 font-bold ${tx.amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
                       {tx.amount > 0 ? '+' : ''}{formatFCFA(tx.amount)}
                     </td>
-
                     <td className="px-4 py-3 no-print">
                       <div className="flex gap-1 justify-end">
                         <button
@@ -465,7 +791,6 @@ export default function FournisseursPage() {
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-
                         <button
                           onClick={async () => {
                             await localDelete('supplier_transactions', tx.id)
@@ -479,7 +804,6 @@ export default function FournisseursPage() {
                         </button>
                       </div>
                     </td>
-
                   </tr>
                 ))}
               </tbody>
@@ -489,12 +813,14 @@ export default function FournisseursPage() {
                   <td className={`px-4 py-3 font-bold text-lg ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-green-600' : 'text-gray-600'}`}>
                     {formatFCFA(balance)}
                   </td>
+                  <td />
                 </tr>
               </tfoot>
             </table>
           )}
         </div>
 
+        {/* Linked purchases */}
         <div className="card overflow-hidden mt-6">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
             <ShoppingCart className="w-4 h-4 text-purple-500" />
@@ -505,7 +831,7 @@ export default function FournisseursPage() {
             <EmptyState
               icon={ShoppingCart}
               title="Aucune entrée de stock"
-              description="Aucune entrée de stock liée à ce fournisseur n’a été trouvée."
+              description="Aucune entrée de stock liée à ce fournisseur n'a été trouvée."
             />
           ) : (
             <div className="overflow-x-auto">
@@ -519,64 +845,82 @@ export default function FournisseursPage() {
                     ))}
                   </tr>
                 </thead>
-
                 <tbody className="divide-y divide-gray-50">
-                  {selectedPurchases.map(p => (
-                    <tr key={p.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                        {format(new Date(p.date), 'dd MMM yyyy', { locale: fr })}
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-gray-900">{p.product_name || '—'}</p>
-                        {p.product_code && <p className="text-xs text-gray-400">{p.product_code}</p>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">{p.quantity}</td>
-                      <td className="px-4 py-3 text-gray-700">{formatFCFA(p.unit_price || 0)}</td>
-                      <td className="px-4 py-3 text-gray-700">{formatFCFA(p.charge_total || 0)}</td>
-                      <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(p.total_amount || 0)}</td>
-                      <td className="px-4 py-3">
-                        <Badge color={Number(p.remaining_amount || 0) > 0 ? 'amber' : 'green'}>
-                          {Number(p.remaining_amount || 0) > 0 ? `Crédit ${formatFCFA(p.remaining_amount)}` : 'Payé'}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
+                  {selectedPurchases.map(p => {
+                    const totalAmt = Number(p.total_amount || 0)
+                    const paidAmt = Number(p.paid_amount || 0)
+                    const remainingAmt = Number(p.remaining_amount || 0)
+                    const isPartial = paidAmt > 0 && remainingAmt > 0
+                    const isPaid = remainingAmt === 0
+
+                    return (
+                      <tr key={p.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                          {format(new Date(p.date), 'dd MMM yyyy', { locale: fr })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-gray-900">{p.product_name || '—'}</p>
+                          {p.product_code && <p className="text-xs text-gray-400">{p.product_code}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700">{p.quantity}</td>
+                        <td className="px-4 py-3 text-gray-700">{formatFCFA(p.unit_price || 0)}</td>
+                        <td className="px-4 py-3 text-gray-700">{formatFCFA(p.charge_total || 0)}</td>
+                        <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(totalAmt)}</td>
+                        <td className="px-4 py-3">
+                          {isPaid ? (
+                            <Badge color="green">Payé</Badge>
+                          ) : isPartial ? (
+                            <div className="inline-flex flex-col">
+                              <Badge color="amber">Partiel</Badge>
+                              <span className="text-xs text-gray-500 mt-0.5 whitespace-nowrap">
+                                {formatFCFA(paidAmt)} / {formatFCFA(totalAmt)}
+                              </span>
+                              <span className="text-xs text-red-500 font-medium whitespace-nowrap">
+                                reste {formatFCFA(remainingAmt)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="inline-flex flex-col">
+                              <Badge color="red">Non réglé</Badge>
+                              <span className="text-xs text-red-500 font-medium mt-0.5 whitespace-nowrap">
+                                {formatFCFA(remainingAmt)} dû
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
 
-        <SupplierModal
-          modal={modal}
-          setModal={setModal}
-          editingSupplier={editingSupplier}
-          setEditingSupplier={setEditingSupplier}
-          handleSubmit={handleSubmit}
-          onSaveSupplier={onSaveSupplier}
-          register={register}
-          reset={reset}
-          control={control}
+        {/* Payment modal */}
+        <PaymentModal
+          open={paymentModal}
+          onClose={() => setPaymentModal(false)}
+          supplier={selected}
+          purchases={supplierUnpaidPurchases}
+          shop={shop}
+          onSaved={load}
         />
 
-        <Modal open={txModal} onClose={() => setTxModal(false)} title="Nouvelle ligne fournisseur" maxW="max-w-md">
-          <form onSubmit={handleTxSubmit(onAddTx)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <FormField label="Date" required>
-                <input {...registerTx('date', { required: true })} type="date" className={inputCls} />
-              </FormField>
-              <FormField label="Type" required>
-                <select {...registerTx('type')} className={inputCls}>
-                  <option value="debit">Dette fournisseur</option>
-                  <option value="credit">Paiement fournisseur</option>
-                </select>
-              </FormField>
-            </div>
-
-            <FormField label="Libellé" required>
-              <input {...registerTx('label', { required: true })} placeholder="Ex: Achat stock, règlement..." className={inputCls} />
+        {/* Edit transaction modal (pencil in history) */}
+        <Modal
+          open={txEditModal}
+          onClose={() => { setTxEditModal(false); setEditingTx(null) }}
+          title="Modifier la ligne"
+          maxW="max-w-md"
+        >
+          <form onSubmit={handleTxSubmit(onEditTx)} className="space-y-4">
+            <FormField label="Date" required>
+              <input {...registerTx('date', { required: true })} type="date" className={inputCls} />
             </FormField>
-
+            <FormField label="Libellé" required>
+              <input {...registerTx('label', { required: true })} placeholder="Ex: Achat stock, règlement…" className={inputCls} />
+            </FormField>
             <FormField label="Montant (FCFA)" required>
               <Controller
                 name="amount"
@@ -594,13 +938,25 @@ export default function FournisseursPage() {
                 )}
               />
             </FormField>
-
             <div className="flex gap-3 justify-end pt-2">
-              <Btn variant="secondary" onClick={() => setTxModal(false)}>Annuler</Btn>
+              <Btn variant="secondary" onClick={() => { setTxEditModal(false); setEditingTx(null) }}>Annuler</Btn>
               <Btn type="submit">Enregistrer</Btn>
             </div>
           </form>
         </Modal>
+
+        {/* Supplier form modal */}
+        <SupplierModal
+          modal={modal}
+          setModal={setModal}
+          editingSupplier={editingSupplier}
+          setEditingSupplier={setEditingSupplier}
+          handleSubmit={handleSubmit}
+          onSaveSupplier={onSaveSupplier}
+          register={register}
+          reset={reset}
+          control={control}
+        />
 
         <ConfirmDialog
           open={!!confirm}
@@ -624,6 +980,7 @@ export default function FournisseursPage() {
     )
   }
 
+  // ─── List view ──────────────────────────────────────────────────────────────
   return (
     <div className="p-6">
       <PageHeader
@@ -645,7 +1002,7 @@ export default function FournisseursPage() {
           </div>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
+            onChange={e => setSortBy(e.target.value)}
             className={inputCls + ' max-w-xs'}
           >
             <option value="name">Trier par : Nom (A-Z)</option>
@@ -679,12 +1036,10 @@ export default function FournisseursPage() {
                 >
                   {(s.name || '?')[0].toUpperCase()}
                 </div>
-
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{s.name}</p>
                   <p className="text-xs text-gray-400">{s.phone || s.address || '—'}</p>
                 </div>
-
                 <div className="text-right">
                   {s.balance !== 0 ? (
                     <>
@@ -697,29 +1052,20 @@ export default function FournisseursPage() {
                     <span className="text-xs text-gray-400">Solde nul</span>
                   )}
                 </div>
-
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openEditSupplier(s)
-                  }}
+                  onClick={e => { e.stopPropagation(); openEditSupplier(s) }}
                   className="p-2 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-500 transition-colors"
                   title="Modifier"
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
-
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setConfirm(s)
-                  }}
+                  onClick={e => { e.stopPropagation(); setConfirm(s) }}
                   className="p-2 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                   title="Supprimer"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
-
                 <ChevronRight className="w-4 h-4 text-gray-300 flex-none" />
               </div>
             ))}
@@ -750,6 +1096,7 @@ export default function FournisseursPage() {
   )
 }
 
+// ─── Supplier form modal (unchanged) ─────────────────────────────────────────
 function SupplierModal({
   modal,
   setModal,
@@ -764,18 +1111,18 @@ function SupplierModal({
   return (
     <Modal
       open={modal}
-      onClose={() => {
-        setModal(false)
-        setEditingSupplier(null)
-      }}
+      onClose={() => { setModal(false); setEditingSupplier(null) }}
       title={editingSupplier ? 'Modifier le fournisseur' : 'Nouveau fournisseur'}
       maxW="max-w-md"
     >
       <form onSubmit={handleSubmit(onSaveSupplier)} className="space-y-4">
         <FormField label="Nom du fournisseur" required>
-          <input {...register('name', { required: 'Requis' })} placeholder="Ex: Fournisseur principal" className={inputCls} />
+          <input
+            {...register('name', { required: 'Requis' })}
+            placeholder="Ex: Fournisseur principal"
+            className={inputCls}
+          />
         </FormField>
-
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Téléphone">
             <Controller
@@ -796,15 +1143,10 @@ function SupplierModal({
             <input {...register('address')} placeholder="Ex: Niamey" className={inputCls} />
           </FormField>
         </div>
-
         <div className="flex gap-3 justify-end pt-2">
           <Btn
             variant="secondary"
-            onClick={() => {
-              setModal(false)
-              setEditingSupplier(null)
-              reset()
-            }}
+            onClick={() => { setModal(false); setEditingSupplier(null); reset() }}
           >
             Annuler
           </Btn>

@@ -1,11 +1,11 @@
 // apps/web/src/app/(app)/depenses/page.jsx
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { Wallet, Plus, Trash2, Pencil } from 'lucide-react'
+import { Wallet, Plus, Trash2, Pencil, Tag } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -16,31 +16,131 @@ import {
   ConfirmDialog, Btn, StatCard, inputCls, selectCls
 } from '@/components/ui'
 import FrenchInput from '@/components/FrenchInput'
+import DateFilter from '@/components/DateFilter'
+import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
 
-const CATEGORIES = ['Transport', 'Salaire', 'Loyer', 'Eau / Électricité', 'Recharge téléphone', 'Maintenance', 'Publicité', 'Autre']
+const DEFAULT_CATEGORIES = [
+  'Transport', 'Salaire', 'Loyer', 'Eau / Électricité',
+  'Recharge téléphone', 'Maintenance', 'Publicité', 'Autre',
+]
+
+// ─── CategorySelect ────────────────────────────────────────────────────────────
+// A select with a "+" option at the bottom that opens an inline input to add a new category
+function CategorySelect({ value, onChange, categories, onAddCategory, className }) {
+  const [adding, setAdding] = useState(false)
+  const [newCat, setNewCat] = useState('')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (adding && inputRef.current) inputRef.current.focus()
+  }, [adding])
+
+  function handleChange(e) {
+    if (e.target.value === '__add_new__') {
+      setAdding(true)
+      setNewCat('')
+    } else {
+      onChange(e.target.value)
+    }
+  }
+
+  async function handleAdd(e) {
+    e.preventDefault()
+    const cat = newCat.trim()
+    if (!cat) return
+    await onAddCategory(cat)
+    onChange(cat)
+    setAdding(false)
+    setNewCat('')
+  }
+
+  if (adding) {
+    return (
+      <form onSubmit={handleAdd} className="flex gap-2">
+        <input
+          ref={inputRef}
+          value={newCat}
+          onChange={e => setNewCat(e.target.value)}
+          placeholder="Nouvelle catégorie…"
+          className={`${inputCls} flex-1`}
+        />
+        <button type="submit"
+          className="h-11 px-3 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition">
+          Ajouter
+        </button>
+        <button type="button"
+          onClick={() => setAdding(false)}
+          className="h-11 px-3 rounded-xl border border-gray-200 text-gray-500 text-xs hover:bg-gray-50 transition">
+          ✕
+        </button>
+      </form>
+    )
+  }
+
+  return (
+    <select value={value} onChange={handleChange} className={className}>
+      {categories.map(c => <option key={c} value={c}>{c}</option>)}
+      <option disabled value="">──────────</option>
+      <option value="__add_new__">+ Ajouter une catégorie…</option>
+    </select>
+  )
+}
 
 export default function DepensesPage() {
   const shop = useAppStore(s => s.shop)
   const [expenses, setExpenses] = useState([])
+  const [customCategories, setCustomCategories] = useState([])
   const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState(defaultDateFilter())
   const [modal, setModal] = useState(false)
   const [expenseDetail, setExpenseDetail] = useState(null)
   const [editingExpense, setEditingExpense] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const { register, handleSubmit, reset, control } = useForm({
-    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), amount: '' }
+  const { register, handleSubmit, reset, control, watch, setValue } = useForm({
+    defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), amount: '', category: 'Autre' }
   })
+  const watchedCategory = watch('category')
+
+  // All categories = defaults + saved custom ones (deduplicated, sorted)
+  const allCategories = useMemo(() => {
+    const set = new Set([...DEFAULT_CATEGORIES, ...customCategories])
+    return Array.from(set)
+  }, [customCategories])
 
   const load = useCallback(async () => {
     if (!shop?.id) return
-    const e = await getAll('expenses', shop.id)
+    const [e, cats] = await Promise.all([
+      getAll('expenses', shop.id),
+      getAll('expense_categories', shop.id),
+    ])
     setExpenses(e.sort((a, b) => new Date(b.date) - new Date(a.date)))
+    setCustomCategories(cats.map(c => c.name))
     setLoading(false)
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
+
+  // Save a new custom category to DB
+  async function handleAddCategory(name) {
+    if (!name.trim()) return
+    const already = allCategories.map(c => c.toLowerCase()).includes(name.toLowerCase())
+    if (already) return
+    const now = new Date().toISOString()
+    const record = {
+      id: uuid(),
+      shop_id: shop.id,
+      name: name.trim(),
+      created_at: now,
+      updated_at: now,
+      sync_status: 'pending',
+    }
+    await localUpsert('expense_categories', record)
+    setCustomCategories(prev => [...prev, name.trim()])
+    toast.success(`Catégorie "${name.trim()}" ajoutée`)
+  }
 
   async function onSubmit(data) {
     const now = new Date().toISOString()
@@ -62,11 +162,22 @@ export default function DepensesPage() {
     load()
   }
 
+  const usedCategories = useMemo(() => {
+    const cats = new Set(expenses.map(e => e.category).filter(Boolean))
+    return Array.from(cats).sort()
+  }, [expenses])
+
   const filtered = useMemo(() =>
-    expenses.filter(e =>
-      e.description?.toLowerCase().includes(search.toLowerCase()) ||
-      e.category?.toLowerCase().includes(search.toLowerCase())
-    ), [expenses, search])
+    expenses.filter(e => {
+      const matchSearch =
+        e.description?.toLowerCase().includes(search.toLowerCase()) ||
+        e.category?.toLowerCase().includes(search.toLowerCase())
+      const matchCat = categoryFilter === 'all' || e.category === categoryFilter
+      const matchDate = isDateInFilter(e.date, dateFilter)
+      return matchSearch && matchCat && matchDate
+    }),
+    [expenses, search, categoryFilter, dateFilter]
+  )
 
   function openEditExpense(expense) {
     setEditingExpense(expense)
@@ -79,8 +190,15 @@ export default function DepensesPage() {
     setModal(true)
   }
 
-  function openExpenseDetail(expense) {
-    setExpenseDetail(expense)
+  function openAdd() {
+    setEditingExpense(null)
+    reset({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      description: '',
+      amount: '',
+      category: 'Autre',
+    })
+    setModal(true)
   }
 
   const total = useMemo(() => expenses.reduce((a, e) => a + (e.amount || 0), 0), [expenses])
@@ -96,18 +214,7 @@ export default function DepensesPage() {
       <PageHeader
         title="Charges"
         subtitle={`${expenses.length} charge${expenses.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={() => {
-          setEditingExpense(null)
-          reset({
-            date: format(new Date(), 'yyyy-MM-dd'),
-            description: '',
-            amount: '',
-            category: 'Autre',
-          })
-          setModal(true)
-        }}>
-          Nouvelle charge
-        </Btn>}
+        action={<Btn icon={Plus} onClick={openAdd}>Nouvelle charge</Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -117,30 +224,36 @@ export default function DepensesPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
-          <div className="flex-1 max-w-xs">
+        {/* Filters row */}
+        <div className="flex flex-wrap items-end gap-3 px-5 py-4 border-b border-gray-100">
+          <div className="flex-1 min-w-[180px] max-w-xs">
             <SearchBar value={search} onChange={setSearch} placeholder="Rechercher…" />
           </div>
+
+          {/* Category filter */}
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-400 mb-1">Catégorie</label>
+            <select
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value)}
+              className={selectCls}
+            >
+              <option value="all">Toutes les catégories</option>
+              {usedCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date filter */}
+          <DateFilter value={dateFilter} onChange={setDateFilter} />
         </div>
 
         {loading ? (
           <div className="p-10 text-center text-gray-400 text-sm">Chargement…</div>
         ) : filtered.length === 0 ? (
           <EmptyState icon={Wallet} title="Aucune charge"
-            action={
-              <Btn icon={Plus} onClick={() => {
-                setEditingExpense(null)
-                reset({
-                  date: format(new Date(), 'yyyy-MM-dd'),
-                  description: '',
-                  amount: '',
-                  category: 'Autre',
-                })
-                setModal(true)
-              }}>
-                Ajouter
-              </Btn>
-            }
+            action={<Btn icon={Plus} onClick={openAdd}>Ajouter</Btn>}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -156,14 +269,19 @@ export default function DepensesPage() {
                 {filtered.map(e => (
                   <tr key={e.id}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => openExpenseDetail(e)}>
+                    onClick={() => setExpenseDetail(e)}>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(e.date), 'dd MMM yy', { locale: fr })}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{e.description}</td>
-                    <td className="px-4 py-3 text-gray-500">{e.category}</td>
+                    <td className="px-4 py-3 text-gray-500">
+                      <span className="inline-flex items-center gap-1">
+                        <Tag className="w-3 h-3 text-gray-400" />
+                        {e.category}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 font-bold text-red-600">{formatFCFA(e.amount)}</td>
-                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    <td className="px-4 py-3" onClick={ev => ev.stopPropagation()}>
                       <div className="flex gap-1">
                         <button
                           onClick={() => openEditExpense(e)}
@@ -195,16 +313,28 @@ export default function DepensesPage() {
         )}
       </div>
 
-      <Modal open={modal} onClose={() => { setModal(false); setEditingExpense(null) }} title={editingExpense ? 'Modifier la charge' : 'Nouvelle charge'}>
+      {/* Add / Edit modal */}
+      <Modal open={modal} onClose={() => { setModal(false); setEditingExpense(null) }}
+        title={editingExpense ? 'Modifier la charge' : 'Nouvelle charge'}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Date" required>
               <input {...register('date', { required: true })} type="date" className={inputCls} />
             </FormField>
             <FormField label="Catégorie">
-              <select {...register('category')} className={inputCls}>
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
+              <Controller
+                name="category"
+                control={control}
+                render={({ field }) => (
+                  <CategorySelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    categories={allCategories}
+                    onAddCategory={handleAddCategory}
+                    className={selectCls}
+                  />
+                )}
+              />
             </FormField>
           </div>
           <FormField label="Description" required>
@@ -235,6 +365,7 @@ export default function DepensesPage() {
         </form>
       </Modal>
 
+      {/* Detail modal */}
       <Modal open={!!expenseDetail} onClose={() => setExpenseDetail(null)} title="Détails de la charge" maxW="max-w-md">
         {expenseDetail && (
           <div className="space-y-4 text-sm text-gray-700">
@@ -254,6 +385,7 @@ export default function DepensesPage() {
           </div>
         )}
       </Modal>
+
       <ConfirmDialog open={!!confirm} onClose={() => setConfirm(null)}
         onConfirm={() => { localDelete('expenses', confirm); load(); toast.success('Charge supprimée') }}
         title="Supprimer la charge" message="Êtes-vous sûr ?" />

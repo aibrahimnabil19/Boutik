@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useForm } from 'react-hook-form'
 import { v4 as uuid } from 'uuid'
 import { toast } from 'sonner'
-import { TrendingUp, Plus, Trash2, Pencil, PlusCircle, FileText, Printer, Receipt, Truck, Wallet } from 'lucide-react'
+import { TrendingUp, Plus, Trash2, Pencil, PlusCircle, FileText, Printer, Receipt, Truck, Wallet, CheckCircle, PackageCheck } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -32,6 +32,7 @@ function computeStock(product, purchases, sales) {
   const bought = purchases
     .filter((p) => p.product_id === product.id)
     .reduce((a, p) => a + Number(p.quantity || 0), 0)
+  // Exclude pending_advance sales from stock deduction — stock only deducted on collect
   const sold = sales
     .filter((s) => s.product_id === product.id && !s.cancelled_at && s.status !== 'pending_advance')
     .reduce((a, s) => a + Number(s.quantity || 0), 0)
@@ -74,6 +75,7 @@ export default function VentesPage() {
   const [loading, setLoading] = useState(true)
   const [paymentModal, setPaymentModal] = useState(null)
   const [paymentAmount, setPaymentAmount] = useState('')
+  const [advancePaymentBreakdown, setAdvancePaymentBreakdown] = useState([])
   const [clientModal, setClientModal] = useState(false)
   const [quickClient, setQuickClient] = useState({ name: '', phone: '', address: '' })
   const [editingGroup, setEditingGroup] = useState(null)
@@ -126,6 +128,24 @@ export default function VentesPage() {
       .reduce((sum, t) => sum + Number(t.amount || 0), 0)
   }
 
+  // ── Advance payment modal (add more money to a pending_advance sale) ──
+  function openAdvancePayment(group) {
+    const grandTotal = group.items
+      .filter(i => !i.is_charge)
+      .reduce((s, i) => s + Number(i.total_sale || 0), 0)
+    const alreadyPaid = group.items
+      .filter(i => !i.is_charge)
+      .reduce((s, i) => s + Number(i.paid_amount || 0), 0)
+    if (alreadyPaid >= grandTotal) {
+      toast('Cette vente est déjà entièrement payée. Vous pouvez la collecter.')
+      return
+    }
+    setPaymentModal({ ...group, _advanceMode: true, _grandTotal: grandTotal, _alreadyPaid: alreadyPaid })
+    setPaymentAmount('')
+    setAdvancePaymentBreakdown([])
+  }
+
+  // ── Credit payment modal (legacy credit sales) ──
   function openPayment(group) {
     if (!group || Number(group.remaining_amount || 0) <= 0) {
       toast.error('Cette vente est déjà entièrement payée.')
@@ -133,6 +153,7 @@ export default function VentesPage() {
     }
     setPaymentModal(group)
     setPaymentAmount('')
+    setAdvancePaymentBreakdown([])
   }
 
   function emptyCharge() {
@@ -190,9 +211,79 @@ export default function VentesPage() {
     }
   }
 
-  async function handleCreditPayment(e) {
+  // ── Handle adding payment to an advance/pending_advance sale ──
+  async function handleAdvancePayment(e) {
     e.preventDefault()
     if (!paymentModal) return
+    const amount = Number(paymentAmount || 0)
+    const remaining = paymentModal._grandTotal - paymentModal._alreadyPaid
+    if (amount <= 0) { toast.error('Montant invalide.'); return }
+    if (amount > remaining + 0.01) { toast.error('Le paiement dépasse le reste à payer.'); return }
+
+    // Validate breakdown if provided
+    if (advancePaymentBreakdown.length > 0) {
+      const breakdownTotal = sumPaymentBreakdown(advancePaymentBreakdown)
+      if (Math.abs(breakdownTotal - amount) > 0.01) {
+        toast.error('La somme des moyens de paiement doit correspondre au montant payé.')
+        return
+      }
+    }
+
+    const now = new Date().toISOString()
+    const groupItems = (paymentModal.items || []).filter(i => !i.is_charge)
+    if (!groupItems.length) { toast.error('Aucune ligne de vente trouvée.'); return }
+
+    const newTotalPaid = paymentModal._alreadyPaid + amount
+    const isFullyPaid = newTotalPaid >= paymentModal._grandTotal - 0.01
+
+    // Distribute across product lines proportionally
+    let leftToApply = amount
+    for (const item of groupItems) {
+      const itemRemaining = Number(item.remaining_amount || 0)
+      if (itemRemaining <= 0) continue
+      const applied = Math.min(leftToApply, itemRemaining)
+      const newRemaining = Math.max(0, itemRemaining - applied)
+      leftToApply -= applied
+      await localUpsert('sales', {
+        ...item,
+        paid_amount: Number(item.paid_amount || 0) + applied,
+        remaining_amount: newRemaining,
+        payment_status: newRemaining <= 0 ? 'paid' : 'credit',
+        // Keep status as pending_advance until collected
+        updated_at: now,
+        sync_status: 'pending',
+      })
+      if (leftToApply <= 0) break
+    }
+
+    // Record client transaction if client is linked
+    const firstItem = groupItems[0]
+    const clientId = firstItem.client_id
+    if (clientId) {
+      await localUpsert('client_transactions', {
+        id: uuid(), shop_id: shop.id, client_id: clientId,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        label: `Paiement avance — ${String(paymentModal.key).slice(0, 8).toUpperCase()}`,
+        amount: -amount, created_at: now, updated_at: now, sync_status: 'pending',
+      })
+    }
+
+    if (isFullyPaid) {
+      toast.success('✅ Vente entièrement payée ! Vous pouvez maintenant collecter les articles.')
+    } else {
+      toast.success('Paiement enregistré')
+    }
+
+    setPaymentModal(null)
+    setPaymentAmount('')
+    setAdvancePaymentBreakdown([])
+    await load()
+  }
+
+  // ── Handle legacy credit payment ──
+  async function handleCreditPayment(e) {
+    e.preventDefault()
+    if (!paymentModal || paymentModal._advanceMode) return
     const amount = Number(paymentAmount || 0)
     const remaining = Number(paymentModal.remaining_amount || 0)
     if (amount <= 0) { toast.error('Montant invalide.'); return }
@@ -260,10 +351,12 @@ export default function VentesPage() {
     await load()
   }
 
-  async function handleCompleteAdvanceSale(group) {
+  // ── Collect a pending_advance sale (deduct stock) ──
+  async function handleCollectAdvanceSale(group) {
     const sessionSales = sales.filter(s => (s.session_id || s.id) === group.key)
     const now = new Date().toISOString()
 
+    // Check stock for product lines
     for (const item of sessionSales.filter(s => !s.is_charge)) {
       const prod = products.find(p => p.id === item.product_id)
       if (!prod) continue
@@ -275,17 +368,36 @@ export default function VentesPage() {
       }
     }
 
+    const grandTotal = sessionSales
+      .filter(s => !s.is_charge)
+      .reduce((sum, s) => sum + Number(s.total_sale || 0), 0)
+    const alreadyPaid = sessionSales
+      .filter(s => !s.is_charge)
+      .reduce((sum, s) => sum + Number(s.paid_amount || 0), 0)
+    const remaining = Math.max(0, grandTotal - alreadyPaid)
+
     for (const s of sessionSales) {
       await localUpsert('sales', {
         ...s,
         status: 'completed',
-        payment_status: 'paid',
-        remaining_amount: 0,
+        payment_status: remaining > 0 ? 'credit' : 'paid',
         updated_at: now,
         sync_status: 'pending',
       })
     }
-    toast.success('Vente finalisée — stock déduit')
+
+    // If there's a remaining balance and a client, record it as credit
+    const firstItem = sessionSales.find(s => !s.is_charge)
+    if (remaining > 0 && firstItem?.client_id) {
+      await localUpsert('client_transactions', {
+        id: uuid(), shop_id: shop.id, client_id: firstItem.client_id,
+        date: format(new Date(), 'yyyy-MM-dd'),
+        label: `Solde vente collectée — ${String(group.key).slice(0, 8).toUpperCase()}`,
+        amount: remaining, created_at: now, updated_at: now, sync_status: 'pending',
+      })
+    }
+
+    toast.success('✅ Vente collectée — stock déduit')
     load()
   }
 
@@ -411,19 +523,16 @@ export default function VentesPage() {
   const saleGrandTotal = cartTotals.revenue
 
   const selectedClientForSale = clients.find(c => c.id === saleClientId) || null
-  const selectedClientBalance = selectedClientForSale ? clientBalance(selectedClientForSale.id) : 0
-  const selectedClientCredit = Math.max(0, -selectedClientBalance)
-  const clientCreditUsed = paymentMode === 'advance'
-    ? Math.min(selectedClientCredit, saleGrandTotal)
-    : 0
 
+  // For advance payment mode: paidAmount is the advance given now
+  const advancePaid = paymentMode === 'advance' ? Math.max(0, Number(paidAmount || 0)) : 0
   const cashPaid = paymentMode === 'credit'
     ? Math.max(0, Number(paidAmount || 0))
     : paymentMode === 'paid'
       ? saleGrandTotal
       : 0
 
-  const paidPreview = clientCreditUsed + cashPaid
+  const paidPreview = paymentMode === 'advance' ? advancePaid : cashPaid
   const remainingPreview = Math.max(0, saleGrandTotal - paidPreview)
 
   // ─── Submit ────────────────────────────────────────────────────────────────
@@ -431,14 +540,22 @@ export default function VentesPage() {
     e.preventDefault()
 
     if (!paymentMode) { toast.error('Choisissez le mode de paiement.'); return }
-    if (paymentMode === 'advance' && !selectedClientForSale) { toast.error('Choisissez un client pour utiliser une avance.'); return }
-    if (paymentMode === 'advance' && selectedClientCredit <= 0) { toast.error('Ce client n\'a aucune avance disponible.'); return }
 
     if (paymentMode === 'paid') {
       const breakdownTotal = sumPaymentBreakdown(paymentBreakdown)
       if (paymentBreakdown.length === 0) { toast.error('Choisissez au moins un moyen de paiement.'); return }
       if (Math.abs(breakdownTotal - saleGrandTotal) > 0.01) {
         toast.error('La somme des moyens de paiement doit être égale au total de la vente.')
+        return
+      }
+    }
+
+    // Validate advance breakdown matches paidAmount
+    if (paymentMode === 'advance' && paymentBreakdown.length > 0) {
+      const breakdownTotal = sumPaymentBreakdown(paymentBreakdown)
+      const advPaid = Number(paidAmount || 0)
+      if (advPaid > 0 && Math.abs(breakdownTotal - advPaid) > 0.01) {
+        toast.error('La somme des moyens de paiement doit correspondre au montant payé.')
         return
       }
     }
@@ -466,6 +583,7 @@ export default function VentesPage() {
       requestedByProduct.set(line.product_id, (requestedByProduct.get(line.product_id) || 0) + q)
     }
 
+    // For advance sales, DON'T check stock — stock is only deducted on collection
     if (paymentMode !== 'advance') {
       for (const [productId, requestedQty] of requestedByProduct.entries()) {
         const prod = products.find(p => p.id === productId)
@@ -482,18 +600,36 @@ export default function VentesPage() {
     }
 
     const selectedClient = clients.find(c => c.id === saleClientId) || null
-    const cashPaidFinal = paymentMode === 'credit'
-      ? Math.max(0, Number(paidAmount || 0))
-      : paymentMode === 'paid' ? saleGrandTotal : 0
 
-    const totalPaid = clientCreditUsed + cashPaidFinal
-    const remainingAmount = Math.max(0, saleGrandTotal - totalPaid)
-    const paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
+    let totalPaid = 0
+    let remainingAmount = 0
+    let paymentStatus = 'paid'
+    let saleStatus = 'completed'
 
-    if (paymentStatus === 'credit' && !selectedClient) {
-      toast.error('Choisissez un client pour enregistrer une vente à crédit.')
-      return
+    if (paymentMode === 'paid') {
+      totalPaid = saleGrandTotal
+      remainingAmount = 0
+      paymentStatus = 'paid'
+      saleStatus = 'completed'
+    } else if (paymentMode === 'credit') {
+      const cashPaidFinal = Math.max(0, Number(paidAmount || 0))
+      totalPaid = cashPaidFinal
+      remainingAmount = Math.max(0, saleGrandTotal - totalPaid)
+      paymentStatus = remainingAmount > 0 ? 'credit' : 'paid'
+      saleStatus = 'completed'
+
+      if (paymentStatus === 'credit' && !selectedClient) {
+        toast.error('Choisissez un client pour enregistrer une vente à crédit.')
+        return
+      }
+    } else if (paymentMode === 'advance') {
+      // Advance: save as pending_advance, stock NOT deducted
+      totalPaid = Math.max(0, Number(paidAmount || 0))
+      remainingAmount = Math.max(0, saleGrandTotal - totalPaid)
+      paymentStatus = remainingAmount <= 0 ? 'paid' : 'credit'
+      saleStatus = 'pending_advance'
     }
+
     if (totalPaid > saleGrandTotal) {
       toast.error('Le montant payé ne peut pas dépasser le total de la vente.')
       return
@@ -511,7 +647,8 @@ export default function VentesPage() {
         for (const tx of oldClientTx) {
           const label = String(tx.label || '')
           const isLinked = label.includes(oldKey) &&
-            (label.startsWith('Vente à crédit') || label.startsWith('Utilisation avance client') || label.startsWith('Paiement vente'))
+            (label.startsWith('Vente à crédit') || label.startsWith('Utilisation avance client') ||
+             label.startsWith('Paiement vente') || label.startsWith('Paiement avance'))
           if (isLinked) await localDelete('client_transactions', tx.id)
         }
       }
@@ -553,12 +690,13 @@ export default function VentesPage() {
           profit: q * price - q * cost,
           payment_status: lineRemaining <= 0 ? 'paid' : 'credit',
           payment_method: paymentMode,
-          payment_breakdown: (paymentMode === 'paid' || paymentMode === 'credit')
+          payment_breakdown: (paymentMode === 'paid' || paymentMode === 'advance' || paymentMode === 'credit')
             ? cleanPaymentBreakdown(paymentBreakdown)
             : [],
-          advance_used: clientCreditUsed || 0,
+          advance_used: 0,
           paid_amount: linePaid,
           remaining_amount: lineRemaining,
+          status: saleStatus,
           is_charge: false,
           created_at: now,
           updated_at: now,
@@ -568,11 +706,9 @@ export default function VentesPage() {
         savedSales.push(saleRecord)
       }
 
-      // ── Save charge lines — always fully "paid" internally, not billed to client ──
+      // ── Save charge lines ──
       for (const charge of cleanSaleCharges) {
         const lineTotal = Number(charge.amount || 0)
-        // Charges are internal costs: always paid=lineTotal, remaining=0
-        // They do NOT reduce from the client's paidLeft
         const saleRecord = {
           id: uuid(),
           shop_id: shop.id,
@@ -592,13 +728,14 @@ export default function VentesPage() {
           total_sale: lineTotal,
           unit_purchase_cost: 0,
           total_purchase_cost: 0,
-          profit: -lineTotal, // charge reduces profit
+          profit: -lineTotal,
           payment_status: 'paid',
           payment_method: paymentMode,
           payment_breakdown: [],
           advance_used: 0,
           paid_amount: lineTotal,
           remaining_amount: 0,
+          status: saleStatus,
           is_charge: true,
           created_at: now,
           updated_at: now,
@@ -608,7 +745,8 @@ export default function VentesPage() {
         savedSales.push(saleRecord)
       }
 
-      if (remainingAmount > 0 && selectedClient) {
+      // ── Client transaction for credit sales ──
+      if (paymentMode === 'credit' && remainingAmount > 0 && selectedClient) {
         await localUpsert('client_transactions', {
           id: uuid(), shop_id: shop.id, client_id: selectedClient.id,
           date: saleDate,
@@ -617,16 +755,21 @@ export default function VentesPage() {
         })
       }
 
-      if (clientCreditUsed > 0 && selectedClient) {
+      // ── Client transaction for advance sales ──
+      if (paymentMode === 'advance' && totalPaid > 0 && selectedClient) {
         await localUpsert('client_transactions', {
           id: uuid(), shop_id: shop.id, client_id: selectedClient.id,
           date: saleDate,
-          label: `Utilisation avance client — ${sessionId.slice(0, 8).toUpperCase()}`,
-          amount: clientCreditUsed, created_at: now, updated_at: now, sync_status: 'pending',
+          label: `Paiement avance — ${sessionId.slice(0, 8).toUpperCase()}`,
+          amount: -totalPaid, created_at: now, updated_at: now, sync_status: 'pending',
         })
       }
 
-      toast.success(editingGroup ? 'Vente modifiée' : `Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`)
+      const successMsg = paymentMode === 'advance'
+        ? `Vente en avance enregistrée — stock réservé (non déduit)`
+        : editingGroup ? 'Vente modifiée' : `Vente enregistrée (${cart.length} produit${cart.length > 1 ? 's' : ''})`
+
+      toast.success(successMsg)
       setEditingGroup(null)
       setModal(false)
 
@@ -680,7 +823,13 @@ export default function VentesPage() {
     setEditingGroup(group)
     setSaleDate(group.date || format(new Date(), 'yyyy-MM-dd'))
     setSaleClientId(matchedClient?.id || '')
-    setPaymentMode(Number(group.remaining_amount || 0) > 0 ? 'credit' : 'paid')
+
+    const isAdvance = (group.items || []).some(i => i.status === 'pending_advance')
+    if (isAdvance) {
+      setPaymentMode('advance')
+    } else {
+      setPaymentMode(Number(group.remaining_amount || 0) > 0 ? 'credit' : 'paid')
+    }
     setPaidAmount(String(group.paid_amount || ''))
 
     const productItems = (group.items || []).filter((item) => !item.is_charge)
@@ -747,27 +896,28 @@ export default function VentesPage() {
           client_address: s.client_address || '',
           payment_status: s.payment_status || 'paid',
           paid_amount: 0, remaining_amount: 0, items: [], cancelled: !!s.cancelled_at,
+          is_advance: false,
         }
       }
       groups[key].items.push(s)
       groups[key].paid_amount += Number(s.paid_amount || 0)
-      // Only count remaining from product lines (not charges)
       if (!s.is_charge) {
         groups[key].remaining_amount += Number(s.remaining_amount || 0)
       }
       if (!s.is_charge && Number(s.remaining_amount || 0) > 0) groups[key].payment_status = 'credit'
       if (s.cancelled_at) groups[key].cancelled = true
-      // Keep client contact info
+      if (s.status === 'pending_advance') groups[key].is_advance = true
       if (s.client_phone && !groups[key].client_phone) groups[key].client_phone = s.client_phone
       if (s.client_address && !groups[key].client_address) groups[key].client_address = s.client_address
     })
     return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [filteredSales])
 
-  // Stats: exclude charge rows from revenue/profit to avoid double-counting
-  const activeSales = useMemo(() => sales.filter(s => !s.cancelled_at && !s.is_charge), [sales])
+  // Stats: exclude charge rows and pending_advance from revenue/profit
+  const activeSales = useMemo(() => sales.filter(s => !s.cancelled_at && !s.is_charge && s.status !== 'pending_advance'), [sales])
   const totalRevenue = useMemo(() => activeSales.reduce((a, s) => a + (s.total_sale || 0), 0), [activeSales])
   const totalProfit = useMemo(() => activeSales.reduce((a, s) => a + (s.profit || 0), 0), [activeSales])
+  const pendingAdvanceCount = useMemo(() => groupedSales.filter(g => g.is_advance && !g.cancelled).length, [groupedSales])
 
   async function handleCancel(sessionId) {
     const sessionSales = sales.filter(s => (s.session_id || s.id) === sessionId)
@@ -794,7 +944,6 @@ export default function VentesPage() {
       generateDocumentNumber(invoices, docType, group.date || new Date())
 
     if (!existingDoc) {
-      // Total for invoice = product items only (no charges)
       const total = group.items
         .filter(s => !s.is_charge)
         .reduce((sum, s) => sum + Number(s.total_sale || 0), 0)
@@ -853,10 +1002,13 @@ export default function VentesPage() {
         action={<Btn icon={Plus} onClick={openAdd}>Nouvelle vente</Btn>}
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="Chiffre d'affaires total" value={formatFCFA(totalRevenue)} color="blue" icon={TrendingUp} />
         <StatCard label="Marge total" value={formatFCFA(totalProfit)} color="green" icon={TrendingUp} />
         <StatCard label="Nombre de ventes" value={activeSales.length} color="purple" />
+        {pendingAdvanceCount > 0 && (
+          <StatCard label="En attente collecte" value={pendingAdvanceCount} color="amber" icon={PackageCheck} />
+        )}
       </div>
 
       <div className="card overflow-hidden">
@@ -877,19 +1029,20 @@ export default function VentesPage() {
         ) : (
           <div className="divide-y divide-gray-50 zebra-list">
             {groupedSales.map(group => {
-              // Only sum product items for display total (not charges)
               const groupTotal = group.items
                 .filter(s => !s.is_charge)
                 .reduce((a, s) => a + (s.total_sale || 0), 0)
               const groupProfit = group.items
                 .filter(s => !s.is_charge)
                 .reduce((a, s) => a + (s.profit || 0), 0)
-              // Display items: only product lines (charges hidden from client-facing view)
               const displayItems = group.items.filter(s => !s.is_charge)
+              const alreadyPaidForAdvance = displayItems.reduce((s, i) => s + Number(i.paid_amount || 0), 0)
+              const isFullyPaidAdvance = group.is_advance && alreadyPaidForAdvance >= groupTotal - 0.01
+
               return (
                 <div
                   key={group.key}
-                  className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : 'hover:bg-gray-50 cursor-pointer'} transition-colors`}
+                  className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : group.is_advance ? 'bg-amber-50/30 hover:bg-amber-50/60 cursor-pointer' : 'hover:bg-gray-50 cursor-pointer'} transition-colors`}
                   onClick={() => setSaleDetail(group)}
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -904,7 +1057,12 @@ export default function VentesPage() {
                         {group.store && <span className="text-xs text-gray-400">· {group.store}</span>}
                         {group.client_name && <span className="text-xs font-medium text-blue-600">· {group.client_name}</span>}
                         {group.cancelled && <Badge color="red">Annulée</Badge>}
-                        {group.payment_status === 'credit' && (
+                        {group.is_advance && (
+                          <Badge color="amber">
+                            {isFullyPaidAdvance ? '✅ Prêt à collecter' : `Avance : ${formatFCFA(alreadyPaidForAdvance)} / ${formatFCFA(groupTotal)}`}
+                          </Badge>
+                        )}
+                        {!group.is_advance && group.payment_status === 'credit' && (
                           <Badge color="amber">Crédit : {formatFCFA(group.remaining_amount)}</Badge>
                         )}
                         {displayItems.length > 1 && (
@@ -920,7 +1078,6 @@ export default function VentesPage() {
                             <span className="text-gray-500">{formatFCFA(s.total_sale)}</span>
                           </div>
                         ))}
-                        {/* Show charges as a subtle internal note */}
                         {group.items.filter(s => s.is_charge).length > 0 && (
                           <div className="text-xs text-gray-400 italic mt-1">
                             + {group.items.filter(s => s.is_charge).length} charge(s) interne(s)
@@ -931,12 +1088,51 @@ export default function VentesPage() {
                     </div>
                     <div className="text-right flex-none">
                       <p className="font-bold text-gray-900">{formatFCFA(groupTotal)}</p>
-                      {!group.cancelled && (
+                      {!group.cancelled && !group.is_advance && (
                         <p className="text-xs text-emerald-600">+{formatFCFA(groupProfit)}</p>
+                      )}
+                      {group.is_advance && (
+                        <p className="text-xs text-amber-600">Non collectée</p>
                       )}
                     </div>
                     {!group.cancelled && (
                       <div className="flex gap-1 flex-none" onClick={e => e.stopPropagation()}>
+                        {/* Advance-specific buttons */}
+                        {group.is_advance && (
+                          <>
+                            {/* Add payment button */}
+                            {!isFullyPaidAdvance && (
+                              <button
+                                onClick={() => openAdvancePayment(group)}
+                                className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors"
+                                title="Ajouter un paiement"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {/* Collect button */}
+                            <button
+                              onClick={() => setConfirm({ type: 'collect', group })}
+                              className={`p-1.5 rounded-lg transition-colors ${isFullyPaidAdvance ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700' : 'hover:bg-blue-50 text-gray-400 hover:text-blue-600'}`}
+                              title={isFullyPaidAdvance ? 'Collecter (entièrement payée)' : 'Collecter (partiellement payée)'}
+                            >
+                              <PackageCheck className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+
+                        {/* Credit payment button (non-advance) */}
+                        {!group.is_advance && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openPayment(group) }}
+                            disabled={Number(group.remaining_amount || 0) <= 0 || group.cancelled}
+                            className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Payer le crédit"
+                          >
+                            <Wallet className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
                         <button
                           onClick={() => {
                             setPrintOptions(getDefaultDocumentOptions())
@@ -947,14 +1143,6 @@ export default function VentesPage() {
                           title="Imprimer un document"
                         >
                           <Printer className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openPayment(group) }}
-                          disabled={Number(group.remaining_amount || 0) <= 0 || group.cancelled}
-                          className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Payer le crédit"
-                        >
-                          <Wallet className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => openEditSale(group)}
@@ -982,85 +1170,116 @@ export default function VentesPage() {
 
       {/* Sale Detail Modal */}
       <Modal open={!!saleDetail} onClose={() => setSaleDetail(null)} title="Détails de la vente" maxW="max-w-3xl">
-        {saleDetail && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Informations générales</p>
-                <div className="mt-4 space-y-3 text-sm text-gray-700">
-                  <div className="flex justify-between"><span>Date</span><span>{format(new Date(saleDetail.date), 'dd MMM yyyy', { locale: fr })}</span></div>
-                  {saleDetail.created_at && <div className="flex justify-between"><span>Créée le</span><span>{format(new Date(saleDetail.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span></div>}
-                  <div className="flex justify-between"><span>Client</span><span>{saleDetail.client_name || '—'}</span></div>
-                  <div className="flex justify-between"><span>Statut paiement</span><span>{saleDetail.payment_status === 'credit' ? 'Crédit' : 'Payé'}</span></div>
-                  <div className="flex justify-between"><span>Montant payé</span><span>{formatFCFA(saleDetail.paid_amount || 0)}</span></div>
-                  <div className="flex justify-between"><span>Reste à payer</span><span>{formatFCFA(saleDetail.remaining_amount || 0)}</span></div>
-                  <div className="flex justify-between"><span>Articles</span><span>{saleDetail.items.filter(i => !i.is_charge).length}</span></div>
+        {saleDetail && (() => {
+          const grandTotal = saleDetail.items.filter(i => !i.is_charge).reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
+          const alreadyPaid = saleDetail.items.filter(i => !i.is_charge).reduce((sum, item) => sum + Number(item.paid_amount || 0), 0)
+          const isAdvance = saleDetail.items.some(i => i.status === 'pending_advance')
+          const isFullyPaid = isAdvance && alreadyPaid >= grandTotal - 0.01
+          return (
+            <div className="space-y-6">
+              {isAdvance && (
+                <div className={`rounded-xl p-4 border ${isFullyPaid ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <p className={`text-sm font-semibold ${isFullyPaid ? 'text-emerald-800' : 'text-amber-800'}`}>
+                    {isFullyPaid ? '✅ Vente entièrement payée — prête à être collectée' : `⏳ Vente en avance — ${formatFCFA(alreadyPaid)} payé sur ${formatFCFA(grandTotal)}`}
+                  </p>
+                  {!isFullyPaid && (
+                    <p className="text-xs text-amber-700 mt-1">Reste à payer : {formatFCFA(grandTotal - alreadyPaid)} — le stock ne sera déduit qu'à la collecte</p>
+                  )}
                 </div>
-              </div>
-              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Totaux</p>
-                <div className="mt-4 space-y-3 text-sm text-gray-700">
-                  <div className="flex justify-between">
-                    <span>Chiffre d'affaires</span>
-                    <span>{formatFCFA(saleDetail.items.filter(i => !i.is_charge).reduce((sum, item) => sum + Number(item.total_sale || 0), 0))}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Coût total</span>
-                    <span>{formatFCFA(saleDetail.items.filter(i => !i.is_charge).reduce((sum, item) => sum + Number(item.total_purchase_cost || 0), 0))}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Charges internes</span>
-                    <span className="text-amber-600">-{formatFCFA(saleDetail.items.filter(i => i.is_charge).reduce((sum, item) => sum + Number(item.total_sale || 0), 0))}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold">
-                    <span>Marge nette</span>
-                    <span>{formatFCFA(saleDetail.items.reduce((sum, item) => sum + Number(item.profit || 0), 0))}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">Articles vendus</p>
-                  <p className="text-xs text-gray-500">Détails des lignes de vente</p>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {saleDetail.items.filter(i => !i.is_charge).map(item => (
-                  <div key={item.id} className="grid grid-cols-1 lg:grid-cols-4 gap-3 p-4 rounded-2xl bg-gray-50">
-                    <div>
-                      <p className="text-xs text-gray-400">Produit</p>
-                      <p className="font-semibold text-gray-900 truncate">{item.product_name || '—'}</p>
-                      <p className="text-xs text-gray-500">{item.product_code || item.product_id || '—'}</p>
+              )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Informations générales</p>
+                  <div className="mt-4 space-y-3 text-sm text-gray-700">
+                    <div className="flex justify-between"><span>Date</span><span>{format(new Date(saleDetail.date), 'dd MMM yyyy', { locale: fr })}</span></div>
+                    {saleDetail.created_at && <div className="flex justify-between"><span>Créée le</span><span>{format(new Date(saleDetail.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span></div>}
+                    <div className="flex justify-between"><span>Client</span><span>{saleDetail.client_name || '—'}</span></div>
+                    <div className="flex justify-between"><span>Statut</span>
+                      <span>{isAdvance ? (isFullyPaid ? 'Prêt à collecter' : 'Avance en cours') : saleDetail.payment_status === 'credit' ? 'Crédit' : 'Payé'}</span>
                     </div>
-                    <div><p className="text-xs text-gray-400">Quantité</p><p className="font-semibold text-gray-900">{item.quantity}</p></div>
-                    <div><p className="text-xs text-gray-400">Prix unitaire</p><p className="font-semibold text-gray-900">{formatFCFA(item.unit_sale_price || 0)}</p></div>
-                    <div><p className="text-xs text-gray-400">Total</p><p className="font-semibold text-gray-900">{formatFCFA(item.total_sale || 0)}</p></div>
+                    <div className="flex justify-between"><span>Montant payé</span><span>{formatFCFA(alreadyPaid)}</span></div>
+                    <div className="flex justify-between"><span>Reste à payer</span><span>{formatFCFA(Math.max(0, grandTotal - alreadyPaid))}</span></div>
+                    <div className="flex justify-between"><span>Articles</span><span>{saleDetail.items.filter(i => !i.is_charge).length}</span></div>
                   </div>
-                ))}
-                {saleDetail.items.filter(i => i.is_charge).length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-gray-100">
-                    <p className="text-xs font-semibold text-gray-400 mb-2">Charges internes (non facturées au client)</p>
-                    {saleDetail.items.filter(i => i.is_charge).map(item => (
-                      <div key={item.id} className="flex justify-between text-sm text-amber-700 bg-amber-50 rounded-xl px-4 py-2 mb-1">
-                        <span>{item.product_name}</span>
-                        <span>{formatFCFA(item.total_sale || 0)}</span>
+                </div>
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Totaux</p>
+                  <div className="mt-4 space-y-3 text-sm text-gray-700">
+                    <div className="flex justify-between">
+                      <span>Chiffre d'affaires</span>
+                      <span>{formatFCFA(saleDetail.items.filter(i => !i.is_charge).reduce((sum, item) => sum + Number(item.total_sale || 0), 0))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Coût total</span>
+                      <span>{formatFCFA(saleDetail.items.filter(i => !i.is_charge).reduce((sum, item) => sum + Number(item.total_purchase_cost || 0), 0))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Charges internes</span>
+                      <span className="text-amber-600">-{formatFCFA(saleDetail.items.filter(i => i.is_charge).reduce((sum, item) => sum + Number(item.total_sale || 0), 0))}</span>
+                    </div>
+                    <div className="flex justify-between font-semibold">
+                      <span>Marge nette</span>
+                      <span>{formatFCFA(saleDetail.items.reduce((sum, item) => sum + Number(item.profit || 0), 0))}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Articles vendus</p>
+                    <p className="text-xs text-gray-500">Détails des lignes de vente</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {saleDetail.items.filter(i => !i.is_charge).map(item => (
+                    <div key={item.id} className="grid grid-cols-1 lg:grid-cols-4 gap-3 p-4 rounded-2xl bg-gray-50">
+                      <div>
+                        <p className="text-xs text-gray-400">Produit</p>
+                        <p className="font-semibold text-gray-900 truncate">{item.product_name || '—'}</p>
+                        <p className="text-xs text-gray-500">{item.product_code || item.product_id || '—'}</p>
                       </div>
-                    ))}
-                  </div>
+                      <div><p className="text-xs text-gray-400">Quantité</p><p className="font-semibold text-gray-900">{item.quantity}</p></div>
+                      <div><p className="text-xs text-gray-400">Prix unitaire</p><p className="font-semibold text-gray-900">{formatFCFA(item.unit_sale_price || 0)}</p></div>
+                      <div><p className="text-xs text-gray-400">Total</p><p className="font-semibold text-gray-900">{formatFCFA(item.total_sale || 0)}</p></div>
+                    </div>
+                  ))}
+                  {saleDetail.items.filter(i => i.is_charge).length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <p className="text-xs font-semibold text-gray-400 mb-2">Charges internes (non facturées au client)</p>
+                      {saleDetail.items.filter(i => i.is_charge).map(item => (
+                        <div key={item.id} className="flex justify-between text-sm text-amber-700 bg-amber-50 rounded-xl px-4 py-2 mb-1">
+                          <span>{item.product_name}</span>
+                          <span>{formatFCFA(item.total_sale || 0)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 justify-end">
+                <Btn variant="secondary" onClick={() => setSaleDetail(null)}>Fermer</Btn>
+                <Btn onClick={() => { setSaleDetail(null); setDocModal(saleDetail) }}>Imprimer</Btn>
+                {isAdvance && (
+                  <>
+                    {!isFullyPaid && (
+                      <Btn variant="secondary" onClick={() => { setSaleDetail(null); openAdvancePayment(saleDetail) }}>
+                        Ajouter un paiement
+                      </Btn>
+                    )}
+                    <Btn onClick={() => { setSaleDetail(null); setConfirm({ type: 'collect', group: saleDetail }) }}>
+                      <PackageCheck className="w-4 h-4 mr-1" />
+                      {isFullyPaid ? 'Collecter' : 'Collecter (partiel)'}
+                    </Btn>
+                  </>
                 )}
+                <Btn onClick={() => { setSaleDetail(null); openEditSale(saleDetail) }}>Modifier</Btn>
               </div>
             </div>
-
-            <div className="flex flex-wrap gap-3 justify-end">
-              <Btn variant="secondary" onClick={() => setSaleDetail(null)}>Fermer</Btn>
-              <Btn onClick={() => { setSaleDetail(null); setDocModal(saleDetail) }}>Imprimer</Btn>
-              <Btn onClick={() => { setSaleDetail(null); openEditSale(saleDetail) }}>Modifier</Btn>
-            </div>
-          </div>
-        )}
+          )
+        })()}
       </Modal>
 
       {/* Document Print Modal */}
@@ -1118,7 +1337,7 @@ export default function VentesPage() {
             </FormField>
           </div>
 
-          {/* Payment mode — full row */}
+          {/* Payment mode */}
           <FormField label="Mode de paiement" required>
             <select
               value={paymentMode}
@@ -1129,13 +1348,7 @@ export default function VentesPage() {
               <option value="">— Choisir le mode de paiement —</option>
               <option value="paid">Payé comptant</option>
               <option value="credit">Vente à crédit</option>
-              <option value="advance" disabled={!selectedClientForSale}>
-                Réservation / Avance client
-                {selectedClientForSale && selectedClientCredit > 0
-                  ? ` (avance dispo: ${formatFCFA(selectedClientCredit)})`
-                  : selectedClientForSale ? ' — sans avance préalable' : ' — choisir un client'}
-              </option>
-
+              <option value="advance">Réservation / Avance client</option>
             </select>
           </FormField>
 
@@ -1148,22 +1361,18 @@ export default function VentesPage() {
             />
           )}
 
-          {/* Vente à crédit: optional partial payment with same breakdown UI */}
+          {/* Vente à crédit: optional partial payment */}
           {paymentMode === 'credit' && (
             <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 space-y-3">
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Paiement partiel (optionnel)</p>
               <FormField label="Montant payé maintenant">
                 <FrenchInput
                   value={paidAmount}
-                  onChange={v => {
-                    setPaidAmount(v)
-                    // Clear breakdown if they manually type a different amount
-                  }}
+                  onChange={v => setPaidAmount(v)}
                   placeholder="0 — laisser vide si rien payé"
                   className={inputCls}
                 />
               </FormField>
-              {/* Same breakdown as comptant for the partial payment */}
               <PaymentBreakdownInput
                 value={paymentBreakdown}
                 onChange={breakdown => {
@@ -1176,13 +1385,43 @@ export default function VentesPage() {
             </div>
           )}
 
-          {/* Advance info */}
-          {paymentMode === 'advance' && selectedClientForSale && (
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm">
-              <p className="font-semibold text-emerald-900">Avance disponible : {formatFCFA(selectedClientCredit)}</p>
-              <p className="text-emerald-700">Montant utilisé pour cette vente : {formatFCFA(clientCreditUsed)}</p>
-              {remainingPreview > 0 && (
-                <p className="text-amber-700 mt-1">Reste à payer après avance : {formatFCFA(remainingPreview)}</p>
+          {/* Avance / Réservation — works exactly like comptant */}
+          {paymentMode === 'advance' && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <PackageCheck className="w-4 h-4 text-blue-600 mt-0.5 flex-none" />
+                <div>
+                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Réservation / Avance</p>
+                  <p className="text-xs text-blue-600 mt-0.5">Le stock ne sera pas déduit tant que la vente n'est pas collectée. Vous pourrez ajouter des paiements ensuite.</p>
+                </div>
+              </div>
+              <FormField label="Montant payé maintenant (avance)">
+                <FrenchInput
+                  value={paidAmount}
+                  onChange={v => {
+                    setPaidAmount(v)
+                  }}
+                  placeholder="0 — laisser vide si rien encore payé"
+                  className={inputCls}
+                />
+              </FormField>
+              {/* Same breakdown UI as comptant */}
+              <PaymentBreakdownInput
+                value={paymentBreakdown}
+                onChange={breakdown => {
+                  setPaymentBreakdown(breakdown)
+                  const total = sumPaymentBreakdown(breakdown)
+                  if (total > 0) setPaidAmount(String(total))
+                }}
+                total={Number(paidAmount || 0)}
+              />
+              {saleGrandTotal > 0 && (
+                <div className="text-xs text-blue-700 font-medium">
+                  {Number(paidAmount || 0) > 0
+                    ? `Reste à payer après cette avance : ${formatFCFA(Math.max(0, saleGrandTotal - Number(paidAmount || 0)))}`
+                    : `Total à couvrir : ${formatFCFA(saleGrandTotal)}`
+                  }
+                </div>
               )}
             </div>
           )}
@@ -1245,7 +1484,6 @@ export default function VentesPage() {
                 const prod = products.find(p => p.id === line.product_id)
                 const availStock = prod ? computeStock(prod, purchases, sales) : null
 
-
                 return (
                   <div key={line._key}
                     className={`p-3 space-y-2 rounded-xl transition-all duration-500 ${line._key === newLineKey ? 'bg-blue-50 ring-2 ring-blue-200 shadow-sm animate-pulse' : 'bg-white'}`}
@@ -1265,11 +1503,12 @@ export default function VentesPage() {
                         const stock = Number(p.currentStock || 0)
                         const isSelectedElsewhere = cart.some(other => other._key !== line._key && other.product_id === p.id)
                         const isCurrentLine = line.product_id === p.id
-                        const outOfStock = stock <= 0
+                        // For advance sales, we don't block out-of-stock (stock check is at collect time)
+                        const outOfStock = stock <= 0 && paymentMode !== 'advance'
                         const disabled = !isCurrentLine && (isSelectedElsewhere || outOfStock)
                         return (
                           <option key={p.id} value={p.id} disabled={disabled}>
-                            {outOfStock ? '⚠ ' : ''}{p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(stock)}
+                            {stock <= 0 && paymentMode !== 'advance' ? '⚠ ' : ''}{p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(stock)}
                             {isSelectedElsewhere ? ' — déjà ajouté' : ''}{outOfStock ? ' — rupture' : ''}
                           </option>
                         )
@@ -1376,7 +1615,9 @@ export default function VentesPage() {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-blue-500">Reste à payer</p>
+                <p className="text-xs text-blue-500">
+                  {paymentMode === 'advance' ? 'Reste après avance' : 'Reste à payer'}
+                </p>
                 <p className={`font-bold ${remainingPreview > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
                   {formatFCFA(remainingPreview)}
                 </p>
@@ -1391,28 +1632,67 @@ export default function VentesPage() {
         </form>
       </Modal>
 
-      {/* Credit payment modal */}
-      <Modal open={!!paymentModal} onClose={() => setPaymentModal(null)} title="Paiement du crédit" maxW="max-w-md">
+      {/* Advance payment modal */}
+      <Modal open={!!paymentModal} onClose={() => { setPaymentModal(null); setAdvancePaymentBreakdown([]) }}
+        title={paymentModal?._advanceMode ? 'Ajouter un paiement' : 'Paiement du crédit'}
+        maxW="max-w-md">
         {paymentModal && (
-          <form onSubmit={handleCreditPayment} className="space-y-4">
-            <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
-              <p className="text-xs text-amber-600">Total vente</p>
-              <p className="font-bold text-gray-900">
-                {formatFCFA(paymentModal.items.filter(i => !i.is_charge).reduce((s, item) => s + Number(item.total_sale || 0), 0))}
-              </p>
-              <p className="text-xs text-amber-600 mt-2">Déjà payé</p>
-              <p className="font-bold text-gray-900">{formatFCFA(paymentModal.paid_amount)}</p>
-              <p className="text-xs text-amber-600 mt-2">Reste à payer</p>
-              <p className="font-bold text-amber-700">{formatFCFA(paymentModal.remaining_amount)}</p>
-            </div>
-            <FormField label="Montant payé maintenant" required>
-              <FrenchInput value={paymentAmount} onChange={setPaymentAmount} placeholder="0" required className={inputCls} />
-            </FormField>
-            <div className="flex gap-3 justify-end">
-              <Btn variant="secondary" onClick={() => setPaymentModal(null)}>Annuler</Btn>
-              <Btn type="submit">Enregistrer paiement</Btn>
-            </div>
-          </form>
+          paymentModal._advanceMode ? (
+            // ── Advance payment form ──
+            <form onSubmit={handleAdvancePayment} className="space-y-4">
+              <div className="rounded-xl bg-blue-50 border border-blue-100 p-4">
+                <p className="text-xs text-blue-600">Total vente</p>
+                <p className="font-bold text-gray-900">{formatFCFA(paymentModal._grandTotal)}</p>
+                <p className="text-xs text-blue-600 mt-2">Déjà payé</p>
+                <p className="font-bold text-gray-900">{formatFCFA(paymentModal._alreadyPaid)}</p>
+                <p className="text-xs text-blue-600 mt-2">Reste à payer</p>
+                <p className="font-bold text-amber-700">{formatFCFA(paymentModal._grandTotal - paymentModal._alreadyPaid)}</p>
+              </div>
+              <FormField label="Montant payé maintenant" required>
+                <FrenchInput value={paymentAmount} onChange={v => { setPaymentAmount(v) }} placeholder="0" required className={inputCls} />
+              </FormField>
+              {/* Same breakdown as comptant */}
+              <PaymentBreakdownInput
+                value={advancePaymentBreakdown}
+                onChange={breakdown => {
+                  setAdvancePaymentBreakdown(breakdown)
+                  const total = sumPaymentBreakdown(breakdown)
+                  if (total > 0) setPaymentAmount(String(total))
+                }}
+                total={Number(paymentAmount || 0)}
+              />
+              {Number(paymentAmount || 0) > 0 && (
+                <div className="text-xs text-blue-700 font-medium">
+                  Reste après ce paiement : {formatFCFA(Math.max(0, paymentModal._grandTotal - paymentModal._alreadyPaid - Number(paymentAmount || 0)))}
+                </div>
+              )}
+              <div className="flex gap-3 justify-end">
+                <Btn variant="secondary" onClick={() => { setPaymentModal(null); setAdvancePaymentBreakdown([]) }}>Annuler</Btn>
+                <Btn type="submit">Enregistrer paiement</Btn>
+              </div>
+            </form>
+          ) : (
+            // ── Credit payment form (legacy) ──
+            <form onSubmit={handleCreditPayment} className="space-y-4">
+              <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
+                <p className="text-xs text-amber-600">Total vente</p>
+                <p className="font-bold text-gray-900">
+                  {formatFCFA(paymentModal.items.filter(i => !i.is_charge).reduce((s, item) => s + Number(item.total_sale || 0), 0))}
+                </p>
+                <p className="text-xs text-amber-600 mt-2">Déjà payé</p>
+                <p className="font-bold text-gray-900">{formatFCFA(paymentModal.paid_amount)}</p>
+                <p className="text-xs text-amber-600 mt-2">Reste à payer</p>
+                <p className="font-bold text-amber-700">{formatFCFA(paymentModal.remaining_amount)}</p>
+              </div>
+              <FormField label="Montant payé maintenant" required>
+                <FrenchInput value={paymentAmount} onChange={setPaymentAmount} placeholder="0" required className={inputCls} />
+              </FormField>
+              <div className="flex gap-3 justify-end">
+                <Btn variant="secondary" onClick={() => setPaymentModal(null)}>Annuler</Btn>
+                <Btn type="submit">Enregistrer paiement</Btn>
+              </div>
+            </form>
+          )
         )}
       </Modal>
 
@@ -1443,6 +1723,24 @@ export default function VentesPage() {
         </form>
       </Modal>
 
+      <ConfirmDialog
+        open={!!confirm && confirm.type === 'collect'}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => { handleCollectAdvanceSale(confirm.group); setConfirm(null) }}
+        title="Collecter la vente"
+        message={(() => {
+          if (!confirm?.group) return ''
+          const grandTotal = (confirm.group.items || []).filter(i => !i.is_charge).reduce((s, i) => s + Number(i.total_sale || 0), 0)
+          const alreadyPaid = (confirm.group.items || []).filter(i => !i.is_charge).reduce((s, i) => s + Number(i.paid_amount || 0), 0)
+          const remaining = Math.max(0, grandTotal - alreadyPaid)
+          if (remaining > 0) {
+            return `Les articles seront marqués comme collectés et le stock sera déduit. Il restera ${formatFCFA(remaining)} à payer (enregistré comme crédit).`
+          }
+          return 'Les articles seront marqués comme collectés et le stock sera déduit. La vente est entièrement payée.'
+        })()}
+        confirmLabel="Confirmer la collecte"
+        danger={false}
+      />
       <ConfirmDialog
         open={!!confirm && confirm.type === 'cancel'}
         onClose={() => setConfirm(null)}

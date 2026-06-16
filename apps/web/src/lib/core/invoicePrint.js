@@ -94,39 +94,30 @@ export function printHtmlDocument(html, orientation = "landscape") {
   };
 }
 
-/**
- * Renders a complete standalone HTML document matching the Excel facture_avril design exactly.
- *
- * Layout (landscape A4):
- *   Row 1–7:  Logo (left) | Company info (center) | Activity box+Date (right)
- *   Row 8:    Orange title bar: "FACTURE DE VENTE V2026-04-13"
- *   Row 9:    Blue client strip: CLIENT | ADRESSE | Tél
- *   Row 11:   Blue table header: Désignation | Quantité | Unité | Prix Unitaire CFA | Prix Total CFA
- *   Row 12+:  Light-blue #D9E1F2 data rows
- *   Total:    Blue row — "MONTANT TOTAL" spans left cols, value right-aligned in last col
- *   Words:    Amount in words
- *   Garantie: If present
- *   Signature: Top-right, just "SIGNATURE" label + optional img
- *   NO footer bar at bottom
- */
-export function renderToInvoiceHTML({
+// ─── LANDSCAPE LAYOUT ────────────────────────────────────────────────────────
+// Matches the Paysage_facture.pdf exactly:
+//   Top: Logo (left) | Company info (center) | Activity box narrow (right) + Date
+//   Spacer row between orange title bar and blue client strip
+//   Blue client strip: CLIENT | ADRESSE | Tél
+//   Blue table headers, light-blue #D9E1F2 rows, blue total row
+//   Amount in words, Garantie, Signature bottom-right
+//   No footer bar
+// ─────────────────────────────────────────────────────────────────────────────
+function renderLandscapeHTML({
   shop,
   invoiceNumber,
   formValues,
   items,
   grandTotal,
-  type = "facture",
-  guaranteeText = "",
-  includeCachet = false,
-  includeSignature = false,
-  orientation = "landscape",
+  type,
+  guaranteeText,
+  documentOptions,
 }) {
   const dateStr = formValues.date
     ? format(new Date(formValues.date), "dd MMMM yyyy", { locale: fr })
     : "—";
 
   const city = formValues.city || shop?.city || "Niamey";
-  const documentOptions = normalizeDocumentOptions(shop, { includeCachet, includeSignature });
 
   const primary = "#1D71B8";
   const orange = "#F29100";
@@ -143,12 +134,11 @@ export function renderToInvoiceHTML({
 
   const showPrices = !isBonLivraison && !isBonCommande;
 
-  // Filter out charge items from the printed invoice (charges are internal)
   const printItems = items.filter(item => !item.is_charge);
 
   const itemsHTML = printItems
     .map(
-      (item, i) => `
+      (item) => `
     <tr>
       <td class="td-cell td-left">${item.designation || item.product_name || "—"}</td>
       <td class="td-cell td-center">${item.quantity || 0}</td>
@@ -157,12 +147,18 @@ export function renderToInvoiceHTML({
         ? `<td class="td-cell td-right">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
            <td class="td-cell td-right td-bold">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
         : ""}
-    </tr>`,
+    </tr>`
     )
     .join("");
 
-  // Recalculate grandTotal excluding charges (only product items)
-  const printGrandTotal = printItems.reduce((sum, item) => sum + Number(item.total_price || item.total_sale || 0), 0);
+  const printGrandTotal = printItems.reduce(
+    (sum, item) => sum + Number(item.total_price || item.total_sale || 0),
+    0
+  );
+
+  const clientName = formValues.client_name || "—";
+  const clientAddress = formValues.client_address || "—";
+  const clientPhone = formValues.client_phone || "—";
 
   return `<!doctype html>
 <html>
@@ -181,11 +177,9 @@ export function renderToInvoiceHTML({
       font-family: "Times New Roman", Times, serif;
       font-size: 13px;
     }
-    .page {
-      width: 285mm;
-    }
+    .page { width: 285mm; }
 
-    /* ── TOP SECTION: Logo | Company | Activity+Date ── */
+    /* ── TOP: Logo | Company | Activity+Date ── */
     .top {
       display: grid;
       grid-template-columns: 72mm 110mm 1fr;
@@ -199,10 +193,7 @@ export function renderToInvoiceHTML({
       object-fit: contain;
       display: block;
     }
-    .logo-placeholder {
-      width: 70mm;
-      height: 38mm;
-    }
+    .logo-placeholder { width: 70mm; height: 38mm; }
     .company-info {
       font-size: 13px;
       line-height: 1.5;
@@ -215,24 +206,24 @@ export function renderToInvoiceHTML({
       align-items: flex-end;
       gap: 2mm;
     }
+    /* Activity box: constrained width so it doesn't span the full right column */
     .activity-box {
       background: ${orange};
       color: #fff;
       font-weight: bold;
-      font-size: 13px;
+      font-size: 12px;
       text-align: center;
-      border-radius: 5mm;
-      padding: 3mm 4mm;
-      width: 100%;
+      border-radius: 4mm;
+      padding: 2.5mm 3mm;
+      max-width: 52mm;
+      line-height: 1.35;
     }
-    /* Date: right-aligned, size 15, below activity box */
     .date-line {
       text-align: right;
-      font-size: 15px;
+      font-size: 13px;
       font-weight: normal;
       white-space: nowrap;
       width: 100%;
-      margin-top: 2mm;
     }
 
     /* ── ORANGE TITLE BAR ── */
@@ -243,7 +234,12 @@ export function renderToInvoiceHTML({
       font-weight: bold;
       text-align: center;
       padding: 2.5mm 0;
-      margin-bottom: 0;
+    }
+
+    /* ── SPACER between title and client strip ── */
+    .title-spacer {
+      height: 3mm;
+      background: white;
     }
 
     /* ── CLIENT STRIP ── */
@@ -280,7 +276,6 @@ export function renderToInvoiceHTML({
     .th-left  { text-align: left; }
     .th-center { text-align: center; }
     .th-right { text-align: right; }
-
     .td-cell {
       padding: 1.5mm 2mm;
       border: 2px solid #fff;
@@ -291,8 +286,6 @@ export function renderToInvoiceHTML({
     .td-center { text-align: center; }
     .td-right  { text-align: right; }
     .td-bold   { font-weight: 700; }
-
-    /* Total row — blue bg, white text */
     .total-row td {
       background: ${primary};
       color: #fff;
@@ -324,7 +317,7 @@ export function renderToInvoiceHTML({
       font-weight: 900;
     }
 
-    /* ── SIGNATURE — top-right, just label + optional img ── */
+    /* ── SIGNATURE ── */
     .signature-wrap {
       margin-top: 4mm;
       display: flex;
@@ -357,20 +350,18 @@ export function renderToInvoiceHTML({
   <!-- TOP: Logo | Company | Activity + Date -->
   <div class="top">
     <div class="logo-cell">
-      ${getAssetSrc(shop, 'logo')
-        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, 'logo')}" alt="Logo" />`
+      ${getAssetSrc(shop, "logo")
+        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
         : '<div class="logo-placeholder"></div>'}
     </div>
-
     <div class="company-info">
-      <div>${shop?.name || ''}</div>
+      <div>${shop?.name || ""}</div>
       <div>Situé à ${shop?.address || "DAR ES SALAM derrière ESCAE"}</div>
       <div>Tél : ${shop?.phone || "+ 227 90 27 54 53 / 94 29 29 19"}</div>
       <div>Email : ${shop?.email || "elso.niger@gmail.com"}</div>
       <div>NIF : ${shop?.nif || "50873"}${shop?.rccm ? ` – RCCM : ${shop.rccm}` : " – RCCM : NE-NIA-2019-A-467"}</div>
       <div>${(shop?.city || "NIAMEY").toUpperCase()} - NIGER</div>
     </div>
-
     <div class="right-col">
       <div class="activity-box">
         ${shop?.activity || "VENTE, INSTALLATION D'ÉQUIPEMENTS SOLAIRES, ENTRETIEN ET DÉPANNAGE"}
@@ -382,11 +373,14 @@ export function renderToInvoiceHTML({
   <!-- ORANGE TITLE BAR -->
   <div class="doc-title">${title} ${invoiceNumber}</div>
 
+  <!-- SPACER between title and client strip -->
+  <div class="title-spacer"></div>
+
   <!-- BLUE CLIENT STRIP -->
   <div class="client-strip">
-    <div class="client-cell">CLIENT : ${formValues.client_name || "—"}</div>
-    <div class="client-cell">ADRESSE : ${formValues.client_address || "—"}</div>
-    <div class="client-cell">Tél : ${formValues.client_phone || "—"}</div>
+    <div class="client-cell">CLIENT : ${clientName}</div>
+    <div class="client-cell">ADRESSE : ${clientAddress}</div>
+    <div class="client-cell">Tél : ${clientPhone}</div>
   </div>
 
   <!-- ITEMS TABLE -->
@@ -434,10 +428,10 @@ export function renderToInvoiceHTML({
       SIGNATURE
       ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
         ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
-        : ''}
+        : ""}
       ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
         ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
-        : ''}
+        : ""}
     </div>
   </div>
 
@@ -446,10 +440,454 @@ export function renderToInvoiceHTML({
 </html>`;
 }
 
+// ─── PORTRAIT LAYOUT ──────────────────────────────────────────────────────────
+// Matches Portrait_facture.pdf exactly:
+//   Top-left: Logo
+//   Top-right: Company name bold centered, address/NIF/RCCM/COMPTE/city
+//   Top-right above company: orange activity box (narrower)
+//   Date: right-aligned below company block
+//   Gap, then full-width orange title bar
+//   Gap/spacer, then blue client strip: DOIT | ADRESSE | phone (no "Tél :" label)
+//   Blue table headers, light-blue rows
+//   Blue total row
+//   Amount in words
+//   GARANTIE (red underline label on own line, text below in bold)
+//   SIGNATURE (bottom-right, same vertical level as last garantie line)
+//   Blue footer bar: Tél / WhatsApp / Email
+// ─────────────────────────────────────────────────────────────────────────────
+function renderPortraitHTML({
+  shop,
+  invoiceNumber,
+  formValues,
+  items,
+  grandTotal,
+  type,
+  guaranteeText,
+  documentOptions,
+}) {
+  const dateStr = formValues.date
+    ? format(new Date(formValues.date), "dd MMMM yyyy", { locale: fr })
+    : "—";
+
+  const city = formValues.city || shop?.city || "Niamey";
+
+  const primary = "#1D71B8";
+  const orange = "#F29100";
+  const rowBg = "#D9E1F2";
+
+  const isProforma = type === "proforma";
+  const isBonLivraison = type === "bon_livraison";
+  const isBonCommande = type === "bon_commande";
+
+  let title = "FACTURE DE VENTE";
+  if (isProforma) title = "FACTURE PROFORMA";
+  if (isBonLivraison) title = "BON DE LIVRAISON";
+  if (isBonCommande) title = "BON DE COMMANDE";
+
+  const showPrices = !isBonLivraison && !isBonCommande;
+
+  const printItems = items.filter(item => !item.is_charge);
+
+  const itemsHTML = printItems
+    .map(
+      (item) => `
+    <tr>
+      <td class="td-cell td-left">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-center">${item.quantity || 0}</td>
+      <td class="td-cell td-center">${item.unit || "Pièce"}</td>
+      ${showPrices
+        ? `<td class="td-cell td-right">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
+           <td class="td-cell td-right td-bold">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
+        : ""}
+    </tr>`
+    )
+    .join("");
+
+  const printGrandTotal = printItems.reduce(
+    (sum, item) => sum + Number(item.total_price || item.total_sale || 0),
+    0
+  );
+
+  const clientName = formValues.client_name || "—";
+  const clientAddress = formValues.client_address || "—";
+  const clientPhone = formValues.client_phone || "—";
+
+  // Footer contact info — use shop fields with fallback to PDF example
+  const shopPhone = shop?.phone || "(+227) 90 27 54 53 / 94 29 29 19";
+  const shopWhatsapp = shop?.whatsapp || shop?.phone || "+227 94 29 29 19";
+  const shopEmail = shop?.email || "elso.niger@gmail.com";
+
+  // Company block (right side of header) — matches portrait PDF exactly
+  const shopName = shop?.name || "ELITE SOLAIRE";
+  const shopActivity = shop?.activity || "VENTE ET INSTALLATION D'ÉQUIPEMENTS SOLAIRES";
+  const shopAddress = shop?.address || "DAR ES SALAM derrière ESCAE";
+  const shopNif = shop?.nif || "50873/P";
+  const shopRccm = shop?.rccm || "NE-NIA-2019-A-467";
+  const shopBank = shop?.bank_account || "02134924401-79";
+  const shopCity = (shop?.city || "NIAMEY").toUpperCase();
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${title} ${invoiceNumber}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 6mm 8mm 4mm 8mm;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: white;
+      color: #000;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 12px;
+      /* Use flex column so footer sticks to bottom */
+      display: flex;
+      flex-direction: column;
+      min-height: 277mm;
+    }
+    .page {
+      flex: 1;
+      width: 194mm;
+    }
+
+    /* ── TOP HEADER: Logo left | Company right ── */
+    .top {
+      display: grid;
+      grid-template-columns: 50mm 1fr;
+      gap: 4mm;
+      align-items: start;
+      margin-bottom: 3mm;
+    }
+    .logo-cell img {
+      max-width: 48mm;
+      max-height: 32mm;
+      object-fit: contain;
+      display: block;
+    }
+    .logo-placeholder { width: 48mm; height: 32mm; }
+
+    /* Right column: activity box on top, then company info centered */
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5mm;
+    }
+    .activity-box {
+      background: ${orange};
+      color: #fff;
+      font-weight: bold;
+      font-size: 11px;
+      text-align: center;
+      padding: 2mm 3mm;
+      /* Not full width — constrained to feel like the PDF */
+      align-self: flex-end;
+      max-width: 72mm;
+      line-height: 1.3;
+    }
+    .company-block {
+      text-align: center;
+      font-weight: 700;
+      font-size: 12px;
+      line-height: 1.5;
+      width: 100%;
+    }
+    .company-name {
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .date-line {
+      text-align: right;
+      font-size: 12px;
+      width: 100%;
+      margin-top: 1mm;
+    }
+
+    /* ── ORANGE TITLE BAR ── */
+    .doc-title {
+      background: ${orange};
+      color: #fff;
+      font-size: 15px;
+      font-weight: bold;
+      text-align: center;
+      padding: 2mm 0;
+      margin-top: 3mm;
+    }
+
+    /* ── SPACER ── */
+    .title-spacer { height: 2.5mm; background: white; }
+
+    /* ── CLIENT STRIP ── */
+    /* Portrait uses "DOIT :" label (not "CLIENT :") and no "Tél :" on 3rd cell */
+    .client-strip {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr 0.8fr;
+      background: ${primary};
+      color: #fff;
+      font-weight: 800;
+    }
+    .client-cell {
+      padding: 1.5mm 2.5mm;
+      border-right: 2px solid #fff;
+      text-align: center;
+      font-size: 13px;
+    }
+    .client-cell:last-child { border-right: 0; }
+
+    /* ── TABLE ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 3.5mm;
+    }
+    th {
+      background: ${primary};
+      color: #fff;
+      padding: 1.5mm 2mm;
+      font-size: 13px;
+      border: 2px solid #fff;
+      font-weight: 800;
+    }
+    .th-left   { text-align: left; }
+    .th-center { text-align: center; }
+    .th-right  { text-align: right; }
+    .td-cell {
+      padding: 1.5mm 2mm;
+      border: 2px solid #fff;
+      background: ${rowBg};
+      font-size: 12px;
+    }
+    .td-left   { text-align: left; }
+    .td-center { text-align: center; }
+    .td-right  { text-align: right; }
+    .td-bold   { font-weight: 700; }
+    .total-row td {
+      background: ${primary};
+      color: #fff;
+      font-weight: 800;
+      padding: 1.5mm 2mm;
+      border: 2px solid #fff;
+      font-size: 13px;
+    }
+    .total-label { text-align: center; }
+    .total-value { text-align: right; }
+
+    /* ── AMOUNT IN WORDS ── */
+    .words {
+      margin-top: 4mm;
+      font-size: 12px;
+      line-height: 1.5;
+      padding-left: 1mm;
+    }
+    .words strong { font-weight: 900; }
+
+    /* ── GARANTIE — portrait style: label on own line, bold body ── */
+    .garantie {
+      margin-top: 4mm;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .garantie .label {
+      color: red;
+      text-decoration: underline;
+      font-weight: 900;
+      display: block;
+      margin-bottom: 1mm;
+    }
+    .garantie .body {
+      font-weight: 700;
+    }
+
+    /* ── BOTTOM SECTION: garantie left + signature right ── */
+    .bottom-section {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 4mm;
+    }
+    .garantie-col { flex: 1; }
+    .signature-box {
+      width: 48mm;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 900;
+      flex-shrink: 0;
+      margin-left: 6mm;
+    }
+    .signature-img {
+      max-width: 40mm;
+      max-height: 22mm;
+      object-fit: contain;
+      margin-top: 2mm;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ── FOOTER BAR ── */
+    .footer-bar {
+      background: ${primary};
+      color: #fff;
+      font-weight: 700;
+      font-size: 11px;
+      text-align: center;
+      padding: 2mm 4mm;
+      margin-top: 6mm;
+      line-height: 1.4;
+    }
+
+    @media print {
+      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- TOP: Logo (left) | Activity box + Company info (right) -->
+  <div class="top">
+    <div class="logo-cell">
+      ${getAssetSrc(shop, "logo")
+        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
+        : '<div class="logo-placeholder"></div>'}
+    </div>
+    <div class="right-col">
+      <div class="activity-box">${shopActivity}</div>
+      <div class="company-block">
+        <div>Situé à ${shopAddress}</div>
+        <div>NIF : ${shopNif} – RCCM : ${shopRccm}</div>
+        <div>COMPTE CORIS BANK : ${shopBank}</div>
+        <div>${shopCity} - NIGER</div>
+      </div>
+      <div class="date-line">${city}, le ${dateStr}</div>
+    </div>
+  </div>
+
+  <!-- ORANGE TITLE BAR -->
+  <div class="doc-title">${title} ${invoiceNumber}</div>
+
+  <!-- SPACER -->
+  <div class="title-spacer"></div>
+
+  <!-- BLUE CLIENT STRIP — Portrait uses "DOIT :" and bare phone number in 3rd cell -->
+  <div class="client-strip">
+    <div class="client-cell">DOIT : ${clientName}</div>
+    <div class="client-cell">ADRESSE : ${clientAddress}</div>
+    <div class="client-cell">${clientPhone}</div>
+  </div>
+
+  <!-- ITEMS TABLE -->
+  <table>
+    <thead>
+      <tr>
+        <th class="th-left" style="width:42%">Désignation</th>
+        <th class="th-center" style="width:10%">Quantité</th>
+        <th class="th-center" style="width:9%">Unité</th>
+        ${showPrices
+          ? `<th class="th-right" style="width:19%">Prix Unitaire CFA</th>
+             <th class="th-right" style="width:20%">Prix Total CFA</th>`
+          : ""}
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsHTML || `<tr><td class="td-cell td-left" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
+    </tbody>
+    ${showPrices
+      ? `<tfoot>
+           <tr class="total-row">
+             <td colspan="4" class="total-label">MONTANT TOTAL</td>
+             <td class="total-value">${formatFCFA(printGrandTotal).replace(" FCFA", "")}</td>
+           </tr>
+         </tfoot>`
+      : ""}
+  </table>
+
+  ${showPrices
+    ? `<div class="words"> ${amountToWordsFCFA(
+        printGrandTotal,
+        isProforma ? "proforma" : "facture",
+      ).replace(
+        /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+        "$1<strong>$2</strong>",
+      )}</div>`
+    : ""}
+
+  <!-- BOTTOM SECTION: Garantie (left) + Signature (right) -->
+  <div class="bottom-section">
+    <div class="garantie-col">
+      ${guaranteeText
+        ? `<div class="garantie">
+             <span class="label">GARANTIE</span>
+             <div class="body">${guaranteeText}</div>
+           </div>`
+        : ""}
+    </div>
+    <div class="signature-box">
+      SIGNATURE
+      ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
+        ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+        : ""}
+      ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
+        ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+        : ""}
+    </div>
+  </div>
+
+</div>
+
+<!-- BLUE FOOTER BAR (outside .page so it sticks to bottom) -->
+<div class="footer-bar">
+  Tél: ${shopPhone} ; WhatsApp : ${shopWhatsapp} ; Email : ${shopEmail}
+</div>
+
+</body>
+</html>`;
+}
+
+// ─── Main render dispatcher ───────────────────────────────────────────────────
+export function renderToInvoiceHTML({
+  shop,
+  invoiceNumber,
+  formValues,
+  items,
+  grandTotal,
+  type = "facture",
+  guaranteeText = "",
+  includeCachet = false,
+  includeSignature = false,
+  orientation = "landscape",
+}) {
+  const documentOptions = normalizeDocumentOptions(shop, {
+    includeCachet,
+    includeSignature,
+    orientation,
+  });
+
+  const params = {
+    shop,
+    invoiceNumber,
+    formValues,
+    items,
+    grandTotal,
+    type,
+    guaranteeText,
+    documentOptions,
+  };
+
+  if (documentOptions.orientation === "portrait") {
+    return renderPortraitHTML(params);
+  }
+  return renderLandscapeHTML(params);
+}
+
+// ─── Print helpers ────────────────────────────────────────────────────────────
+
 /**
  * Opens a print dialog for a sale (facture, proforma, bon_livraison, bon_commande).
- * Charge supplémentaire items are EXCLUDED from the printed document
- * (they are internal costs, not billed to the client).
+ * Charge supplémentaire items are EXCLUDED from the printed document.
  */
 export function printSaleDocument({
   shop,
@@ -459,9 +897,12 @@ export function printSaleDocument({
   guaranteeText,
   includeCachet,
   includeSignature,
+  orientation = "landscape",
 }) {
-  // Look up full client info from the first non-charge item
-  const firstItem = (saleGroup.items || []).find(s => !s.is_charge) || saleGroup.items?.[0] || {}
+  const firstItem =
+    (saleGroup.items || []).find(s => !s.is_charge) ||
+    saleGroup.items?.[0] ||
+    {};
 
   const formValues = {
     date: saleGroup.date,
@@ -472,10 +913,9 @@ export function printSaleDocument({
     validity: "30 jours",
   };
 
-  // Only include product items — exclude charges
   const items = (saleGroup.items || [])
     .filter(s => !s.is_charge)
-    .map((s) => ({
+    .map(s => ({
       id: s.id,
       is_charge: false,
       designation: s.product_name,
@@ -498,11 +938,15 @@ export function printSaleDocument({
     includeCachet,
     includeSignature,
     guaranteeText,
+    orientation,
   });
 
+  const isPortrait = orientation === "portrait";
   const iframe = document.createElement("iframe");
-  iframe.style.cssText =
-    "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
+  iframe.style.cssText = isPortrait
+    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;"
+    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
+
   document.body.appendChild(iframe);
   iframe.contentDocument.open();
   iframe.contentDocument.write(html);
@@ -527,6 +971,7 @@ export function printPurchaseDocument({
   guaranteeText = "",
   includeCachet,
   includeSignature,
+  orientation = "landscape",
 }) {
   const formValues = {
     date: purchase.date,
@@ -561,11 +1006,15 @@ export function printPurchaseDocument({
     includeCachet,
     includeSignature,
     guaranteeText,
+    orientation,
   });
 
+  const isPortrait = orientation === "portrait";
   const iframe = document.createElement("iframe");
-  iframe.style.cssText =
-    "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;";
+  iframe.style.cssText = isPortrait
+    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;"
+    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
+
   document.body.appendChild(iframe);
   iframe.contentDocument.open();
   iframe.contentDocument.write(html);

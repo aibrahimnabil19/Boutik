@@ -91,6 +91,8 @@ const REMOTE_COLUMNS = {
     "deleted_at",
     "cancelled_at",
     "is_charge",
+    "expense_categories",
+    "status"
   ],
   expenses: [
     "id",
