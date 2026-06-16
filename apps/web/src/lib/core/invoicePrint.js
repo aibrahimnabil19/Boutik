@@ -130,14 +130,14 @@ function renderLandscapeHTML({
 
   const itemsHTML = printItems
     .map(
-      (item) => `
+      (item, i) => `
     <tr>
-      <td class="td-cell td-left">${item.designation || item.product_name || "—"}</td>
-      <td class="td-cell td-center">${item.quantity || 0}</td>
-      <td class="td-cell td-center">${item.unit || "Pièces"}</td>
+      <td class="td-cell td-left" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${item.quantity || 0}</td>
+      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${item.unit || "Pièces"}</td>
       ${showPrices
-        ? `<td class="td-cell td-right">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
-           <td class="td-cell td-right td-bold">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
+        ? `<td class="td-cell td-right" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
+           <td class="td-cell td-right td-bold" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
         : ""}
     </tr>`
     )
@@ -265,7 +265,6 @@ function renderLandscapeHTML({
     .td-cell {
       padding: 1.5mm 2mm;
       border: 2px solid #fff;
-      background: ${rowBg};
       font-size: 13px;
     }
     .td-left   { text-align: left; }
@@ -374,7 +373,7 @@ function renderLandscapeHTML({
       </tr>
     </thead>
     <tbody>
-      ${itemsHTML || `<tr><td class="td-cell td-left" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
+      ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${rowBg}" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
     </tbody>
     ${showPrices
       ? `<tfoot>
@@ -417,18 +416,19 @@ function renderLandscapeHTML({
 </html>`;
 }
 
-// ─── PORTRAIT LAYOUT ──────────────────────────────────────────────────────────
+// ─── PORTRAIT LAYOUT ─────────────────────────────────────────────────────────
 // Matches Portrait_facture.pdf exactly:
-//   Top-left: Logo
-//   Top-right: Orange activity box (top-right, not full width) + Company block centered below
-//   Date: right-aligned below company block
-//   Full-width orange title bar (with gap above and below)
-//   Blue client strip: DOIT | ADRESSE | phone (bare, no "Tél :" label)
-//   Blue table headers, light-blue #D9E1F2 rows, blue total row
+//   Top-left:  Logo
+//   Top-right: Orange activity box (full-width of right col, no border-radius)
+//              Company block centered (address / NIF / RCCM / BANK / CITY) — no shop name
+//              Date right-aligned below
+//   Orange title bar — no spacer between it and client strip
+//   Blue client strip: DOIT / ADRESSE / bare phone number
+//   Table: blue headers, alternating white/#D9E1F2 rows, blue total row
 //   Amount in words
-//   Bottom section: GARANTIE label on own line (red underline), body bold — left column
-//                   SIGNATURE — right column, aligned to bottom of garantie block
-//   Blue footer bar: Tél / WhatsApp / Email
+//   Bottom: GARANTIE label (red underline, own line) + bold body — left col
+//           SIGNATURE — right col, bottom-aligned
+//   Blue footer bar: Tél ; WhatsApp ; Email
 // ─────────────────────────────────────────────────────────────────────────────
 function renderPortraitHTML({
   shop,
@@ -463,18 +463,22 @@ function renderPortraitHTML({
 
   const printItems = items.filter(item => !item.is_charge);
 
+  // Alternating rows: even index = rowBg (#D9E1F2), odd = white — matching the PDF
   const itemsHTML = printItems
     .map(
-      (item) => `
+      (item, i) => {
+        const bg = i % 2 === 0 ? rowBg : "#ffffff";
+        return `
     <tr>
-      <td class="td-cell td-left">${item.designation || item.product_name || "—"}</td>
-      <td class="td-cell td-center">${item.quantity || 0}</td>
-      <td class="td-cell td-center">${item.unit || "Pièce"}</td>
+      <td class="td-cell td-left" style="background:${bg}">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-center" style="background:${bg}">${item.quantity || 0}</td>
+      <td class="td-cell td-center" style="background:${bg}">${item.unit || "Pièce"}</td>
       ${showPrices
-        ? `<td class="td-cell td-right">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
-           <td class="td-cell td-right td-bold">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
+        ? `<td class="td-cell td-right" style="background:${bg}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
+           <td class="td-cell td-right td-bold" style="background:${bg}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
         : ""}
-    </tr>`
+    </tr>`;
+      }
     )
     .join("");
 
@@ -483,16 +487,15 @@ function renderPortraitHTML({
     0
   );
 
-  const clientName = formValues.client_name || "—";
+  const clientName    = formValues.client_name    || "—";
   const clientAddress = formValues.client_address || "—";
-  const clientPhone = formValues.client_phone || "—";
+  const clientPhone   = formValues.client_phone   || "—";
 
   const shopPhone    = shop?.phone    || "(+227) 90 27 54 53 / 94 29 29 19";
   const shopWhatsapp = shop?.whatsapp || shop?.phone || "+227 94 29 29 19";
   const shopEmail    = shop?.email    || "elso.niger@gmail.com";
 
-  const shopName     = shop?.name         || "ELITE SOLAIRE";
-  const shopActivity = shop?.activity     || "VENTE ET INSTALLATION D'ÉQUIPEMENTS SOLAIRES";
+  const shopActivity = shop?.activity     || "VENTE ET INSTALLATION D'EQUIPEMENTS SOLAIRES";
   const shopAddress  = shop?.address      || "DAR ES SALAM derrière ESCAE";
   const shopNif      = shop?.nif          || "50873/P";
   const shopRccm     = shop?.rccm         || "NE-NIA-2019-A-467";
@@ -524,7 +527,7 @@ function renderPortraitHTML({
       width: 194mm;
     }
 
-    /* ── TOP HEADER: Logo left | Activity box + Company right ── */
+    /* ── TOP HEADER ── */
     .top {
       display: grid;
       grid-template-columns: 50mm 1fr;
@@ -540,14 +543,14 @@ function renderPortraitHTML({
     }
     .logo-placeholder { width: 48mm; height: 36mm; }
 
-    /* Right column stacks: activity box top-right, company block below centered */
+    /* Right column: activity box top, company block centered below, date right */
     .right-col {
       display: flex;
       flex-direction: column;
-      align-items: flex-end;
+      align-items: stretch;
       gap: 1.5mm;
     }
-    /* Orange activity box — top right, not full width */
+    /* Orange activity box — full width of right col, no border-radius, matching PDF */
     .activity-box {
       background: ${orange};
       color: #fff;
@@ -556,11 +559,8 @@ function renderPortraitHTML({
       text-align: center;
       padding: 2mm 4mm;
       line-height: 1.3;
-      /* constrained width matching PDF */
-      max-width: 80mm;
-      align-self: flex-end;
     }
-    /* Company info block — centered under activity box */
+    /* Company info block — centered, bold, no shop name (logo carries the brand) */
     .company-block {
       text-align: center;
       font-weight: 700;
@@ -584,13 +584,10 @@ function renderPortraitHTML({
       text-align: center;
       padding: 2.5mm 0;
       margin-top: 3mm;
+      /* No margin-bottom — client strip is directly below, matching PDF */
     }
 
-    /* ── SPACER between title bar and client strip ── */
-    .title-spacer { height: 2.5mm; background: white; }
-
-    /* ── CLIENT STRIP ── */
-    /* Portrait PDF: "DOIT :" label, bare phone number in 3rd cell */
+    /* ── CLIENT STRIP — directly below title bar, no gap ── */
     .client-strip {
       display: grid;
       grid-template-columns: 1.1fr 1fr 0.8fr;
@@ -626,8 +623,8 @@ function renderPortraitHTML({
     .td-cell {
       padding: 1.5mm 2mm;
       border: 2px solid #fff;
-      background: ${rowBg};
       font-size: 12px;
+      /* background set inline per row for alternating effect */
     }
     .td-left   { text-align: left; }
     .td-center { text-align: center; }
@@ -653,7 +650,7 @@ function renderPortraitHTML({
     }
     .words strong { font-weight: 900; }
 
-    /* ── BOTTOM SECTION: garantie left + signature right, aligned bottom ── */
+    /* ── BOTTOM SECTION: garantie left + signature right, bottom-aligned ── */
     .bottom-section {
       display: flex;
       justify-content: space-between;
@@ -665,6 +662,7 @@ function renderPortraitHTML({
       font-size: 12px;
       line-height: 1.5;
     }
+    /* GARANTIE label: red, underlined, on its own line — matching PDF */
     .garantie .label {
       color: red;
       text-decoration: underline;
@@ -672,6 +670,7 @@ function renderPortraitHTML({
       display: block;
       margin-bottom: 1mm;
     }
+    /* Guarantee body text is bold — matching PDF */
     .garantie .body {
       font-weight: 700;
     }
@@ -693,7 +692,7 @@ function renderPortraitHTML({
       margin-right: auto;
     }
 
-    /* ── BLUE FOOTER BAR ── */
+    /* ── BLUE FOOTER BAR — pinned at very bottom ── */
     .footer-bar {
       background: ${primary};
       color: #fff;
@@ -734,10 +733,7 @@ function renderPortraitHTML({
   <!-- ORANGE TITLE BAR -->
   <div class="doc-title">${title} ${invoiceNumber}</div>
 
-  <!-- SPACER between title and client strip -->
-  <div class="title-spacer"></div>
-
-  <!-- BLUE CLIENT STRIP: DOIT / ADRESSE / bare phone -->
+  <!-- BLUE CLIENT STRIP: directly below title, no spacer — DOIT / ADRESSE / bare phone -->
   <div class="client-strip">
     <div class="client-cell">DOIT : ${clientName}</div>
     <div class="client-cell">ADRESSE : ${clientAddress}</div>
@@ -758,7 +754,7 @@ function renderPortraitHTML({
       </tr>
     </thead>
     <tbody>
-      ${itemsHTML || `<tr><td class="td-cell td-left" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
+      ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${rowBg}" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
     </tbody>
     ${showPrices
       ? `<tfoot>
@@ -780,7 +776,7 @@ function renderPortraitHTML({
       )}</div>`
     : ""}
 
-  <!-- BOTTOM SECTION: Garantie (left) + Signature (right), aligned to bottom -->
+  <!-- BOTTOM SECTION: Garantie left + Signature right, bottom-aligned -->
   <div class="bottom-section">
     <div class="garantie-col">
       ${guaranteeText
@@ -803,7 +799,7 @@ function renderPortraitHTML({
 
 </div>
 
-<!-- BLUE FOOTER BAR — outside .page so it stays at the bottom -->
+<!-- BLUE FOOTER BAR — outside .page so it stays at the very bottom -->
 <div class="footer-bar">
   Tél: ${shopPhone} &nbsp;|&nbsp; WhatsApp : ${shopWhatsapp} &nbsp;|&nbsp; Email : ${shopEmail}
 </div>

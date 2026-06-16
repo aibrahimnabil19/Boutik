@@ -76,7 +76,7 @@ export default function NouvelleProformaPage() {
           text: inv.guarantee_text || GUARANTEE_OPTIONS[0].text,
         })
 
-        ssetPrintOptions({
+        setPrintOptions({
   includeCachet: inv.include_cachet ?? searchParams.get('cachet') === '1',
   includeSignature: inv.include_signature ?? searchParams.get('signature') === '1',
 })
@@ -181,7 +181,7 @@ export default function NouvelleProformaPage() {
   // ─── Print via iframe (only the document, not the screen) ─────────────────
 async function handlePrint() {
   const formValues = watch ? watch() : {}
-  const officialNumber = await ensureInvoiceNumber(formValues.date)
+  const officialNumber = await ensureProformaNumber(formValues.date)
 
   await onSubmit(formValues, 'finalized')
 
