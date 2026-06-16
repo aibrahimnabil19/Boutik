@@ -60,7 +60,9 @@ export async function preparePrintableShop(shop = {}) {
     ...shop,
     logo_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "logo")),
     cachet_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "cachet")),
-    signature_print_src: await imageUrlToDataUrl(getAssetSrc(shop, "signature")),
+    signature_print_src: await imageUrlToDataUrl(
+      getAssetSrc(shop, "signature"),
+    ),
   };
 }
 
@@ -80,12 +82,18 @@ function waitForPrintAssets(doc) {
 }
 
 export function printHtmlDocument(html, orientation = "landscape") {
+  const isPortrait = orientation === "portrait";
+
   const iframe = document.createElement("iframe");
-  iframe.style.cssText = `position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;`;
+  iframe.style.cssText = isPortrait
+    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;"
+    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
+
   document.body.appendChild(iframe);
   iframe.contentDocument.open();
   iframe.contentDocument.write(html);
   iframe.contentDocument.close();
+
   iframe.onload = async () => {
     await waitForPrintAssets(iframe.contentDocument);
     iframe.contentWindow.focus();
@@ -126,26 +134,28 @@ function renderLandscapeHTML({
 
   const showPrices = !isBonLivraison && !isBonCommande;
 
-  const printItems = items.filter(item => !item.is_charge);
+  const printItems = items.filter((item) => !item.is_charge);
 
   const itemsHTML = printItems
     .map(
       (item, i) => `
     <tr>
-      <td class="td-cell td-left" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${item.designation || item.product_name || "—"}</td>
-      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${item.quantity || 0}</td>
-      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${item.unit || "Pièces"}</td>
-      ${showPrices
-        ? `<td class="td-cell td-right" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
-           <td class="td-cell td-right td-bold" style="background:${i % 2 === 0 ? rowBg : '#fff'}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
-        : ""}
-    </tr>`
+      <td class="td-cell td-left" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${item.quantity || 0}</td>
+      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${item.unit || "Pièces"}</td>
+      ${
+        showPrices
+          ? `<td class="td-cell td-right" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
+           <td class="td-cell td-right td-bold" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
+          : ""
+      }
+    </tr>`,
     )
     .join("");
 
   const printGrandTotal = printItems.reduce(
     (sum, item) => sum + Number(item.total_price || item.total_sale || 0),
-    0
+    0,
   );
 
   const clientName = formValues.client_name || "—";
@@ -322,8 +332,14 @@ function renderLandscapeHTML({
     }
 
     @media print {
-      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    }
+  html, body {
+    width: 297mm;
+    height: 210mm;
+    overflow: hidden;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
   </style>
 </head>
 <body>
@@ -331,9 +347,11 @@ function renderLandscapeHTML({
 
   <div class="top">
     <div class="logo-cell">
-      ${getAssetSrc(shop, "logo")
-        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
-        : '<div class="logo-placeholder"></div>'}
+      ${
+        getAssetSrc(shop, "logo")
+          ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
+          : '<div class="logo-placeholder"></div>'
+      }
     </div>
     <div class="company-info">
       <div>${shop?.name || ""}</div>
@@ -366,48 +384,62 @@ function renderLandscapeHTML({
         <th class="th-left" style="width:45%">Désignation</th>
         <th class="th-center" style="width:10%">Quantité</th>
         <th class="th-center" style="width:10%">Unité</th>
-        ${showPrices
-          ? `<th class="th-right" style="width:17%">Prix Unitaire CFA</th>
+        ${
+          showPrices
+            ? `<th class="th-right" style="width:17%">Prix Unitaire CFA</th>
              <th class="th-right" style="width:18%">Prix Total CFA</th>`
-          : ""}
+            : ""
+        }
       </tr>
     </thead>
     <tbody>
       ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${rowBg}" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
     </tbody>
-    ${showPrices
-      ? `<tfoot>
+    ${
+      showPrices
+        ? `<tfoot>
            <tr class="total-row">
              <td colspan="4" class="total-label">MONTANT TOTAL</td>
              <td class="total-value">${formatFCFA(printGrandTotal).replace(" FCFA", "")}</td>
            </tr>
          </tfoot>`
-      : ""}
+        : ""
+    }
   </table>
 
-  ${showPrices
-    ? `<div class="words">${amountToWordsFCFA(
-        printGrandTotal,
-        isProforma ? "proforma" : "facture",
-      ).replace(
-        /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
-        "$1<strong>$2</strong>",
-      )}</div>`
-    : ""}
+  ${
+    showPrices
+      ? `<div class="words">${amountToWordsFCFA(
+          printGrandTotal,
+          isProforma ? "proforma" : "facture",
+        ).replace(
+          /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+          "$1<strong>$2</strong>",
+        )}</div>`
+      : ""
+  }
 
-  ${guaranteeText
-    ? `<div class="garantie"><span class="label">GARANTIE</span> : ${guaranteeText}</div>`
-    : ""}
+  ${
+    guaranteeText
+      ? `<div class="garantie"><span class="label">GARANTIE</span> : ${guaranteeText}</div>`
+      : ""
+  }
 
   <div class="signature-wrap">
     <div class="signature-box">
       SIGNATURE
-      ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
-        ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
-        : ""}
-      ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
-        ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
-        : ""}
+      ${
+        documentOptions.includeSignature &&
+        (shop?.signature_print_src || shop?.signature_url)
+          ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+          : ""
+      }
+      ${
+        documentOptions.includeCachet &&
+        (shop?.cachet_print_src || shop?.cachet_url)
+          ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+          : ""
+      }
     </div>
   </div>
 
@@ -461,46 +493,47 @@ function renderPortraitHTML({
 
   const showPrices = !isBonLivraison && !isBonCommande;
 
-  const printItems = items.filter(item => !item.is_charge);
+  const printItems = items.filter((item) => !item.is_charge);
 
   // Alternating rows: even index = rowBg (#D9E1F2), odd = white — matching the PDF
   const itemsHTML = printItems
-    .map(
-      (item, i) => {
-        const bg = i % 2 === 0 ? rowBg : "#ffffff";
-        return `
+    .map((item, i) => {
+      const bg = i % 2 === 0 ? rowBg : "#ffffff";
+      return `
     <tr>
       <td class="td-cell td-left" style="background:${bg}">${item.designation || item.product_name || "—"}</td>
       <td class="td-cell td-center" style="background:${bg}">${item.quantity || 0}</td>
       <td class="td-cell td-center" style="background:${bg}">${item.unit || "Pièce"}</td>
-      ${showPrices
-        ? `<td class="td-cell td-right" style="background:${bg}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
+      ${
+        showPrices
+          ? `<td class="td-cell td-right" style="background:${bg}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
            <td class="td-cell td-right td-bold" style="background:${bg}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
-        : ""}
-    </tr>`;
+          : ""
       }
-    )
+    </tr>`;
+    })
     .join("");
 
   const printGrandTotal = printItems.reduce(
     (sum, item) => sum + Number(item.total_price || item.total_sale || 0),
-    0
+    0,
   );
 
-  const clientName    = formValues.client_name    || "—";
+  const clientName = formValues.client_name || "—";
   const clientAddress = formValues.client_address || "—";
-  const clientPhone   = formValues.client_phone   || "—";
+  const clientPhone = formValues.client_phone || "—";
 
-  const shopPhone    = shop?.phone    || "(+227) 90 27 54 53 / 94 29 29 19";
+  const shopPhone = shop?.phone || "(+227) 90 27 54 53 / 94 29 29 19";
   const shopWhatsapp = shop?.whatsapp || shop?.phone || "+227 94 29 29 19";
-  const shopEmail    = shop?.email    || "elso.niger@gmail.com";
+  const shopEmail = shop?.email || "elso.niger@gmail.com";
 
-  const shopActivity = shop?.activity     || "VENTE ET INSTALLATION D'EQUIPEMENTS SOLAIRES";
-  const shopAddress  = shop?.address      || "DAR ES SALAM derrière ESCAE";
-  const shopNif      = shop?.nif          || "50873/P";
-  const shopRccm     = shop?.rccm         || "NE-NIA-2019-A-467";
-  const shopBank     = shop?.bank_account || "02134924401-79";
-  const shopCity     = (shop?.city        || "NIAMEY").toUpperCase();
+  const shopActivity =
+    shop?.activity || "VENTE ET INSTALLATION D'EQUIPEMENTS SOLAIRES";
+  const shopAddress = shop?.address || "DAR ES SALAM derrière ESCAE";
+  const shopNif = shop?.nif || "50873/P";
+  const shopRccm = shop?.rccm || "NE-NIA-2019-A-467";
+  const shopBank = shop?.bank_account || "02134924401-79";
+  const shopCity = (shop?.city || "NIAMEY").toUpperCase();
 
   return `<!doctype html>
 <html>
@@ -521,10 +554,13 @@ function renderPortraitHTML({
       display: flex;
       flex-direction: column;
       min-height: 285mm;
+      margin: 0;
+      width: 210mm;
     }
     .page {
       flex: 1;
       width: 194mm;
+      marging: 0 auto;
     }
 
     /* ── TOP HEADER ── */
@@ -704,8 +740,14 @@ function renderPortraitHTML({
     }
 
     @media print {
-      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    }
+  html, body {
+    width: 210mm;
+    height: 297mm;
+    overflow: hidden;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
   </style>
 </head>
 <body>
@@ -714,9 +756,11 @@ function renderPortraitHTML({
   <!-- TOP: Logo (left) | Activity box + Company info (right) -->
   <div class="top">
     <div class="logo-cell">
-      ${getAssetSrc(shop, "logo")
-        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
-        : '<div class="logo-placeholder"></div>'}
+      ${
+        getAssetSrc(shop, "logo")
+          ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
+          : '<div class="logo-placeholder"></div>'
+      }
     </div>
     <div class="right-col">
       <div class="activity-box">${shopActivity}</div>
@@ -747,53 +791,67 @@ function renderPortraitHTML({
         <th class="th-left" style="width:42%">Désignation</th>
         <th class="th-center" style="width:10%">Quantité</th>
         <th class="th-center" style="width:9%">Unité</th>
-        ${showPrices
-          ? `<th class="th-right" style="width:19%">Prix Unitaire CFA</th>
+        ${
+          showPrices
+            ? `<th class="th-right" style="width:19%">Prix Unitaire CFA</th>
              <th class="th-right" style="width:20%">Prix Total CFA</th>`
-          : ""}
+            : ""
+        }
       </tr>
     </thead>
     <tbody>
       ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${rowBg}" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
     </tbody>
-    ${showPrices
-      ? `<tfoot>
+    ${
+      showPrices
+        ? `<tfoot>
            <tr class="total-row">
              <td colspan="4" class="total-label">MONTANT TOTAL</td>
              <td class="total-value">${formatFCFA(printGrandTotal).replace(" FCFA", "")}</td>
            </tr>
          </tfoot>`
-      : ""}
+        : ""
+    }
   </table>
 
-  ${showPrices
-    ? `<div class="words">${amountToWordsFCFA(
-        printGrandTotal,
-        isProforma ? "proforma" : "facture",
-      ).replace(
-        /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
-        "$1<strong>$2</strong>",
-      )}</div>`
-    : ""}
+  ${
+    showPrices
+      ? `<div class="words">${amountToWordsFCFA(
+          printGrandTotal,
+          isProforma ? "proforma" : "facture",
+        ).replace(
+          /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+          "$1<strong>$2</strong>",
+        )}</div>`
+      : ""
+  }
 
   <!-- BOTTOM SECTION: Garantie left + Signature right, bottom-aligned -->
   <div class="bottom-section">
     <div class="garantie-col">
-      ${guaranteeText
-        ? `<div class="garantie">
+      ${
+        guaranteeText
+          ? `<div class="garantie">
              <span class="label">GARANTIE</span>
              <div class="body">${guaranteeText}</div>
            </div>`
-        : ""}
+          : ""
+      }
     </div>
     <div class="signature-box">
       SIGNATURE
-      ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
-        ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
-        : ""}
-      ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
-        ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
-        : ""}
+      ${
+        documentOptions.includeSignature &&
+        (shop?.signature_print_src || shop?.signature_url)
+          ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+          : ""
+      }
+      ${
+        documentOptions.includeCachet &&
+        (shop?.cachet_print_src || shop?.cachet_url)
+          ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+          : ""
+      }
     </div>
   </div>
 
@@ -857,7 +915,7 @@ export function printSaleDocument({
   orientation = "landscape",
 }) {
   const firstItem =
-    (saleGroup.items || []).find(s => !s.is_charge) ||
+    (saleGroup.items || []).find((s) => !s.is_charge) ||
     saleGroup.items?.[0] ||
     {};
 
@@ -871,8 +929,8 @@ export function printSaleDocument({
   };
 
   const items = (saleGroup.items || [])
-    .filter(s => !s.is_charge)
-    .map(s => ({
+    .filter((s) => !s.is_charge)
+    .map((s) => ({
       id: s.id,
       is_charge: false,
       designation: s.product_name,
