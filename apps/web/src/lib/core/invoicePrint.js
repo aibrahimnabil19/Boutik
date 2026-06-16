@@ -95,14 +95,6 @@ export function printHtmlDocument(html, orientation = "landscape") {
 }
 
 // ─── LANDSCAPE LAYOUT ────────────────────────────────────────────────────────
-// Matches the Paysage_facture.pdf exactly:
-//   Top: Logo (left) | Company info (center) | Activity box narrow (right) + Date
-//   Spacer row between orange title bar and blue client strip
-//   Blue client strip: CLIENT | ADRESSE | Tél
-//   Blue table headers, light-blue #D9E1F2 rows, blue total row
-//   Amount in words, Garantie, Signature bottom-right
-//   No footer bar
-// ─────────────────────────────────────────────────────────────────────────────
 function renderLandscapeHTML({
   shop,
   invoiceNumber,
@@ -179,7 +171,6 @@ function renderLandscapeHTML({
     }
     .page { width: 285mm; }
 
-    /* ── TOP: Logo | Company | Activity+Date ── */
     .top {
       display: grid;
       grid-template-columns: 72mm 110mm 1fr;
@@ -206,7 +197,6 @@ function renderLandscapeHTML({
       align-items: flex-end;
       gap: 2mm;
     }
-    /* Activity box: constrained width so it doesn't span the full right column */
     .activity-box {
       background: ${orange};
       color: #fff;
@@ -226,7 +216,6 @@ function renderLandscapeHTML({
       width: 100%;
     }
 
-    /* ── ORANGE TITLE BAR ── */
     .doc-title {
       background: ${orange};
       color: #fff;
@@ -236,13 +225,11 @@ function renderLandscapeHTML({
       padding: 2.5mm 0;
     }
 
-    /* ── SPACER between title and client strip ── */
     .title-spacer {
       height: 3mm;
       background: white;
     }
 
-    /* ── CLIENT STRIP ── */
     .client-strip {
       display: grid;
       grid-template-columns: 1.1fr 1fr 1fr;
@@ -259,7 +246,6 @@ function renderLandscapeHTML({
     }
     .client-cell:last-child { border-right: 0; }
 
-    /* ── TABLE ── */
     table {
       width: 100%;
       border-collapse: collapse;
@@ -297,7 +283,6 @@ function renderLandscapeHTML({
     .total-label { text-align: center; }
     .total-value { text-align: right; }
 
-    /* ── AMOUNT IN WORDS ── */
     .words {
       margin-top: 5mm;
       font-size: 14px;
@@ -305,7 +290,6 @@ function renderLandscapeHTML({
     }
     .words strong { font-weight: 900; }
 
-    /* ── GARANTIE ── */
     .garantie {
       margin-top: 4mm;
       font-size: 13px;
@@ -317,7 +301,6 @@ function renderLandscapeHTML({
       font-weight: 900;
     }
 
-    /* ── SIGNATURE ── */
     .signature-wrap {
       margin-top: 4mm;
       display: flex;
@@ -347,7 +330,6 @@ function renderLandscapeHTML({
 <body>
 <div class="page">
 
-  <!-- TOP: Logo | Company | Activity + Date -->
   <div class="top">
     <div class="logo-cell">
       ${getAssetSrc(shop, "logo")
@@ -370,20 +352,15 @@ function renderLandscapeHTML({
     </div>
   </div>
 
-  <!-- ORANGE TITLE BAR -->
   <div class="doc-title">${title} ${invoiceNumber}</div>
-
-  <!-- SPACER between title and client strip -->
   <div class="title-spacer"></div>
 
-  <!-- BLUE CLIENT STRIP -->
   <div class="client-strip">
     <div class="client-cell">CLIENT : ${clientName}</div>
     <div class="client-cell">ADRESSE : ${clientAddress}</div>
     <div class="client-cell">Tél : ${clientPhone}</div>
   </div>
 
-  <!-- ITEMS TABLE -->
   <table>
     <thead>
       <tr>
@@ -443,16 +420,14 @@ function renderLandscapeHTML({
 // ─── PORTRAIT LAYOUT ──────────────────────────────────────────────────────────
 // Matches Portrait_facture.pdf exactly:
 //   Top-left: Logo
-//   Top-right: Company name bold centered, address/NIF/RCCM/COMPTE/city
-//   Top-right above company: orange activity box (narrower)
+//   Top-right: Orange activity box (top-right, not full width) + Company block centered below
 //   Date: right-aligned below company block
-//   Gap, then full-width orange title bar
-//   Gap/spacer, then blue client strip: DOIT | ADRESSE | phone (no "Tél :" label)
-//   Blue table headers, light-blue rows
-//   Blue total row
+//   Full-width orange title bar (with gap above and below)
+//   Blue client strip: DOIT | ADRESSE | phone (bare, no "Tél :" label)
+//   Blue table headers, light-blue #D9E1F2 rows, blue total row
 //   Amount in words
-//   GARANTIE (red underline label on own line, text below in bold)
-//   SIGNATURE (bottom-right, same vertical level as last garantie line)
+//   Bottom section: GARANTIE label on own line (red underline), body bold — left column
+//                   SIGNATURE — right column, aligned to bottom of garantie block
 //   Blue footer bar: Tél / WhatsApp / Email
 // ─────────────────────────────────────────────────────────────────────────────
 function renderPortraitHTML({
@@ -512,19 +487,17 @@ function renderPortraitHTML({
   const clientAddress = formValues.client_address || "—";
   const clientPhone = formValues.client_phone || "—";
 
-  // Footer contact info — use shop fields with fallback to PDF example
-  const shopPhone = shop?.phone || "(+227) 90 27 54 53 / 94 29 29 19";
+  const shopPhone    = shop?.phone    || "(+227) 90 27 54 53 / 94 29 29 19";
   const shopWhatsapp = shop?.whatsapp || shop?.phone || "+227 94 29 29 19";
-  const shopEmail = shop?.email || "elso.niger@gmail.com";
+  const shopEmail    = shop?.email    || "elso.niger@gmail.com";
 
-  // Company block (right side of header) — matches portrait PDF exactly
-  const shopName = shop?.name || "ELITE SOLAIRE";
-  const shopActivity = shop?.activity || "VENTE ET INSTALLATION D'ÉQUIPEMENTS SOLAIRES";
-  const shopAddress = shop?.address || "DAR ES SALAM derrière ESCAE";
-  const shopNif = shop?.nif || "50873/P";
-  const shopRccm = shop?.rccm || "NE-NIA-2019-A-467";
-  const shopBank = shop?.bank_account || "02134924401-79";
-  const shopCity = (shop?.city || "NIAMEY").toUpperCase();
+  const shopName     = shop?.name         || "ELITE SOLAIRE";
+  const shopActivity = shop?.activity     || "VENTE ET INSTALLATION D'ÉQUIPEMENTS SOLAIRES";
+  const shopAddress  = shop?.address      || "DAR ES SALAM derrière ESCAE";
+  const shopNif      = shop?.nif          || "50873/P";
+  const shopRccm     = shop?.rccm         || "NE-NIA-2019-A-467";
+  const shopBank     = shop?.bank_account || "02134924401-79";
+  const shopCity     = (shop?.city        || "NIAMEY").toUpperCase();
 
   return `<!doctype html>
 <html>
@@ -534,7 +507,7 @@ function renderPortraitHTML({
   <style>
     @page {
       size: A4 portrait;
-      margin: 6mm 8mm 4mm 8mm;
+      margin: 6mm 8mm 0mm 8mm;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -542,17 +515,16 @@ function renderPortraitHTML({
       color: #000;
       font-family: "Times New Roman", Times, serif;
       font-size: 12px;
-      /* Use flex column so footer sticks to bottom */
       display: flex;
       flex-direction: column;
-      min-height: 277mm;
+      min-height: 285mm;
     }
     .page {
       flex: 1;
       width: 194mm;
     }
 
-    /* ── TOP HEADER: Logo left | Company right ── */
+    /* ── TOP HEADER: Logo left | Activity box + Company right ── */
     .top {
       display: grid;
       grid-template-columns: 50mm 1fr;
@@ -562,42 +534,39 @@ function renderPortraitHTML({
     }
     .logo-cell img {
       max-width: 48mm;
-      max-height: 32mm;
+      max-height: 36mm;
       object-fit: contain;
       display: block;
     }
-    .logo-placeholder { width: 48mm; height: 32mm; }
+    .logo-placeholder { width: 48mm; height: 36mm; }
 
-    /* Right column: activity box on top, then company info centered */
+    /* Right column stacks: activity box top-right, company block below centered */
     .right-col {
       display: flex;
       flex-direction: column;
-      align-items: center;
+      align-items: flex-end;
       gap: 1.5mm;
     }
+    /* Orange activity box — top right, not full width */
     .activity-box {
       background: ${orange};
       color: #fff;
       font-weight: bold;
       font-size: 11px;
       text-align: center;
-      padding: 2mm 3mm;
-      /* Not full width — constrained to feel like the PDF */
-      align-self: flex-end;
-      max-width: 72mm;
+      padding: 2mm 4mm;
       line-height: 1.3;
+      /* constrained width matching PDF */
+      max-width: 80mm;
+      align-self: flex-end;
     }
+    /* Company info block — centered under activity box */
     .company-block {
       text-align: center;
       font-weight: 700;
       font-size: 12px;
-      line-height: 1.5;
+      line-height: 1.6;
       width: 100%;
-    }
-    .company-name {
-      font-size: 14px;
-      font-weight: 900;
-      text-transform: uppercase;
     }
     .date-line {
       text-align: right;
@@ -613,15 +582,15 @@ function renderPortraitHTML({
       font-size: 15px;
       font-weight: bold;
       text-align: center;
-      padding: 2mm 0;
+      padding: 2.5mm 0;
       margin-top: 3mm;
     }
 
-    /* ── SPACER ── */
+    /* ── SPACER between title bar and client strip ── */
     .title-spacer { height: 2.5mm; background: white; }
 
     /* ── CLIENT STRIP ── */
-    /* Portrait uses "DOIT :" label (not "CLIENT :") and no "Tél :" on 3rd cell */
+    /* Portrait PDF: "DOIT :" label, bare phone number in 3rd cell */
     .client-strip {
       display: grid;
       grid-template-columns: 1.1fr 1fr 0.8fr;
@@ -684,9 +653,15 @@ function renderPortraitHTML({
     }
     .words strong { font-weight: 900; }
 
-    /* ── GARANTIE — portrait style: label on own line, bold body ── */
+    /* ── BOTTOM SECTION: garantie left + signature right, aligned bottom ── */
+    .bottom-section {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 5mm;
+    }
+    .garantie-col { flex: 1; }
     .garantie {
-      margin-top: 4mm;
       font-size: 12px;
       line-height: 1.5;
     }
@@ -700,15 +675,6 @@ function renderPortraitHTML({
     .garantie .body {
       font-weight: 700;
     }
-
-    /* ── BOTTOM SECTION: garantie left + signature right ── */
-    .bottom-section {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      margin-top: 4mm;
-    }
-    .garantie-col { flex: 1; }
     .signature-box {
       width: 48mm;
       text-align: center;
@@ -727,16 +693,15 @@ function renderPortraitHTML({
       margin-right: auto;
     }
 
-    /* ── FOOTER BAR ── */
+    /* ── BLUE FOOTER BAR ── */
     .footer-bar {
       background: ${primary};
       color: #fff;
       font-weight: 700;
       font-size: 11px;
       text-align: center;
-      padding: 2mm 4mm;
-      margin-top: 6mm;
-      line-height: 1.4;
+      padding: 2.5mm 4mm;
+      margin-top: 8mm;
     }
 
     @media print {
@@ -769,10 +734,10 @@ function renderPortraitHTML({
   <!-- ORANGE TITLE BAR -->
   <div class="doc-title">${title} ${invoiceNumber}</div>
 
-  <!-- SPACER -->
+  <!-- SPACER between title and client strip -->
   <div class="title-spacer"></div>
 
-  <!-- BLUE CLIENT STRIP — Portrait uses "DOIT :" and bare phone number in 3rd cell -->
+  <!-- BLUE CLIENT STRIP: DOIT / ADRESSE / bare phone -->
   <div class="client-strip">
     <div class="client-cell">DOIT : ${clientName}</div>
     <div class="client-cell">ADRESSE : ${clientAddress}</div>
@@ -806,7 +771,7 @@ function renderPortraitHTML({
   </table>
 
   ${showPrices
-    ? `<div class="words"> ${amountToWordsFCFA(
+    ? `<div class="words">${amountToWordsFCFA(
         printGrandTotal,
         isProforma ? "proforma" : "facture",
       ).replace(
@@ -815,7 +780,7 @@ function renderPortraitHTML({
       )}</div>`
     : ""}
 
-  <!-- BOTTOM SECTION: Garantie (left) + Signature (right) -->
+  <!-- BOTTOM SECTION: Garantie (left) + Signature (right), aligned to bottom -->
   <div class="bottom-section">
     <div class="garantie-col">
       ${guaranteeText
@@ -838,9 +803,9 @@ function renderPortraitHTML({
 
 </div>
 
-<!-- BLUE FOOTER BAR (outside .page so it sticks to bottom) -->
+<!-- BLUE FOOTER BAR — outside .page so it stays at the bottom -->
 <div class="footer-bar">
-  Tél: ${shopPhone} ; WhatsApp : ${shopWhatsapp} ; Email : ${shopEmail}
+  Tél: ${shopPhone} &nbsp;|&nbsp; WhatsApp : ${shopWhatsapp} &nbsp;|&nbsp; Email : ${shopEmail}
 </div>
 
 </body>
@@ -885,10 +850,6 @@ export function renderToInvoiceHTML({
 
 // ─── Print helpers ────────────────────────────────────────────────────────────
 
-/**
- * Opens a print dialog for a sale (facture, proforma, bon_livraison, bon_commande).
- * Charge supplémentaire items are EXCLUDED from the printed document.
- */
 export function printSaleDocument({
   shop,
   type,
@@ -960,9 +921,6 @@ export function printSaleDocument({
   };
 }
 
-/**
- * Opens a print dialog for a purchase (bon de commande).
- */
 export function printPurchaseDocument({
   shop,
   type,

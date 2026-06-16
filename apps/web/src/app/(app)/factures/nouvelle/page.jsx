@@ -1,3 +1,4 @@
+// apps/web/src/app/(app)/factures/nouvelle/page.jsx
 // Invoice builder: create/edit a facture, then print it with the shop's logo/signature.
 // Brouillon = saved as draft (not finalized, can still edit)
 // Finaliser = marks invoice as final/official
@@ -21,7 +22,7 @@ import {
   preparePrintableShop,
   printHtmlDocument,
 } from '@/lib/core/invoicePrint'
-import DocumentPrintOptions from '@/components/DocumentPrintOptions'
+import DocumentPrintOptions, { getDefaultDocumentOptions } from '@/components/DocumentPrintOptions'
 import FrenchInput from '@/components/FrenchInput'
 import GuaranteePicker from '@/components/GuaranteePicker'
 import { GUARANTEE_OPTIONS } from '@/lib/core/guarantees'
@@ -41,10 +42,13 @@ export default function NouvelleFacturePage() {
   const [status, setStatus] = useState('draft')
   const [invoiceId] = useState(existingId || uuid())
   const [invoiceNumber, setInvoiceNumber] = useState('')
-  const [printOptions, setPrintOptions] = useState({
+
+    const [printOptions, setPrintOptions] = useState({
+    ...getDefaultDocumentOptions(),
     includeCachet: searchParams.get('cachet') === '1',
     includeSignature: searchParams.get('signature') === '1',
   })
+
   const [guarantee, setGuarantee] = useState({
     key: GUARANTEE_OPTIONS[0].key,
     text: GUARANTEE_OPTIONS[0].text,
@@ -83,14 +87,15 @@ export default function NouvelleFacturePage() {
           text: inv.guarantee_text || GUARANTEE_OPTIONS[0].text,
         })
 
+        // ── FIX: restore ALL three print options including orientation from the saved invoice
         setPrintOptions({
           includeCachet: inv.include_cachet ?? searchParams.get('cachet') === '1',
           includeSignature: inv.include_signature ?? searchParams.get('signature') === '1',
+          orientation: inv.orientation || 'landscape',
         })
+
         if (lines.length > 0) setItems(lines)
       }
-    } else {
-      setInvoiceNumber('')
     }
   }, [shop?.id, existingId, reset])
 
@@ -151,6 +156,7 @@ export default function NouvelleFacturePage() {
         guarantee_text: guarantee.text || '',
         include_cachet: !!printOptions.includeCachet,
         include_signature: !!printOptions.includeSignature,
+        // ── FIX: save orientation so it's restored correctly on reload
         orientation: printOptions.orientation || 'landscape',
         status: newStatus,
         created_at: new Date().toISOString(),
@@ -196,8 +202,8 @@ export default function NouvelleFacturePage() {
 
     await onSubmit(formValues, 'finalized')
 
-    // Prepare shop with data URLs for printing
     const printableShop = await preparePrintableShop(shop)
+    // ── FIX: use orientation from printOptions state (not a separate variable)
     const orientation = printOptions.orientation || 'landscape'
 
     const html = renderToInvoiceHTML({
@@ -369,10 +375,10 @@ export default function NouvelleFacturePage() {
               </span>
             </div>
           </div>
-        </div>
 
-        <div className="card p-4 mb-4">
-          <GuaranteePicker value={guarantee} onChange={setGuarantee} />
+          <div className="card p-4">
+            <GuaranteePicker value={guarantee} onChange={setGuarantee} />
+          </div>
         </div>
 
         {/* ── Preview ── */}

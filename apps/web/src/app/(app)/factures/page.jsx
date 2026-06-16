@@ -27,10 +27,10 @@ export default function FacturesPage() {
   const [loading, setLoading] = useState(true)
   const [pendingSale, setPendingSale] = useState(null)
   const [docOptions, setDocOptions] = useState({
-  ...getDefaultDocumentOptions(),
-  guaranteeKey: GUARANTEE_OPTIONS[0].key,
-  guaranteeText: GUARANTEE_OPTIONS[0].text,
-})
+    ...getDefaultDocumentOptions(),
+    guaranteeKey: GUARANTEE_OPTIONS[0].key,
+    guaranteeText: GUARANTEE_OPTIONS[0].text,
+  })
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -67,8 +67,18 @@ export default function FacturesPage() {
           created_at: s.created_at,
           client_name: s.client_name || '',
           client_phone: s.client_phone || '',
+          // ── FIX: also capture client_address from the sale row
+          client_address: s.client_address || '',
           items: [],
         }
+      }
+
+      // ── FIX: if a later item in the same group has an address, use it
+      if (!groups[key].client_address && s.client_address) {
+        groups[key].client_address = s.client_address
+      }
+      if (!groups[key].client_phone && s.client_phone) {
+        groups[key].client_phone = s.client_phone
       }
 
       groups[key].items.push(s)
@@ -91,7 +101,8 @@ export default function FacturesPage() {
       type: 'facture',
       client_name: group.client_name || '',
       client_phone: group.client_phone || '',
-      client_address: '',
+      // ── FIX: persist client_address so it shows on the printed document
+      client_address: group.client_address || '',
       date: group.date,
       city: shop?.city || 'Niamey',
       total_amount: total,
@@ -99,6 +110,8 @@ export default function FacturesPage() {
       guarantee_text: options.guaranteeText || '',
       include_cachet: !!options.includeCachet,
       include_signature: !!options.includeSignature,
+      // ── FIX: save orientation from the options dialog
+      orientation: options.orientation || 'landscape',
       status: 'draft',
       created_at: now,
       updated_at: now,
@@ -146,13 +159,13 @@ export default function FacturesPage() {
   }
 
   function openCreateFactureOptions(group) {
-  setPendingSale(group)
-  setDocOptions({
-    ...getDefaultDocumentOptions(),
-    guaranteeKey: GUARANTEE_OPTIONS[0].key,
-    guaranteeText: GUARANTEE_OPTIONS[0].text,
-  })
-}
+    setPendingSale(group)
+    setDocOptions({
+      ...getDefaultDocumentOptions(),
+      guaranteeKey: GUARANTEE_OPTIONS[0].key,
+      guaranteeText: GUARANTEE_OPTIONS[0].text,
+    })
+  }
 
   return (
     <div className="p-6">
