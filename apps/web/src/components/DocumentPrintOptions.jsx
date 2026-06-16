@@ -1,63 +1,87 @@
 'use client'
 
+// Lets the user pick: orientation (paysage/portrait), and whether to include
+// the shop's cachet/signature on the printed document.
+// `value`/`onChange` follow the same controlled-component pattern as the rest
+// of the app (see DocOptions usage in factures/proformas pages).
+
 export function getDefaultDocumentOptions() {
   return {
-    includeCachet: false,
-    includeSignature: false,
-    orientation: 'landscape',
+    orientation: 'landscape', // 'landscape' (paysage) | 'portrait'
+    includeCachet: true,
+    includeSignature: true,
   }
 }
 
 export default function DocumentPrintOptions({ shop, value, onChange }) {
-  const options = value || getDefaultDocumentOptions(shop)
+  const opts = { ...getDefaultDocumentOptions(), ...value }
 
-  function update(key, checked) {
-    onChange({ ...options, [key]: checked })
-  }
+  const hasCachet = !!(shop?.cachet_print_src || shop?.cachet_data_url || shop?.cachet_url)
+  const hasSignature = !!(shop?.signature_print_src || shop?.signature_data_url || shop?.signature_url)
 
-  function updateValue(key, value) {
-    onChange({ ...options, [key]: value })
+  function set(patch) {
+    onChange({ ...opts, ...patch })
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-2">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-        Options du document
-      </p>
+    <div className="space-y-3">
+      <div>
+        <label className="block text-[11px] font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
+          Orientation
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => set({ orientation: 'landscape' })}
+            className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+              opts.orientation === 'landscape'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Paysage
+          </button>
+          <button
+            type="button"
+            onClick={() => set({ orientation: 'portrait' })}
+            className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+              opts.orientation === 'portrait'
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            Portrait
+          </button>
+        </div>
+      </div>
 
-      <label className={`flex items-center gap-2 text-sm ${!shop?.cachet_url ? 'text-gray-400' : 'text-gray-700'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-gray-600">
+          Inclure le cachet
+          {!hasCachet && <span className="text-xs text-gray-400 ml-1">(aucun cachet enregistré)</span>}
+        </span>
         <input
           type="checkbox"
-          checked={!!options.includeCachet}
-          disabled={!shop?.cachet_url}
-          onChange={(e) => update('includeCachet', e.target.checked)}
+          checked={!!opts.includeCachet}
+          disabled={!hasCachet}
+          onChange={(e) => set({ includeCachet: e.target.checked })}
+          className="w-4 h-4"
         />
-        Inclure le cachet
-        {!shop?.cachet_url && <span className="text-xs text-gray-400">(non configuré)</span>}
-      </label>
+      </div>
 
-      <label className={`flex items-center gap-2 text-sm ${!shop?.signature_url ? 'text-gray-400' : 'text-gray-700'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-gray-600">
+          Inclure la signature
+          {!hasSignature && <span className="text-xs text-gray-400 ml-1">(aucune signature enregistrée)</span>}
+        </span>
         <input
           type="checkbox"
-          checked={!!options.includeSignature}
-          disabled={!shop?.signature_url}
-          onChange={(e) => update('includeSignature', e.target.checked)}
+          checked={!!opts.includeSignature}
+          disabled={!hasSignature}
+          onChange={(e) => set({ includeSignature: e.target.checked })}
+          className="w-4 h-4"
         />
-        Inclure la signature
-        {!shop?.signature_url && <span className="text-xs text-gray-400">(non configurée)</span>}
-      </label>
-
-      <label className="block text-sm text-gray-700">
-        <span className="block mb-1">Orientation</span>
-        <select
-          value={options.orientation || 'landscape'}
-          onChange={(e) => updateValue('orientation', e.target.value)}
-          className="w-full h-10 rounded-lg border border-gray-200 bg-white px-3 text-sm"
-        >
-          <option value="landscape">Paysage</option>
-          <option value="portrait">Portrait</option>
-        </select>
-      </label>
+      </div>
     </div>
   )
 }
