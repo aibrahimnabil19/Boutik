@@ -315,6 +315,18 @@ export default function ClientsPage() {
             <Btn variant="secondary" icon={Printer} onClick={handlePrintStatement}>
               Imprimer relevé
             </Btn>
+            <Btn icon={Plus} onClick={() => {
+              setEditingTx(null)
+              resetTx({
+                date: format(new Date(), 'yyyy-MM-dd'),
+                type: 'credit',
+                label: 'Règlement créance',
+                amount: '',
+              })
+              setTxModal(true)
+            }}>
+              Régler créance
+            </Btn>
             <Btn icon={Plus} variant="secondary" onClick={() => {
               setEditingTx(null)
               resetTx({

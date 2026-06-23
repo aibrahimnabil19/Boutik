@@ -976,6 +976,7 @@ export default function VentesPage() {
       guaranteeText: docGuarantee.text || '',
       includeCachet: printOptions.includeCachet,
       includeSignature: printOptions.includeSignature,
+      orientation: printOptions.orientation || 'landscape',
     })
     setDocModal(null)
   }

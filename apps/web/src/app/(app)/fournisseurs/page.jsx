@@ -233,18 +233,16 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
                 return (
                   <div
                     key={p.id}
-                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${
-                      isSelected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
-                    }`}
+                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${isSelected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'
+                      }`}
                   >
                     {/* Checkbox */}
                     <button
                       onClick={() => togglePurchase(p.id, remainingAmt)}
-                      className={`mt-0.5 flex-none w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                        isSelected
+                      className={`mt-0.5 flex-none w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected
                           ? 'bg-blue-600 border-blue-600'
                           : 'border-gray-300 hover:border-blue-400'
-                      }`}
+                        }`}
                     >
                       {isSelected && (
                         <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -453,11 +451,11 @@ export default function FournisseursPage() {
   function getDateRange() {
     const today = new Date()
     switch (periodFilter) {
-      case 'week':  return { start: startOfWeek(today),  end: endOfWeek(today) }
+      case 'week': return { start: startOfWeek(today), end: endOfWeek(today) }
       case 'month': return { start: startOfMonth(today), end: endOfMonth(today) }
-      case 'year':  return { start: startOfYear(today),  end: endOfYear(today) }
-      case 'custom':return { start: parseISO(customDateStart), end: parseISO(customDateEnd) }
-      default:      return { start: new Date(1900, 0, 1), end: new Date(2100, 0, 1) }
+      case 'year': return { start: startOfYear(today), end: endOfYear(today) }
+      case 'custom': return { start: parseISO(customDateStart), end: parseISO(customDateEnd) }
+      default: return { start: new Date(1900, 0, 1), end: new Date(2100, 0, 1) }
     }
   }
 
@@ -564,11 +562,24 @@ export default function FournisseursPage() {
     window.print()
   }
 
-  // Purchases for the selected supplier that still have a remaining balance
   const supplierUnpaidPurchases = useMemo(() => {
     if (!selected) return []
     return purchases
-      .filter(p => purchaseBelongsToSupplier(p, selected) && Number(p.remaining_amount || 0) > 0)
+      .filter(p => {
+        if (!purchaseBelongsToSupplier(p, selected)) return false
+        const total = Number(p.total_amount || 0)
+        const paid = Number(p.paid_amount || 0)
+        const remaining = p.remaining_amount !== undefined && p.remaining_amount !== null
+          ? Number(p.remaining_amount)
+          : total - paid
+        return remaining > 0 && total > 0
+      })
+      .map(p => ({
+        ...p,
+        remaining_amount: p.remaining_amount !== undefined && p.remaining_amount !== null
+          ? Number(p.remaining_amount)
+          : Number(p.total_amount || 0) - Number(p.paid_amount || 0),
+      }))
       .sort((a, b) => new Date(a.date) - new Date(b.date))
   }, [selected, purchases])
 
@@ -585,12 +596,12 @@ export default function FournisseursPage() {
     const list = filtered.map(s => ({ ...s, balance: supplierBalance(s.id) }))
     return [...list].sort((a, b) => {
       switch (sortBy) {
-        case 'name':         return (a.name || '').localeCompare(b.name || '', 'fr')
+        case 'name': return (a.name || '').localeCompare(b.name || '', 'fr')
         case 'balance-desc': return (b.balance || 0) - (a.balance || 0)
-        case 'balance-asc':  return (a.balance || 0) - (b.balance || 0)
-        case 'phone':        return (a.phone || '').localeCompare(b.phone || '', 'fr')
-        case 'address':      return (a.address || '').localeCompare(b.address || '', 'fr')
-        default:             return 0
+        case 'balance-asc': return (a.balance || 0) - (b.balance || 0)
+        case 'phone': return (a.phone || '').localeCompare(b.phone || '', 'fr')
+        case 'address': return (a.address || '').localeCompare(b.address || '', 'fr')
+        default: return 0
       }
     })
   }, [filtered, transactions, sortBy])
@@ -713,20 +724,19 @@ export default function FournisseursPage() {
             <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Période</p>
             <div className="flex flex-wrap gap-2 mb-2">
               {[
-                { value: 'all',    label: 'Tous les temps' },
-                { value: 'week',   label: 'Cette semaine' },
-                { value: 'month',  label: 'Ce mois' },
-                { value: 'year',   label: 'Cette année' },
+                { value: 'all', label: 'Tous les temps' },
+                { value: 'week', label: 'Cette semaine' },
+                { value: 'month', label: 'Ce mois' },
+                { value: 'year', label: 'Cette année' },
                 { value: 'custom', label: 'Personnalisé' },
               ].map(opt => (
                 <button
                   key={opt.value}
                   onClick={() => setPeriodFilter(opt.value)}
-                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                    periodFilter === opt.value
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${periodFilter === opt.value
                       ? 'bg-blue-600 text-white'
                       : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
+                    }`}
                 >
                   {opt.label}
                 </button>
