@@ -49,8 +49,29 @@ export default function AppLayout({ children }) {
   useEffect(() => {
     let cleanupSync = null
     let mounted = true
+    let failSafeTimer = null
 
     async function init() {
+      
+      failSafeTimer = setTimeout(async () => {
+        if (!mounted) return
+        console.warn('[layout init] fail-safe timeout triggered')
+        try {
+          const shopId = await getSetting('shop_id')
+          const cached = await getSetting('cached_shop')
+          if (shopId && cached) {
+            setShop(cached)
+            applyTheme(cached)
+            setLoaded(true)
+            cleanupSync = startSyncListener(shopId)
+          } else {
+            router.replace('/auth')
+          }
+        } catch {
+          router.replace('/auth')
+        }
+      }, 6000)
+
       if (isDemo()) {
         await resetDemoStorageIfNeeded()
         await setSetting('access_granted', true)
@@ -75,6 +96,7 @@ export default function AppLayout({ children }) {
         setLoaded(true)
         return
       }
+
       try {
         const cachedShopId = await getSetting('shop_id')
         const cachedShop = await getSetting('cached_shop')
@@ -91,57 +113,95 @@ export default function AppLayout({ children }) {
           return
         }
 
+        // FIX: if we have a usable cache, show the app immediately and
+        // STOP HERE. Background sync below should never block the UI.
         if (cachedShopId && cachedShop) {
           setShop(cachedShop)
           applyTheme(cachedShop)
           setLoaded(true)
+
+            // Kick off a background refresh but never let it block/crash
+            // the already-loaded UI.
+            ; (async () => {
+              try {
+                let supabase
+                try {
+                  supabase = getSupabaseClient()
+                } catch (e) {
+                  console.warn('[background refresh] supabase client init failed', e?.message)
+                  return
+                }
+
+                const sessionPromise = supabase.auth.getSession()
+                const timeoutPromise = new Promise((resolve) =>
+                  setTimeout(() => resolve({ data: { session: null }, timedOut: true }), 4000)
+                )
+
+                const { data, timedOut } = await Promise.race([sessionPromise, timeoutPromise])
+                const session = data?.session
+
+                if (!session || timedOut) return
+                if (!navigator.onLine) return
+
+                const [profileRes, shopRes] = await Promise.allSettled([
+                  supabase.from('profiles').select('*').eq('id', session.user.id).single(),
+                  supabase.from('shops').select('*').eq('id', cachedShopId).single(),
+                ])
+
+                if (!mounted) return
+
+                if (profileRes.status === 'fulfilled' && profileRes.value.data) {
+                  setProfile(profileRes.value.data)
+                }
+                if (shopRes.status === 'fulfilled' && shopRes.value.data) {
+                  setShop(shopRes.value.data)
+                  applyTheme(shopRes.value.data)
+                  await setSetting('cached_shop', shopRes.value.data)
+                  await setSetting('offline_ready', true)
+                }
+
+                setUser(session.user)
+
+                Promise.resolve()
+                  .then(() => pullFromRemote(cachedShopId))
+                  .then(() => runSync(cachedShopId))
+                  .catch(err => console.warn('[background sync failed]', err?.message))
+              } catch (err) {
+                console.warn('[background refresh failed]', err?.message)
+              }
+            })()
+
+          cleanupSync = startSyncListener(cachedShopId)
+          return
         }
 
-        const supabase = getSupabaseClient()
+        // No usable cache yet — this is the "fresh install" path.
+        // Everything below MUST eventually call setLoaded(true) or redirect.
+        let supabase
+        try {
+          supabase = getSupabaseClient()
+        } catch (e) {
+          console.error('[layout init] supabase client failed to init', e)
+          router.replace('/auth')
+          return
+        }
 
-        // Add timeout so the app never hangs forever
         const sessionPromise = supabase.auth.getSession()
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Session timeout')),
-            navigator.onLine ? 2500 : 300
-          )
+        const timeoutPromise = new Promise((resolve) =>
+          setTimeout(() => resolve({ data: { session: null }, timedOut: true }), navigator.onLine ? 4000 : 300)
         )
 
-        let session
-        try {
-          const { data } = await Promise.race([sessionPromise, timeoutPromise])
-          session = data?.session
-        } catch (err) {
-          // On timeout or network error, check if we have cached shop data
+        const { data, timedOut } = await Promise.race([sessionPromise, timeoutPromise])
+        const session = data?.session
+
+        if (timedOut || !session) {
           const shopId = cachedShopId
           if (!shopId) {
             router.replace('/auth')
             return
           }
-          // Let the app load offline with cached data
           if (!mounted) return
           setLoaded(true)
-          return
-        }
-
-        if (!session) {
-          const shopId = await getSetting('shop_id')
-          const cachedShop = await getSetting('cached_shop')
-          const offlineReady = await getSetting('offline_ready')
-
-          if (!navigator.onLine && offlineReady && shopId) {
-            if (cachedShop) {
-              setShop(cachedShop)
-              applyTheme(cachedShop)
-            }
-
-            setLoaded(true)
-            cleanupSync = startSyncListener(shopId)
-            return
-          }
-
-          router.replace('/auth')
           return
         }
 
@@ -151,7 +211,6 @@ export default function AppLayout({ children }) {
           return
         }
 
-        // Load profile + shop in parallel, with individual error handling
         const [profileRes, shopRes] = await Promise.allSettled([
           supabase.from('profiles').select('*').eq('id', session.user.id).single(),
           supabase.from('shops').select('*').eq('id', shopId).single(),
@@ -170,11 +229,8 @@ export default function AppLayout({ children }) {
         }
 
         setUser(session.user)
-
-        // Mark as loaded BEFORE sync so the app shows immediately
         setLoaded(true)
 
-        // Run sync in background, don't block UI
         if (navigator.onLine) {
           Promise.resolve()
             .then(() => pullFromRemote(shopId))
@@ -186,15 +242,20 @@ export default function AppLayout({ children }) {
       } catch (err) {
         console.error('[layout init failed]', err)
         if (!mounted) return
-        // Still try to show app if we have cached data
         const shopId = await getSetting('shop_id').catch(() => null)
-        if (shopId) {
+        const cachedShop = await getSetting('cached_shop').catch(() => null)
+        if (shopId && cachedShop) {
+          setShop(cachedShop)
+          applyTheme(cachedShop)
+          setLoaded(true)
+        } else if (shopId) {
           setLoaded(true)
         } else {
           setLoadError(err.message)
-          // Redirect after a moment
           setTimeout(() => router.replace('/auth'), 2000)
         }
+      } finally {
+        if (failSafeTimer) clearTimeout(failSafeTimer)
       }
     }
 
@@ -202,10 +263,10 @@ export default function AppLayout({ children }) {
 
     return () => {
       mounted = false
+      if (failSafeTimer) clearTimeout(failSafeTimer)
       if (cleanupSync) cleanupSync()
     }
   }, [router, setProfile, setShop, setUser, applyTheme])
-
   // Apply theme whenever shop changes
   useEffect(() => {
     if (shop) applyTheme()
