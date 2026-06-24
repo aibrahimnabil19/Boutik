@@ -162,6 +162,15 @@ export default function DashboardPage() {
       expenses: data.reduce((s, r) => s + Number(r.depenses || 0), 0),
       profit: data.reduce((s, r) => s + Number(r.benefice || 0), 0),
     })
+
+    setKpis(prev => ({
+      ...prev,
+      sales: data.reduce((s, r) => s + Number(r.ventes || 0), 0),
+      purchases: data.reduce((s, r) => s + Number(r.achats || 0), 0),
+      expenses: data.reduce((s, r) => s + Number(r.depenses || 0), 0),
+      profit: data.reduce((s, r) => s + Number(r.benefice || 0), 0),
+    }))
+    
   }, [period, rawSales, rawPurchases, rawExpenses])
 
   const primaryColor = shop?.color_primary || '#1a56db'

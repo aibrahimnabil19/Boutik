@@ -111,7 +111,10 @@ export default function DepensesPage() {
   }, [customCategories])
 
   const load = useCallback(async () => {
-    if (!shop?.id) return
+    if (!shop?.id) {
+  setLoading(false)
+  return
+}
     const [e, cats] = await Promise.all([
       getAll('expenses', shop.id),
       getAll('expense_categories', shop.id),
