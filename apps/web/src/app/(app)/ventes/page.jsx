@@ -176,41 +176,6 @@ export default function VentesPage() {
     setSaleCharges((prev) => prev.filter((row) => row._key !== key))
   }
 
-  // The client that "locks" the current selection (null if nothing selected yet)
-  const selectionClientName = useMemo(() => {
-    if (selectedKeys.size === 0) return null
-    const firstKey = Array.from(selectedKeys)[0]
-    const firstGroup = groupedSales.find(g => g.key === firstKey)
-    return firstGroup?.client_name || ''
-  }, [selectedKeys, groupedSales])
-
-  function canSelectGroup(group) {
-    if (group.cancelled || group.is_advance) return false
-    if (selectedKeys.size === 0) return true
-    return String(group.client_name || '').trim().toLowerCase() ===
-      String(selectionClientName || '').trim().toLowerCase()
-  }
-
-  function toggleSelectGroup(group) {
-    if (!canSelectGroup(group) && !selectedKeys.has(group.key)) return
-    setSelectedKeys(prev => {
-      const next = new Set(prev)
-      if (next.has(group.key)) next.delete(group.key)
-      else next.add(group.key)
-      return next
-    })
-  }
-
-  function exitSelectMode() {
-    setSelectMode(false)
-    setSelectedKeys(new Set())
-  }
-
-  const selectedGroups = useMemo(
-    () => groupedSales.filter(g => selectedKeys.has(g.key)),
-    [groupedSales, selectedKeys]
-  )
-
   const cleanSaleCharges = useMemo(() => {
     return saleCharges
       .map((row) => ({
@@ -949,6 +914,41 @@ export default function VentesPage() {
     })
     return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [filteredSales])
+
+  // The client that "locks" the current selection (null if nothing selected yet)
+  const selectionClientName = useMemo(() => {
+    if (selectedKeys.size === 0) return null
+    const firstKey = Array.from(selectedKeys)[0]
+    const firstGroup = groupedSales.find(g => g.key === firstKey)
+    return firstGroup?.client_name || ''
+  }, [selectedKeys, groupedSales])
+
+  function canSelectGroup(group) {
+    if (group.cancelled || group.is_advance) return false
+    if (selectedKeys.size === 0) return true
+    return String(group.client_name || '').trim().toLowerCase() ===
+      String(selectionClientName || '').trim().toLowerCase()
+  }
+
+  function toggleSelectGroup(group) {
+    if (!canSelectGroup(group) && !selectedKeys.has(group.key)) return
+    setSelectedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(group.key)) next.delete(group.key)
+      else next.add(group.key)
+      return next
+    })
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedKeys(new Set())
+  }
+
+  const selectedGroups = useMemo(
+    () => groupedSales.filter(g => selectedKeys.has(g.key)),
+    [groupedSales, selectedKeys]
+  )
 
   // Stats: exclude charge rows and pending_advance from revenue/profit
   const activeSales = useMemo(

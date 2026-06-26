@@ -12,7 +12,7 @@ import { startSyncListener, runSync, pullFromRemote } from '@/lib/sync/engine'
 import {
   LayoutDashboard, Package, ShoppingCart, TrendingUp,
   FileText, Users, Truck, PieChart, Wallet, BookOpen,
-  Settings, LogOut, Menu, X, Wifi, WifiOff, ChevronRight,
+  Settings, LogOut, Menu, X, Wifi, WifiOff, ChevronRight, History,
 } from 'lucide-react'
 import AppUpdatePrompt from '@/components/AppUpdatePrompt'
 import { isDemo, resetDemoStorageIfNeeded } from '@/lib/demo'
@@ -31,6 +31,7 @@ const NAV = [
 
   { separator: 'Documents' },
   { label: 'Documents', href: '/documents', icon: FileText },
+  { label: 'Historique', href: '/historique', icon: History },
 
   { separator: 'Catalogue & Analyse' },
   { label: 'Catalogue / Stock', href: '/produits', icon: Package },
@@ -52,7 +53,7 @@ export default function AppLayout({ children }) {
     let failSafeTimer = null
 
     async function init() {
-      
+
       failSafeTimer = setTimeout(async () => {
         if (!mounted) return
         console.warn('[layout init] fail-safe timeout triggered')
@@ -318,12 +319,18 @@ export default function AppLayout({ children }) {
         </div>
       )}
       {/* ── Sidebar ── */}
-      <aside className={`
-        flex flex-col h-full border-r border-gray-100 bg-white transition-all duration-300 z-20
-        ${sidebarOpen ? 'w-60' : 'w-16'}
-        fixed lg:relative
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-      `}>
+      <aside
+        className={`
+          flex flex-col h-full border-r transition-all duration-300 z-20
+          ${sidebarOpen ? 'w-60' : 'w-16'}
+          fixed lg:relative
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}
+        style={{
+          background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 8%, white) 0%, white 220px)',
+          borderColor: 'color-mix(in srgb, var(--color-primary) 15%, #e5e7eb)',
+        }}
+      >
         {/* Logo area */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 min-h-[76px]">
           {shop?.logo_url ? (
@@ -399,7 +406,14 @@ export default function AppLayout({ children }) {
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Topbar */}
-        <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none">
+        <header
+          className="h-16 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none border-b"
+          style={{
+            background: 'color-mix(in srgb, var(--color-primary) 4%, white)',
+            borderColor: 'color-mix(in srgb, var(--color-accent) 35%, #e5e7eb)',
+            borderBottomWidth: '3px',
+          }}
+        >
           <button
             onClick={toggleSidebar}
             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
