@@ -326,7 +326,7 @@ export default function AppLayout({ children }) {
     fixed lg:relative
     ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
   `}
-        style={{ background: '#E6F0FA' }} 
+        style={{ background: '#057a55' }} 
       >
         {/* Logo area */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 min-h-[76px]">
@@ -411,7 +411,7 @@ export default function AppLayout({ children }) {
             boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
           }}
         > */}
-        <header className="h-16 bg-[#E6F0FA] border-b border-gray-100 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none">
+        <header className="h-16 bg-[#057a55] border-b border-gray-100 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none">
           <button
             onClick={toggleSidebar}
             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
