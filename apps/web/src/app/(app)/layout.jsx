@@ -403,14 +403,15 @@ export default function AppLayout({ children }) {
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Topbar */}
-        <header
+        {/* <header
           className="h-16 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none"
           style={{
-            background: '#ffffff',
+            background: '#090090',
             borderBottom: '3px solid var(--color-primary)', 
             boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
           }}
-        >
+        > */}
+        <header className="h-16 bg-white border-b border-gray-100 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none">
           <button
             onClick={toggleSidebar}
             className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
