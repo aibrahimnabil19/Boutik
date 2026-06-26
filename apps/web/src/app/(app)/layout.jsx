@@ -321,20 +321,17 @@ export default function AppLayout({ children }) {
       {/* ── Sidebar ── */}
       <aside
         className={`
-          flex flex-col h-full border-r transition-all duration-300 z-20
-          ${sidebarOpen ? 'w-60' : 'w-16'}
-          fixed lg:relative
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-        `}
-        style={{
-          background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 8%, white) 0%, white 220px)',
-          borderColor: 'color-mix(in srgb, var(--color-primary) 15%, #e5e7eb)',
-        }}
+    flex flex-col h-full transition-all duration-300 z-20
+    ${sidebarOpen ? 'w-60' : 'w-16'}
+    fixed lg:relative
+    ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+  `}
+        style={{ background: '#111827' }} 
       >
         {/* Logo area */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 min-h-[76px]">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 min-h-[76px]">
           {shop?.logo_url ? (
-            <img src={shop.logo_url} alt="Logo" className="w-12 h-12 rounded-xl object-contain flex-none" />
+            <img src={shop.logo_url} alt="Logo" className="w-12 h-12 rounded-xl object-contain flex-none bg-white/5" />
           ) : (
             <div className="w-12 h-12 rounded-xl flex-none flex items-center justify-center text-white text-base font-bold"
               style={{ background: 'var(--color-primary)' }}>
@@ -343,8 +340,8 @@ export default function AppLayout({ children }) {
           )}
           {sidebarOpen && (
             <div className="min-w-0 overflow-hidden">
-              <p className="font-display font-bold text-sm text-gray-900 truncate">{shop?.name || 'Ma Boutique'}</p>
-              <p className="text-xs text-gray-400 truncate">{shop?.city || ''}</p>
+              <p className="font-display font-bold text-sm text-white truncate">{shop?.name || 'Ma Boutique'}</p>
+              <p className="text-xs text-slate-400 truncate">{shop?.city || ''}</p>
             </div>
           )}
         </div>
@@ -354,10 +351,10 @@ export default function AppLayout({ children }) {
           {NAV.map((item, i) => {
             if (item.separator) {
               return sidebarOpen ? (
-                <p key={i} className="text-xs font-semibold text-gray-400 px-2 pt-4 pb-1 uppercase tracking-wider">
+                <p key={i} className="text-xs font-semibold text-slate-500 px-2 pt-4 pb-1 uppercase tracking-wider">
                   {item.separator}
                 </p>
-              ) : <div key={i} className="my-1 border-t border-gray-100" />
+              ) : <div key={i} className="my-1 border-t border-white/10" />
             }
 
             const active = pathname.startsWith(item.href)
@@ -367,7 +364,7 @@ export default function AppLayout({ children }) {
               <Link key={item.href} href={item.href}>
                 <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group ${active
                   ? 'text-white shadow-sm'
-                  : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5'
                   }`}
                   style={active ? { background: 'var(--color-primary)' } : {}}
                 >
@@ -381,16 +378,16 @@ export default function AppLayout({ children }) {
         </nav>
 
         {/* Bottom actions */}
-        <div className="border-t border-gray-100 p-2 space-y-0.5">
+        <div className="border-t border-white/10 p-2 space-y-0.5">
           <Link href="/settings">
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-500 hover:text-gray-800 hover:bg-gray-50 cursor-pointer transition-all">
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/5 cursor-pointer transition-all">
               <Settings className="w-4 h-4 flex-none" />
               {sidebarOpen && <span className="text-sm font-medium">Paramètres</span>}
             </div>
           </Link>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-500 hover:text-red-500 hover:bg-red-50 transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:text-red-400 hover:bg-red-500/10 transition-all"
           >
             <LogOut className="w-4 h-4 flex-none" />
             {sidebarOpen && <span className="text-sm font-medium">Déconnexion</span>}
@@ -407,11 +404,11 @@ export default function AppLayout({ children }) {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Topbar */}
         <header
-          className="h-16 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none border-b"
+          className="h-16 flex items-center justify-between px-4 lg:px-6 gap-4 flex-none"
           style={{
-            background: 'color-mix(in srgb, var(--color-primary) 4%, white)',
-            borderColor: 'color-mix(in srgb, var(--color-accent) 35%, #e5e7eb)',
-            borderBottomWidth: '3px',
+            background: '#ffffff',
+            borderBottom: '3px solid var(--color-primary)', 
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
           }}
         >
           <button
