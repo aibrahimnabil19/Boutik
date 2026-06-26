@@ -648,7 +648,7 @@ export default function VentesPage() {
           const label = String(tx.label || '')
           const isLinked = label.includes(oldKey) &&
             (label.startsWith('Vente à crédit') || label.startsWith('Utilisation avance client') ||
-             label.startsWith('Paiement vente') || label.startsWith('Paiement avance'))
+              label.startsWith('Paiement vente') || label.startsWith('Paiement avance'))
           if (isLinked) await localDelete('client_transactions', tx.id)
         }
       }
@@ -914,7 +914,10 @@ export default function VentesPage() {
   }, [filteredSales])
 
   // Stats: exclude charge rows and pending_advance from revenue/profit
-  const activeSales = useMemo(() => sales.filter(s => !s.cancelled_at && !s.is_charge && s.status !== 'pending_advance'), [sales])
+  const activeSales = useMemo(
+    () => filteredSales.filter(s => !s.cancelled_at && !s.is_charge && s.status !== 'pending_advance'),
+    [filteredSales]
+  )
   const totalRevenue = useMemo(() => activeSales.reduce((a, s) => a + (s.total_sale || 0), 0), [activeSales])
   const totalProfit = useMemo(() => activeSales.reduce((a, s) => a + (s.profit || 0), 0), [activeSales])
   const pendingAdvanceCount = useMemo(() => groupedSales.filter(g => g.is_advance && !g.cancelled).length, [groupedSales])

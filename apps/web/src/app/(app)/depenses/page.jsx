@@ -112,16 +112,22 @@ export default function DepensesPage() {
 
   const load = useCallback(async () => {
     if (!shop?.id) {
-  setLoading(false)
-  return
-}
-    const [e, cats] = await Promise.all([
-      getAll('expenses', shop.id),
-      getAll('expense_categories', shop.id),
-    ])
-    setExpenses(e.sort((a, b) => new Date(b.date) - new Date(a.date)))
-    setCustomCategories(cats.map(c => c.name))
-    setLoading(false)
+      setLoading(false)
+      return
+    }
+    try {
+      const [e, cats] = await Promise.all([
+        getAll('expenses', shop.id),
+        getAll('expense_categories', shop.id).catch(() => []),
+      ])
+      setExpenses(e.sort((a, b) => new Date(b.date) - new Date(a.date)))
+      setCustomCategories(cats.map(c => c.name))
+    } catch (err) {
+      console.error('Failed to load expenses', err)
+      toast.error('Erreur lors du chargement des charges')
+    } finally {
+      setLoading(false)
+    }
   }, [shop?.id])
 
   useEffect(() => { load() }, [load])
@@ -204,26 +210,26 @@ export default function DepensesPage() {
     setModal(true)
   }
 
-  const total = useMemo(() => expenses.reduce((a, e) => a + (e.amount || 0), 0), [expenses])
+  const total = useMemo(() => filtered.reduce((a, e) => a + (e.amount || 0), 0), [filtered])
   const byMonth = useMemo(() => {
     const now = new Date()
-    return expenses
+    return filtered
       .filter(e => new Date(e.date).getMonth() === now.getMonth() && new Date(e.date).getFullYear() === now.getFullYear())
       .reduce((a, e) => a + (e.amount || 0), 0)
-  }, [expenses])
+  }, [filtered])
 
   return (
     <div className="p-6">
       <PageHeader
         title="Charges"
-        subtitle={`${expenses.length} charge${expenses.length !== 1 ? 's' : ''}`}
+        subtitle={`${filtered.length} charge${filtered.length !== 1 ? 's' : ''}`}
         action={<Btn icon={Plus} onClick={openAdd}>Nouvelle charge</Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Total charges" value={formatFCFA(total)} color="red" icon={Wallet} />
         <StatCard label="Ce mois-ci" value={formatFCFA(byMonth)} color="amber" />
-        <StatCard label="Nombre" value={expenses.length} color="blue" />
+        <StatCard label="Nombre" value={filtered.length} color="blue" />
       </div>
 
       <div className="card overflow-hidden">

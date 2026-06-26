@@ -543,14 +543,14 @@ export default function AchatsPage() {
     <div className="p-6">
       <PageHeader
         action={<Btn icon={Plus} onClick={openAdd}>Nouvelle entrée</Btn>}
-        subtitle={`${purchases.length} achat${purchases.length !== 1 ? 's' : ''}`}
+        subtitle={`${filtered.length} achat${filtered.length !== 1 ? 's' : ''}`}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <StatCard label="Total dépensé" value={formatFCFA(totalSpent)} color="purple" icon={ShoppingCart} />
-        <StatCard label="Nombre d'entrées" value={purchases.length} color="blue" />
+        <StatCard label="Nombre d'entrées" value={filtered.length} color="blue" />
         <StatCard label="Fournisseurs distincts"
-          value={new Set(purchases.map(p => p.supplier).filter(Boolean)).size} color="amber" />
+          value={new Set(filtered.map(p => p.supplier).filter(Boolean)).size} color="amber" />
       </div>
 
       <div className="card overflow-hidden">
