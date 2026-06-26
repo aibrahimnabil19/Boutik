@@ -66,10 +66,15 @@ export default function AppLayout({ children }) {
             setLoaded(true)
             cleanupSync = startSyncListener(shopId)
           } else {
-            router.replace('/auth')
+            // No usable cache and init() never resolved in time — surface this
+            // instead of leaving the user on an infinite "Chargement…" screen,
+            // and don't redirect into a loop if /auth itself can't load either.
+            setLoadError(
+              "Le chargement initial a expiré. Vérifiez votre connexion ou réinstallez l'application."
+            )
           }
-        } catch {
-          router.replace('/auth')
+        } catch (err) {
+          setLoadError(err?.message || 'Erreur de chargement inconnue.')
         }
       }, 6000)
 
@@ -187,12 +192,18 @@ export default function AppLayout({ children }) {
           return
         }
 
-        const sessionPromise = supabase.auth.getSession()
+        const sessionPromise = supabase.auth
+          .getSession()
+          .catch((err) => {
+            console.warn('[layout init] getSession() rejected', err?.message)
+            return { data: { session: null }, timedOut: true }
+          })
         const timeoutPromise = new Promise((resolve) =>
           setTimeout(() => resolve({ data: { session: null }, timedOut: true }), navigator.onLine ? 4000 : 300)
         )
 
         const { data, timedOut } = await Promise.race([sessionPromise, timeoutPromise])
+        
         const session = data?.session
 
         if (timedOut || !session) {
@@ -326,7 +337,7 @@ export default function AppLayout({ children }) {
     fixed lg:relative
     ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
   `}
-        style={{ background: '#1A1A1A' }} 
+        style={{ background: '#1A1A1A' }}
       >
         {/* Logo area */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 min-h-[76px]">

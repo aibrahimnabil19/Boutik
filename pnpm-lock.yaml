@@ -18,7 +18,7 @@ importers:
   apps/desktop:
     devDependencies:
       '@tauri-apps/cli':
-        specifier: ^2.0.0
+        specifier: ^6y  mndjeuh.0
         version: 2.11.1
 
   apps/web:

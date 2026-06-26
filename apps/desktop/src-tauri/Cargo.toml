@@ -1,6 +1,6 @@
 [package]
 name = "boutik_desktop"
-version = "0.2.1"
+version = "0.2.2"
 description = "Boutik Desktop"
 authors = ["Abdurrahman Nabil Ibrahim", "Mouhamadou Nassirou Ousmane Bawa"]
 edition = "2024"

@@ -1,29 +1,32 @@
 // apps/web/src/app/api/desktop-update/route.js
-//
-// Serves the Tauri v2 update manifest.
-// Point tauri.conf.json → plugins.updater.endpoints to this URL.
-//
-// Expected response shape (Tauri v2):
-// {
-//   "version": "0.1.5",
-//   "notes": "…",
-//   "pub_date": "2026-05-17T00:00:00Z",
-//   "platforms": {
-//     "windows-x86_64": { "signature": "…", "url": "…" }
-//   }
-// }
 
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 
+// Tell Next this route is dynamic/server-only and must be skipped entirely
+// during a static export build. With this present, `next build` with
+// `output: 'export'` will not attempt to execute/prerender this handler.
+export const dynamic = 'force-dynamic'
+
 // Use service-role key so this works without auth headers
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  )
+}
 
 export async function GET() {
+  // Defensive guard: if this somehow still gets invoked during a native
+  // export build (e.g. someone forgets to set NEXT_PUBLIC_NATIVE_BUILD),
+  // bail out instantly instead of hitting the network/DB at build time.
+  if (process.env.NEXT_PUBLIC_NATIVE_BUILD === 'true') {
+    return new NextResponse(null, { status: 204 })
+  }
+
   try {
+    const supabase = getSupabaseAdmin()
+
     // Fetch the latest windows release that has a valid exe signature
     const { data: release, error } = await supabase
       .from('app_releases')
