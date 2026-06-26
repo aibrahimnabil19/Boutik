@@ -15,7 +15,7 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, inputCls, selectCls
 } from '@/components/ui'
-import { printPurchaseDocument } from '@/lib/core/invoicePrint'
+import { printPurchaseDocument, printPurchaseDocumentMulti } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 import PhoneInput from '@/components/PhoneInput'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -76,6 +76,8 @@ export default function AchatsPage() {
   })
   const [chargeRows, setChargeRows] = useState([])
   const [paymentBreakdown, setPaymentBreakdown] = useState([])
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -504,6 +506,21 @@ export default function AchatsPage() {
     setDocModal(null)
   }
 
+function handlePrintDocMulti(purchases, docType) {
+  const earliestDate = purchases.map(p => p.date).filter(Boolean).sort()[0] || purchases[0]?.date
+  printPurchaseDocumentMulti({
+    shop,
+    type: docType,
+    purchases,
+    invoiceNumber: `ACH-${earliestDate}-GRP`,
+    guaranteeText: docGuarantee.text || '',
+    includeCachet: printOptions.includeCachet,
+    includeSignature: printOptions.includeSignature,
+  })
+  setDocModal(null)
+  exitSelectMode()
+}
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
 
@@ -521,6 +538,39 @@ export default function AchatsPage() {
   const totalSpent = useMemo(
     () => filtered.reduce((a, p) => a + Number(p.total_amount || 0), 0),
     [filtered]
+  )
+
+  const selectionSupplierName = useMemo(() => {
+    if (selectedIds.size === 0) return null
+    const firstId = Array.from(selectedIds)[0]
+    const firstPurchase = filtered.find(p => p.id === firstId)
+    return firstPurchase?.supplier || ''
+  }, [selectedIds, filtered])
+
+  function canSelectPurchase(purchase) {
+    if (selectedIds.size === 0) return true
+    return String(purchase.supplier || '').trim().toLowerCase() ===
+      String(selectionSupplierName || '').trim().toLowerCase()
+  }
+
+  function toggleSelectPurchase(purchase) {
+    if (!canSelectPurchase(purchase) && !selectedIds.has(purchase.id)) return
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(purchase.id)) next.delete(purchase.id)
+      else next.add(purchase.id)
+      return next
+    })
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  const selectedPurchases = useMemo(
+    () => filtered.filter(p => selectedIds.has(p.id)),
+    [filtered, selectedIds]
   )
 
   const purchaseProductOptions = useMemo(() => {
@@ -542,7 +592,14 @@ export default function AchatsPage() {
   return (
     <div className="p-6">
       <PageHeader
-        action={<Btn icon={Plus} onClick={openAdd}>Nouvelle entrée</Btn>}
+        action={
+          <div className="flex gap-2">
+            <Btn variant="secondary" onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}>
+              {selectMode ? 'Annuler la sélection' : 'Sélectionner plusieurs'}
+            </Btn>
+            <Btn icon={Plus} onClick={openAdd}>Nouvelle entrée</Btn>
+          </div>
+        }
         subtitle={`${filtered.length} achat${filtered.length !== 1 ? 's' : ''}`}
       />
 
@@ -562,6 +619,31 @@ export default function AchatsPage() {
           <DateFilter value={dateFilter} onChange={setDateFilter} />
         </div>
 
+        {selectMode && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-blue-50 border-b border-blue-100">
+            <div className="text-sm text-blue-800 font-medium">
+              {selectedIds.size === 0
+                ? 'Sélectionnez des entrées de stock du même fournisseur pour générer un document groupé.'
+                : `${selectedIds.size} entrée${selectedIds.size > 1 ? 's' : ''} sélectionnée${selectedIds.size > 1 ? 's' : ''} — Fournisseur : ${selectionSupplierName || '—'}`}
+            </div>
+            {selectedIds.size > 0 && (
+              <div className="flex gap-2">
+                <Btn variant="secondary" onClick={() => setSelectedIds(new Set())}>Désélectionner tout</Btn>
+                <Btn
+                  icon={Printer}
+                  onClick={() => {
+                    setPrintOptions(getDefaultDocumentOptions())
+                    setDocGuarantee({ key: GUARANTEE_OPTIONS[0].key, text: GUARANTEE_OPTIONS[0].text })
+                    setDocModal({ _multi: true, purchases: selectedPurchases })
+                  }}
+                >
+                  Créer un document groupé
+                </Btn>
+              </div>
+            )}
+          </div>
+        )}
+
         {loading ? (
           <div className="p-10 text-center text-gray-400 text-sm">Chargement…</div>
         ) : filtered.length === 0 ? (
@@ -574,6 +656,7 @@ export default function AchatsPage() {
             <table className="w-full text-sm table-zebra">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
+                  {selectMode && <th className="px-4 py-3 w-8" />}
                   {['Date', 'Fournisseur', 'Produit', 'Quantité', 'Prix unit.', 'Charges', 'Total', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
@@ -584,8 +667,20 @@ export default function AchatsPage() {
                   <tr
                     key={p.id}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => setPurchaseDetail(p)}
+                    onClick={() => selectMode ? toggleSelectPurchase(p) : setPurchaseDetail(p)}
                   >
+                    {selectMode && (
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(p.id)}
+                          disabled={!canSelectPurchase(p) && !selectedIds.has(p.id)}
+                          onChange={() => toggleSelectPurchase(p)}
+                          className="w-4 h-4 rounded border-gray-300 disabled:opacity-30"
+                          title={!canSelectPurchase(p) && !selectedIds.has(p.id) ? `Fournisseur différent (${p.supplier || '—'})` : ''}
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                       {format(new Date(p.date), 'dd MMM yy', { locale: fr })}
                       {p.created_at && (
@@ -606,41 +701,43 @@ export default function AchatsPage() {
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-900">{formatFCFA(p.total_amount)}</td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      <div className="flex gap-1">
-                        <button onClick={() => setDocModal(p)}
-                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="Imprimer document">
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
+                      {!selectMode && (
+                        <div className="flex gap-1">
+                          <button onClick={() => setDocModal(p)}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                            title="Imprimer document">
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openEditPurchase(p)
-                          }}
-                          className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="Modifier l’entrée de stock"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openEditPurchase(p)
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                            title="Modifier l’entrée de stock"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
 
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openPayment(p)
-                          }}
-                          disabled={Number(p.remaining_amount || 0) <= 0}
-                          className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Payer le crédit"
-                        >
-                          <Wallet className="w-3.5 h-3.5" />
-                        </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openPayment(p)
+                            }}
+                            disabled={Number(p.remaining_amount || 0) <= 0}
+                            className="p-1.5 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Payer le crédit"
+                          >
+                            <Wallet className="w-3.5 h-3.5" />
+                          </button>
 
-                        <button onClick={() => setConfirm(p.id)}
-                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                          <button onClick={() => setConfirm(p.id)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -709,23 +806,18 @@ export default function AchatsPage() {
       <Modal open={!!docModal} onClose={() => setDocModal(null)} title="Imprimer un document" maxW="max-w-sm">
         <div className="space-y-3">
           <p className="text-sm text-gray-500 mb-4">
-            Choisissez le type de document à générer pour cet achat.
+            {docModal?._multi
+              ? `Choisissez le type de document à générer pour ces ${docModal.purchases.length} entrées groupées.`
+              : 'Choisissez le type de document à générer pour cet achat.'}
           </p>
-          <DocumentPrintOptions
-            shop={shop}
-            value={printOptions}
-            onChange={setPrintOptions}
-          />
-          <GuaranteePicker
-            value={docGuarantee}
-            onChange={setDocGuarantee}
-          />
+          <DocumentPrintOptions shop={shop} value={printOptions} onChange={setPrintOptions} />
+          <GuaranteePicker value={docGuarantee} onChange={setDocGuarantee} />
           {docModal && PURCHASE_DOC_TYPES.map(doc => {
             const Icon = doc.icon
             return (
               <button
                 key={doc.key}
-                onClick={() => handlePrintDoc(docModal, doc.key)}
+                onClick={() => docModal._multi ? handlePrintDocMulti(docModal.purchases, doc.key) : handlePrintDoc(docModal, doc.key)}
                 className="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
               >
                 <div className="w-10 h-10 rounded-lg bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center flex-none transition-colors">

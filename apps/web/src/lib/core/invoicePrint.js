@@ -55,6 +55,127 @@ async function imageUrlToDataUrl(url) {
   }
 }
 
+// ─── Multi-sale (combined invoice across several sale groups, same client) ──
+export function printSaleDocumentMulti({
+  shop,
+  type,
+  saleGroups, // array of group objects (same shape as saleGroup)
+  invoiceNumber,
+  guaranteeText,
+  includeCachet,
+  includeSignature,
+  orientation = "landscape",
+}) {
+  const allFirstItems = saleGroups.map(
+    (g) => (g.items || []).find((s) => !s.is_charge) || g.items?.[0] || {},
+  );
+  const anchor = allFirstItems[0] || {};
+
+  // Use the earliest date among the merged sales for the document date
+  const earliestDate =
+    saleGroups
+      .map((g) => g.date)
+      .filter(Boolean)
+      .sort()[0] || saleGroups[0]?.date;
+
+  const formValues = {
+    date: earliestDate,
+    city: shop?.city || "",
+    client_name: saleGroups[0]?.client_name || anchor.client_name || "",
+    client_address:
+      saleGroups[0]?.client_address || anchor.client_address || "",
+    client_phone: saleGroups[0]?.client_phone || anchor.client_phone || "",
+    validity: "30 jours",
+  };
+
+  // Flatten every non-charge line item from every selected sale group
+  const items = saleGroups.flatMap((g) =>
+    (g.items || [])
+      .filter((s) => !s.is_charge)
+      .map((s) => ({
+        id: s.id,
+        is_charge: false,
+        designation: s.product_name,
+        quantity: s.quantity,
+        unit: s.unit || "Pièces",
+        unit_price: s.unit_sale_price || 0,
+        total_price: s.total_sale || 0,
+      })),
+  );
+
+  const grandTotal = items.reduce((a, i) => a + i.total_price, 0);
+  const num = invoiceNumber || `V-${earliestDate}`;
+
+  const html = renderToInvoiceHTML({
+    shop,
+    invoiceNumber: num,
+    formValues,
+    items,
+    grandTotal,
+    type,
+    includeCachet,
+    includeSignature,
+    guaranteeText,
+    orientation,
+  });
+
+  printHtmlDocument(html, orientation);
+}
+
+// ─── Multi-purchase (combined invoice across several purchase entries, same supplier) ──
+export function printPurchaseDocumentMulti({
+  shop,
+  type,
+  purchases, // array of purchase row objects
+  invoiceNumber,
+  guaranteeText = "",
+  includeCachet,
+  includeSignature,
+  orientation = "landscape",
+}) {
+  const earliestDate =
+    purchases
+      .map((p) => p.date)
+      .filter(Boolean)
+      .sort()[0] || purchases[0]?.date;
+
+  const formValues = {
+    date: earliestDate,
+    city: shop?.city || "",
+    client_name: purchases[0]?.supplier || "",
+    client_address: "",
+    client_phone: "",
+  };
+
+  const items = purchases.map((p) => ({
+    id: p.id,
+    is_charge: false,
+    designation: p.product_name,
+    quantity: p.quantity,
+    unit: "Pièces",
+    unit_price: p.unit_price || 0,
+    total_price: p.total_amount || 0,
+  }));
+
+  const grandTotal = items.reduce((a, i) => a + i.total_price, 0);
+  const num = invoiceNumber || `ACH-${earliestDate}`;
+
+  const html = renderToInvoiceHTML({
+    shop,
+    invoiceNumber: num,
+    formValues,
+    items,
+    grandTotal,
+    type,
+    includeCachet,
+    includeSignature,
+    guaranteeText,
+    orientation,
+  });
+
+  printHtmlDocument(html, orientation);
+}
+
 export async function preparePrintableShop(shop = {}) {
   return {
     ...shop,

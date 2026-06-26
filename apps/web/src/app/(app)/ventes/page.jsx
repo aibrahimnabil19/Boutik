@@ -14,7 +14,7 @@ import {
   PageHeader, SearchBar, Modal, FormField, EmptyState,
   ConfirmDialog, Btn, StatCard, Badge, inputCls, selectCls
 } from '@/components/ui'
-import { printSaleDocument } from '@/lib/core/invoicePrint'
+import { printSaleDocument, printSaleDocumentMulti } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DateFilter from '@/components/DateFilter'
@@ -96,6 +96,8 @@ export default function VentesPage() {
   const [paymentMode, setPaymentMode] = useState('')
   const [paidAmount, setPaidAmount] = useState('')
   const [paymentBreakdown, setPaymentBreakdown] = useState([])
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedKeys, setSelectedKeys] = useState(new Set())
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -173,6 +175,41 @@ export default function VentesPage() {
   function removeSaleCharge(key) {
     setSaleCharges((prev) => prev.filter((row) => row._key !== key))
   }
+
+  // The client that "locks" the current selection (null if nothing selected yet)
+  const selectionClientName = useMemo(() => {
+    if (selectedKeys.size === 0) return null
+    const firstKey = Array.from(selectedKeys)[0]
+    const firstGroup = groupedSales.find(g => g.key === firstKey)
+    return firstGroup?.client_name || ''
+  }, [selectedKeys, groupedSales])
+
+  function canSelectGroup(group) {
+    if (group.cancelled || group.is_advance) return false
+    if (selectedKeys.size === 0) return true
+    return String(group.client_name || '').trim().toLowerCase() ===
+      String(selectionClientName || '').trim().toLowerCase()
+  }
+
+  function toggleSelectGroup(group) {
+    if (!canSelectGroup(group) && !selectedKeys.has(group.key)) return
+    setSelectedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(group.key)) next.delete(group.key)
+      else next.add(group.key)
+      return next
+    })
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedKeys(new Set())
+  }
+
+  const selectedGroups = useMemo(
+    () => groupedSales.filter(g => selectedKeys.has(g.key)),
+    [groupedSales, selectedKeys]
+  )
 
   const cleanSaleCharges = useMemo(() => {
     return saleCharges
@@ -984,6 +1021,60 @@ export default function VentesPage() {
     setDocModal(null)
   }
 
+  async function handlePrintDocMulti(groups, docType) {
+    const now = new Date().toISOString()
+    // Stable composite id so re-printing the *same* combination reuses the invoice number
+    const sourceId = groups.map(g => g.key).sort().join('+')
+
+    const existingDoc = invoices.find(inv =>
+      inv.type === docType && inv.source_type === 'sale_multi' &&
+      inv.source_id === sourceId && inv.invoice_number
+    )
+    const earliestDate = groups.map(g => g.date).filter(Boolean).sort()[0] || groups[0]?.date
+    const invoiceNumber = existingDoc?.invoice_number ||
+      generateDocumentNumber(invoices, docType, earliestDate || new Date())
+
+    if (!existingDoc) {
+      const total = groups.reduce(
+        (sum, g) => sum + g.items.filter(s => !s.is_charge).reduce((a, s) => a + Number(s.total_sale || 0), 0),
+        0
+      )
+      const anchor = groups[0]
+
+      await localUpsert('invoices', {
+        id: uuid(), shop_id: shop.id, type: docType,
+        source_type: 'sale_multi', source_id: sourceId,
+        invoice_number: invoiceNumber, date: earliestDate,
+        city: shop?.city || '',
+        client_id: anchor.items?.[0]?.client_id || null,
+        client_name: anchor.client_name || '',
+        client_address: anchor.client_address || '',
+        client_phone: anchor.client_phone || '',
+        total_amount: total,
+        amount_in_words: '',
+        guarantee_text: docGuarantee.text || '',
+        include_cachet: !!printOptions.includeCachet,
+        include_signature: !!printOptions.includeSignature,
+        status: 'finalized', created_at: now, updated_at: now, sync_status: 'pending',
+      })
+
+      setInvoices(prev => [...prev, {
+        type: docType, source_type: 'sale_multi', source_id: sourceId, invoice_number: invoiceNumber,
+      }])
+    }
+
+    printSaleDocumentMulti({
+      shop, type: docType, saleGroups: groups,
+      invoiceNumber,
+      guaranteeText: docGuarantee.text || '',
+      includeCachet: printOptions.includeCachet,
+      includeSignature: printOptions.includeSignature,
+      orientation: printOptions.orientation || 'landscape',
+    })
+    setDocModal(null)
+    exitSelectMode()
+  }
+
   const saleProductOptions = useMemo(() => {
     const stockSales = editingGroup
       ? sales.filter(s => (s.session_id || s.id) !== editingGroup.key)
@@ -1003,7 +1094,17 @@ export default function VentesPage() {
       <PageHeader
         title="Ventes"
         subtitle={`${activeSales.length} transaction${activeSales.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={openAdd}>Nouvelle vente</Btn>}
+        action={
+          <div className="flex gap-2">
+            <Btn
+              variant={selectMode ? 'secondary' : 'secondary'}
+              onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
+            >
+              {selectMode ? 'Annuler la sélection' : 'Sélectionner plusieurs'}
+            </Btn>
+            <Btn icon={Plus} onClick={openAdd}>Nouvelle vente</Btn>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -1022,6 +1123,36 @@ export default function VentesPage() {
           </div>
           <DateFilter value={dateFilter} onChange={setDateFilter} />
         </div>
+
+        {selectMode && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-blue-50 border-b border-blue-100">
+            <div className="text-sm text-blue-800 font-medium">
+              {selectedKeys.size === 0
+                ? 'Sélectionnez des ventes du même client pour générer une facture groupée.'
+                : `${selectedKeys.size} vente${selectedKeys.size > 1 ? 's' : ''} sélectionnée${selectedKeys.size > 1 ? 's' : ''} — Client : ${selectionClientName || '—'}`}
+            </div>
+            {selectedKeys.size > 0 && (
+              <div className="flex gap-2">
+                <Btn
+                  variant="secondary"
+                  onClick={() => setSelectedKeys(new Set())}
+                >
+                  Désélectionner tout
+                </Btn>
+                <Btn
+                  icon={Printer}
+                  onClick={() => {
+                    setPrintOptions(getDefaultDocumentOptions())
+                    setDocGuarantee({ key: GUARANTEE_OPTIONS[0].key, text: GUARANTEE_OPTIONS[0].text })
+                    setDocModal({ _multi: true, groups: selectedGroups })
+                  }}
+                >
+                  Créer une facture groupée
+                </Btn>
+              </div>
+            )}
+          </div>
+        )}
 
         {loading ? (
           <div className="p-10 text-center text-gray-400 text-sm">Chargement…</div>
@@ -1047,9 +1178,33 @@ export default function VentesPage() {
                 <div
                   key={group.key}
                   className={`px-5 py-4 ${group.cancelled ? 'bg-red-50/40 opacity-70' : group.is_advance ? 'bg-amber-50/30 hover:bg-amber-50/60 cursor-pointer' : 'hover:bg-gray-50 cursor-pointer'} transition-colors`}
-                  onClick={() => setSaleDetail(group)}
+                  onClick={() => {
+                    if (selectMode) {
+                      toggleSelectGroup(group)
+                    } else {
+                      setSaleDetail(group)
+                    }
+                  }}
                 >
                   <div className="flex items-start justify-between gap-4">
+                    {selectMode && (
+                      <div className="flex items-center pt-1" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.has(group.key)}
+                          disabled={!canSelectGroup(group) && !selectedKeys.has(group.key)}
+                          onChange={() => toggleSelectGroup(group)}
+                          className="w-4 h-4 rounded border-gray-300 disabled:opacity-30"
+                          title={
+                            !canSelectGroup(group) && !selectedKeys.has(group.key)
+                              ? group.is_advance
+                                ? 'Les ventes en avance ne peuvent pas être groupées'
+                                : `Client différent (${group.client_name || 'sans client'})`
+                              : ''
+                          }
+                        />
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="text-xs text-gray-400">
@@ -1099,7 +1254,7 @@ export default function VentesPage() {
                         <p className="text-xs text-amber-600">Non collectée</p>
                       )}
                     </div>
-                    {!group.cancelled && (
+                    {!group.cancelled && !selectMode && (
                       <div className="flex gap-1 flex-none" onClick={e => e.stopPropagation()}>
                         {/* Advance-specific buttons */}
                         {group.is_advance && (
@@ -1290,7 +1445,9 @@ export default function VentesPage() {
       <Modal open={!!docModal} onClose={() => setDocModal(null)} title="Imprimer un document" maxW="max-w-sm">
         <div className="space-y-3">
           <p className="text-sm text-gray-500 mb-4">
-            Choisissez le type de document à générer pour cette vente.
+            {docModal?._multi
+              ? `Choisissez le type de document à générer pour ces ${docModal.groups.length} ventes groupées.`
+              : 'Choisissez le type de document à générer pour cette vente.'}
           </p>
           <DocumentPrintOptions shop={shop} value={printOptions} onChange={setPrintOptions} />
           <GuaranteePicker value={docGuarantee} onChange={setDocGuarantee} />
@@ -1299,7 +1456,7 @@ export default function VentesPage() {
             return (
               <button
                 key={doc.key}
-                onClick={() => handlePrintDoc(docModal, doc.key)}
+                onClick={() => docModal._multi ? handlePrintDocMulti(docModal.groups, doc.key) : handlePrintDoc(docModal, doc.key)}
                 className="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
               >
                 <div className="w-10 h-10 rounded-lg bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center flex-none transition-colors">
