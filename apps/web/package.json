@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:native": "cross-env NEXT_PUBLIC_NATIVE_BUILD=true next build",
+    "build:native": "node scripts/native-build.js",
     "start": "next start"
   },
   "dependencies": {

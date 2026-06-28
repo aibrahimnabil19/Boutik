@@ -18,23 +18,15 @@ export function PageHeader({ title, subtitle, action }) {
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 export function StatCard({ label, value, sub, icon: Icon, color = 'blue' }) {
-  const colors = {
-    blue:   { bg: 'bg-blue-50',    text: 'text-blue-600',   icon: 'text-blue-500' },
-    green:  { bg: 'bg-emerald-50', text: 'text-emerald-600',icon: 'text-emerald-500' },
-    amber:  { bg: 'bg-amber-50',   text: 'text-amber-600',  icon: 'text-amber-500' },
-    red:    { bg: 'bg-red-50',     text: 'text-red-600',    icon: 'text-red-500' },
-    purple: { bg: 'bg-purple-50',  text: 'text-purple-600', icon: 'text-purple-500' },
-  }
-  const c = colors[color] || colors.blue
   return (
-    <div className="card p-5">
+    <div className="rounded-2xl border border-white/10 bg-[#1A1A1A] p-5 shadow-sm">
       {Icon && (
-        <div className={`w-9 h-9 rounded-xl ${c.bg} flex items-center justify-center mb-3`}>
-          <Icon className={`w-5 h-5 ${c.icon}`} />
+        <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center mb-3">
+          <Icon className="w-5 h-5 text-white" />
         </div>
       )}
-      <p className={`font-display text-xl font-bold ${c.text}`}>{value}</p>
-      <p className="text-gray-500 text-sm mt-0.5">{label}</p>
+      <p className="font-display text-xl font-bold text-white">{value}</p>
+      <p className="text-gray-300 text-sm mt-0.5">{label}</p>
       {sub && <p className="text-gray-400 text-xs mt-1">{sub}</p>}
     </div>
   )

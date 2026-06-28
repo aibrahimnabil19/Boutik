@@ -13,6 +13,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 import { TrendingUp, TrendingDown, ShoppingCart, Wallet, Package, AlertTriangle, Plus } from 'lucide-react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
 export default function DashboardPage() {
@@ -341,41 +342,50 @@ export default function DashboardPage() {
             Aucun produit enregistré.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm table-zebra">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Produit', 'ID / Code', 'Stock initial', 'Acheté', 'Vendu', 'Stock restant', 'Valeur achetée', 'Valeur stock'].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {productSummary.map(p => (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      {p.name}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-mono text-xs text-gray-700">{p.code || '—'}</p>
-                      <p className="font-mono text-[10px] text-gray-400 truncate max-w-[160px]" title={p.id}>
-                        ID: {p.id}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{formatNumber(p.stockInitial)}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatNumber(p.bought)}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatNumber(p.sold)}</td>
-                    <td className={`px-4 py-3 font-bold ${p.stockLeft <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {formatNumber(p.stockLeft)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{formatFCFA(p.purchaseValue)}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-900">{formatFCFA(p.stockValue)}</td>
+          <div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm table-zebra">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    {['Produit', 'ID / Code', 'Stock initial', 'Acheté', 'Vendu', 'Stock restant', 'Valeur achetée', 'Valeur stock'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {productSummary.slice(0, 5).map(p => (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        {p.name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-mono text-xs text-gray-700">{p.code || '—'}</p>
+                        <p className="font-mono text-[10px] text-gray-400 truncate max-w-[160px]" title={p.id}>
+                          ID: {p.id}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{formatNumber(p.stockInitial)}</td>
+                      <td className="px-4 py-3 text-gray-600">{formatNumber(p.bought)}</td>
+                      <td className="px-4 py-3 text-gray-600">{formatNumber(p.sold)}</td>
+                      <td className={`px-4 py-3 font-bold ${p.stockLeft <= 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {formatNumber(p.stockLeft)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{formatFCFA(p.purchaseValue)}</td>
+                      <td className="px-4 py-3 font-semibold text-gray-900">{formatFCFA(p.stockValue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {productSummary.length > 5 && (
+              <div className="border-t border-gray-100 px-5 py-3 flex justify-end">
+                <Link href="/produits" className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors">
+                  Voir plus
+                </Link>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -441,27 +451,18 @@ export default function DashboardPage() {
 }
 
 // ─── KPI Card ────────────────────────────────────────────────────────────────
-const colorMap = {
-  blue: { bg: 'bg-blue-50', text: 'text-blue-600', icon: 'text-blue-500' },
-  purple: { bg: 'bg-purple-50', text: 'text-purple-600', icon: 'text-purple-500' },
-  amber: { bg: 'bg-amber-50', text: 'text-amber-600', icon: 'text-amber-500' },
-  green: { bg: 'bg-emerald-50', text: 'text-emerald-600', icon: 'text-emerald-500' },
-  red: { bg: 'bg-red-50', text: 'text-red-600', icon: 'text-red-500' },
-}
-
-function KpiCard({ label, value, icon: Icon, color, loading }) {
-  const c = colorMap[color] || colorMap.blue
+function KpiCard({ label, value, icon: Icon, loading }) {
   return (
-    <div className="card p-5">
-      <div className={`w-8 h-8 rounded-lg ${c.bg} flex items-center justify-center mb-3`}>
-        <Icon className={`w-4 h-4 ${c.icon}`} />
+    <div className="rounded-2xl border border-white/10 bg-[#1A1A1A] p-5 shadow-sm">
+      <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center mb-3">
+        <Icon className="w-4 h-4 text-white" />
       </div>
       {loading ? (
-        <div className="h-6 w-24 bg-gray-100 rounded animate-pulse mb-1" />
+        <div className="h-6 w-24 bg-white/10 rounded animate-pulse mb-1" />
       ) : (
-        <p className={`font-display text-xl font-bold ${c.text}`}>{value}</p>
+        <p className="font-display text-xl font-bold text-white">{value}</p>
       )}
-      <p className="text-gray-400 text-xs mt-0.5">{label}</p>
+      <p className="text-gray-300 text-xs mt-0.5">{label}</p>
     </div>
   )
 }

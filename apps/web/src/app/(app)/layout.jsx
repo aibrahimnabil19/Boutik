@@ -74,9 +74,10 @@ export default function AppLayout({ children }) {
             )
           }
         } catch (err) {
+          console.error('[layout init] fail-safe recovery failed', err?.message)
           setLoadError(err?.message || 'Erreur de chargement inconnue.')
         }
-      }, 6000)
+      }, 8000)
 
       if (isDemo()) {
         await resetDemoStorageIfNeeded()
@@ -203,7 +204,7 @@ export default function AppLayout({ children }) {
         )
 
         const { data, timedOut } = await Promise.race([sessionPromise, timeoutPromise])
-        
+
         const session = data?.session
 
         if (timedOut || !session) {

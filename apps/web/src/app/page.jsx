@@ -10,19 +10,86 @@ export default function RootPage() {
   const router = useRouter()
 
   useEffect(() => {
+    let mounted = true
+    let failSafeTimer = null
+
     async function redirect() {
-      const accessGranted = await getSetting('access_granted')
-      const shopId = await getSetting('shop_id')
-      const offlineReady = await getSetting('offline_ready')
+      // Failsafe: if redirect() hangs for more than 5 seconds, force a redirect to auth
+      // This prevents infinite "Chargement…" when IndexedDB fails or is blocked.
+      failSafeTimer = setTimeout(() => {
+        if (!mounted) return
+        console.error('[root] redirect timeout exceeded, forcing /auth')
+        router.replace('/auth')
+      }, 5000)
 
-      if (isDemo()) {
-        await resetDemoStorageIfNeeded()
-        await setSetting('access_granted', true)
+      try {
+        let accessGranted, shopId, offlineReady
 
-        const demoUser = await getSetting('demo_auth_user')
-        const shopId = await getSetting('shop_id')
+        try {
+          accessGranted = await getSetting('access_granted')
+          shopId = await getSetting('shop_id')
+          offlineReady = await getSetting('offline_ready')
+        } catch (err) {
+          console.error('[root] getSetting failed (likely IndexedDB issue)', err?.message)
+          // Fallback: try to get session and redirect
+          accessGranted = null
+          shopId = null
+          offlineReady = false
+        }
 
-        if (!demoUser) {
+        if (!mounted) return
+
+        if (isDemo()) {
+          try {
+            await resetDemoStorageIfNeeded()
+            await setSetting('access_granted', true)
+
+            const demoUser = await getSetting('demo_auth_user')
+            const demoShopId = await getSetting('shop_id')
+
+            if (!demoUser) {
+              router.replace('/auth')
+              return
+            }
+
+            if (!demoShopId) {
+              router.replace('/setup')
+              return
+            }
+
+            router.replace('/dashboard')
+            return
+          } catch (err) {
+            console.error('[root] demo mode init failed', err?.message)
+            router.replace('/auth')
+            return
+          }
+        }
+
+        if (!accessGranted) {
+          router.replace('/access-code')
+          return
+        }
+
+        let session = null
+
+        try {
+          const supabase = getSupabaseClient()
+          const { data } = await supabase.auth.getSession()
+          session = data?.session || null
+        } catch (err) {
+          console.warn('[root] supabase.auth.getSession failed', err?.message)
+          session = null
+        }
+
+        if (!mounted) return
+
+        if (!session) {
+          if (!navigator.onLine && offlineReady && shopId) {
+            router.replace('/dashboard')
+            return
+          }
+
           router.replace('/auth')
           return
         }
@@ -33,43 +100,22 @@ export default function RootPage() {
         }
 
         router.replace('/dashboard')
-        return
-      }
-
-      if (!accessGranted) {
-        router.replace('/access-code')
-        return
-      }
-
-      let session = null
-
-      try {
-        const supabase = getSupabaseClient()
-        const { data } = await supabase.auth.getSession()
-        session = data?.session || null
-      } catch {
-        session = null
-      }
-
-      if (!session) {
-        if (!navigator.onLine && offlineReady && shopId) {
-          router.replace('/dashboard')
-          return
+      } catch (err) {
+        console.error('[root] unexpected error in redirect', err)
+        if (mounted) {
+          router.replace('/auth')
         }
-
-        router.replace('/auth')
-        return
+      } finally {
+        if (failSafeTimer) clearTimeout(failSafeTimer)
       }
-
-      if (!shopId) {
-        router.replace('/setup')
-        return
-      }
-
-      router.replace('/dashboard')
     }
 
     redirect()
+
+    return () => {
+      mounted = false
+      if (failSafeTimer) clearTimeout(failSafeTimer)
+    }
   }, [router])
 
   return (

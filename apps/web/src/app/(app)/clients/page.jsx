@@ -350,18 +350,6 @@ const load = useCallback(async () => {
             }}>
               Régler créance
             </Btn>
-            <Btn icon={Plus} variant="secondary" onClick={() => {
-              setEditingTx(null)
-              resetTx({
-                date: format(new Date(), 'yyyy-MM-dd'),
-                type: 'advance_product',
-                label: 'Avance pour achat futur',
-                amount: '',
-              })
-              setTxModal(true)
-            }}>
-              Dépôt / avance produit
-            </Btn>
             <Btn
               variant="secondary"
               icon={Pencil}
@@ -397,7 +385,7 @@ const load = useCallback(async () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard
             label="Solde actuel"
             value={formatFCFA(Math.abs(balance))}
@@ -406,13 +394,9 @@ const load = useCallback(async () => {
           />
           <StatCard
             label="Total dû"
-            value={formatFCFA(clientTx.filter(t => t.amount > 0).reduce((s, t) => s + Number(t.amount || 0), 0))}
+            value={formatFCFA(Math.max(0, balance))}
             color="red"
-          />
-          <StatCard
-            label="Total payé"
-            value={formatFCFA(Math.abs(clientTx.filter(t => t.amount < 0).reduce((s, t) => s + Number(t.amount || 0), 0)))}
-            color="green"
+            sub={balance > 0 ? 'Restant à payer' : 'Aucune dette en cours'}
           />
           <StatCard
             label="Achats enregistrés"
@@ -635,7 +619,6 @@ const load = useCallback(async () => {
                 <select {...registerTx('type')} className={inputCls}>
                   <option value="debit">Créance (client doit)</option>
                   <option value="credit">Paiement d’une créance</option>
-                  <option value="advance_product">Avance pour achat futur</option>
                 </select>
               </FormField>
             </div>

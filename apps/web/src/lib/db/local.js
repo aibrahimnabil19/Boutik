@@ -62,13 +62,34 @@ localDb.version(7).stores({
 
 /** Get a setting value from local storage */
 export async function getSetting(key) {
-  const row = await localDb.app_settings.get(key);
-  return row ? row.value : null;
+  try {
+    const row = await Promise.race([
+      localDb.app_settings.get(key),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('getSetting timeout')), 3000)
+      )
+    ])
+    return row ? row.value : null
+  } catch (err) {
+    console.warn('[getSetting] IndexedDB access failed for key:', key, err?.message)
+    // Fallback: return null instead of throwing to prevent infinite loading
+    return null
+  }
 }
 
 /** Set a setting value in local storage */
 export async function setSetting(key, value) {
-  await localDb.app_settings.put({ key, value });
+  try {
+    await Promise.race([
+      localDb.app_settings.put({ key, value }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('setSetting timeout')), 3000)
+      )
+    ])
+  } catch (err) {
+    console.warn('[setSetting] IndexedDB write failed for key:', key, err?.message)
+    // Continue instead of throwing — prevents app from crashing on storage failures
+  }
 }
 
 /** Mark a record as pending sync */
