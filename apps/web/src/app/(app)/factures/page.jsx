@@ -4,7 +4,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Receipt, Plus, Printer, Eye, Trash2, FileCheck, FileClock } from 'lucide-react'
+import { Receipt, Plus, Printer, Eye, Trash2, FileCheck, FileClock, ArrowLeft } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -172,7 +172,12 @@ export default function FacturesPage() {
       <PageHeader
         title="Factures"
         subtitle={`${invoices.length} facture${invoices.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={() => router.push('/factures/nouvelle')}>Nouvelle facture</Btn>}
+        action={
+          <div className="flex items-center gap-2">
+            <Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')}>Retour</Btn>
+            <Btn icon={Plus} onClick={() => router.push('/factures/nouvelle')}>Nouvelle facture</Btn>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

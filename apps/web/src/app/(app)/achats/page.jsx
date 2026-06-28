@@ -748,12 +748,26 @@ function handlePrintDocMulti(purchases, docType) {
       </div>
 
       {/* ── Document Print Modal ── */}
-      <Modal open={!!purchaseDetail} onClose={() => setPurchaseDetail(null)} title="Détails de l'entrée de stock" maxW="max-w-3xl">
+      <Modal open={!!purchaseDetail} onClose={() => setPurchaseDetail(null)} title="Détails de l'entrée de stock" maxW="max-w-4xl">
         {purchaseDetail && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-blue-500">Entrée de stock</p>
+                  <h3 className="mt-2 font-semibold text-gray-900 text-lg">{purchaseDetail.product_name || 'Produit non renseigné'}</h3>
+                  <p className="text-sm text-gray-500">{purchaseDetail.supplier || 'Fournisseur non renseigné'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Total</p>
+                  <p className="mt-1 text-xl font-bold text-gray-900">{formatFCFA(purchaseDetail.total_amount || 0)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
               <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Informations</p>
+                <p className="text-xs uppercase tracking-wide text-gray-400">Informations de base</p>
                 <div className="mt-4 space-y-3 text-sm text-gray-700">
                   <div className="flex justify-between"><span>Date</span><span>{format(new Date(purchaseDetail.date), 'dd MMM yyyy', { locale: fr })}</span></div>
                   {purchaseDetail.created_at && <div className="flex justify-between"><span>Créée le</span><span>{format(new Date(purchaseDetail.created_at), 'dd MMM yyyy HH:mm', { locale: fr })}</span></div>}
@@ -762,20 +776,19 @@ function handlePrintDocMulti(purchases, docType) {
                   <div className="flex justify-between"><span>Code produit</span><span>{purchaseDetail.product_code || purchaseDetail.product_id || '—'}</span></div>
                   <div className="flex justify-between"><span>Quantité</span><span>{purchaseDetail.quantity}</span></div>
                   <div className="flex justify-between"><span>Prix unitaire</span><span>{formatFCFA(purchaseDetail.unit_price || 0)}</span></div>
-                  <div className="flex justify-between">
-                    <span>Prix stock</span>
-                    <span>{formatFCFA(Number(purchaseDetail.quantity || 0) * Number(purchaseDetail.unit_price || 0))}</span>
-                  </div>
+                  <div className="flex justify-between"><span>Prix stock</span><span>{formatFCFA(Number(purchaseDetail.quantity || 0) * Number(purchaseDetail.unit_price || 0))}</span></div>
+                  <div className="flex justify-between"><span>Notes</span><span className="text-right max-w-[220px]">{purchaseDetail.notes || '—'}</span></div>
+                </div>
+              </div>
 
-                  <div className="flex justify-between">
-                    <span>Charges</span>
-                    <span>{formatFCFA(purchaseDetail.charge_total || 0)}</span>
-                  </div>
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Paiement</p>
+                <div className="mt-4 space-y-3 text-sm text-gray-700">
+                  <div className="flex justify-between"><span>Charges</span><span>{formatFCFA(purchaseDetail.charge_total || 0)}</span></div>
                   <div className="flex justify-between"><span>Total</span><span>{formatFCFA(purchaseDetail.total_amount || 0)}</span></div>
-                  <div className="flex justify-between"><span>Statut paiement</span><span>{purchaseDetail.payment_status === 'credit' ? 'Crédit' : 'Payé'}</span></div>
                   <div className="flex justify-between"><span>Montant payé</span><span>{formatFCFA(purchaseDetail.paid_amount || 0)}</span></div>
                   <div className="flex justify-between"><span>Reste à payer</span><span>{formatFCFA(purchaseDetail.remaining_amount || 0)}</span></div>
-                  <div className="flex justify-between"><span>Notes</span><span>{purchaseDetail.notes || '—'}</span></div>
+                  <div className="flex justify-between"><span>Statut</span><span>{purchaseDetail.payment_status === 'credit' ? 'Crédit' : 'Payé'}</span></div>
                 </div>
               </div>
             </div>

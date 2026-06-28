@@ -42,6 +42,10 @@ export default function ClientsPage() {
   const [txModal, setTxModal] = useState(false)
   const [editingTx, setEditingTx] = useState(null)
   const [selected, setSelected] = useState(null)
+  const [debtPaymentModal, setDebtPaymentModal] = useState(false)
+  const [debtSelections, setDebtSelections] = useState({})
+  const [debtLabel, setDebtLabel] = useState('')
+  const [debtDate, setDebtDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [confirm, setConfirm] = useState(null)
   const [editingClient, setEditingClient] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -302,6 +306,108 @@ const load = useCallback(async () => {
     [selected, transactions]
   )
 
+  const unpaidClientSales = useMemo(() => {
+    if (!selected) return []
+    return sales
+      .filter(s => s.client_id === selected.id && !s.cancelled_at && !s.is_charge && Number(s.remaining_amount || 0) > 0)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [sales, selected])
+
+  const debtPaymentTotal = useMemo(() => {
+    return Object.values(debtSelections).reduce((sum, value) => sum + (Number(value) || 0), 0)
+  }, [debtSelections])
+
+  function openDebtPaymentModal() {
+    if (!selected) return
+    const initial = {}
+    unpaidClientSales.forEach(sale => {
+      initial[sale.id] = String(Math.round(Number(sale.remaining_amount || 0)))
+    })
+    setDebtSelections(initial)
+    setDebtLabel('')
+    setDebtDate(format(new Date(), 'yyyy-MM-dd'))
+    setDebtPaymentModal(true)
+  }
+
+  function toggleDebtSale(saleId, remaining) {
+    setDebtSelections(prev => {
+      if (saleId in prev) {
+        const next = { ...prev }
+        delete next[saleId]
+        return next
+      }
+      return { ...prev, [saleId]: String(Math.round(remaining)) }
+    })
+  }
+
+  function setDebtSaleAmount(saleId, value) {
+    setDebtSelections(prev => ({ ...prev, [saleId]: value }))
+  }
+
+  async function handleDebtPaymentSubmit() {
+    if (!selected) return
+    const selectedCount = Object.keys(debtSelections).length
+    if (selectedCount === 0) {
+      toast.error('Sélectionnez au moins une dette à régler.')
+      return
+    }
+    if (!debtLabel.trim()) {
+      toast.error('Ajoutez un libellé pour ce règlement.')
+      return
+    }
+    for (const [saleId, amount] of Object.entries(debtSelections)) {
+      if (!amount || Number(amount) <= 0) {
+        toast.error('Chaque montant doit être supérieur à 0.')
+        return
+      }
+      const sale = unpaidClientSales.find(item => item.id === saleId)
+      if (!sale) continue
+      if (Number(amount) > Number(sale.remaining_amount || 0) + 0.01) {
+        toast.error('Un montant dépasse le reste à payer sur une vente.')
+        return
+      }
+    }
+
+    try {
+      const now = new Date().toISOString()
+      for (const [saleId, amount] of Object.entries(debtSelections)) {
+        const sale = unpaidClientSales.find(item => item.id === saleId)
+        if (!sale) continue
+        const paying = Math.abs(Number(amount))
+        const newPaid = Number(sale.paid_amount || 0) + paying
+        const newRemaining = Math.max(0, Number(sale.total_sale || 0) - newPaid)
+        await localUpsert('sales', {
+          ...sale,
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+          payment_status: newRemaining <= 0 ? 'paid' : 'credit',
+          updated_at: now,
+          sync_status: 'pending',
+        })
+        await localUpsert('client_transactions', {
+          id: uuid(),
+          shop_id: shop.id,
+          client_id: selected.id,
+          date: debtDate,
+          label: `${debtLabel.trim()} — ${sale.product_name || 'Vente'}`,
+          amount: -paying,
+          type: 'credit',
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+
+      toast.success(selectedCount === 1 ? 'Règlement enregistré' : `${selectedCount} règlements enregistrés`)
+      setDebtPaymentModal(false)
+      setDebtSelections({})
+      setDebtLabel('')
+      await load()
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors du règlement')
+    }
+  }
+
   if (selected) {
     const balance = clientBalance(selected.id)
     const clientCredit = Math.max(0, -balance)
@@ -338,16 +444,7 @@ const load = useCallback(async () => {
             <Btn variant="secondary" icon={Printer} onClick={handlePrintStatement}>
               Imprimer relevé
             </Btn>
-            <Btn icon={Plus} onClick={() => {
-              setEditingTx(null)
-              resetTx({
-                date: format(new Date(), 'yyyy-MM-dd'),
-                type: 'credit',
-                label: 'Règlement créance',
-                amount: '',
-              })
-              setTxModal(true)
-            }}>
+            <Btn icon={Plus} onClick={openDebtPaymentModal}>
               Régler créance
             </Btn>
             <Btn
@@ -608,6 +705,96 @@ const load = useCallback(async () => {
             )}
           </div>
         </div>
+
+        <Modal open={debtPaymentModal} onClose={() => setDebtPaymentModal(false)} title="Régler une dette client" maxW="max-w-2xl">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label="Date du paiement" required>
+                <input type="date" value={debtDate} onChange={(e) => setDebtDate(e.target.value)} className={inputCls} />
+              </FormField>
+              <FormField label="Libellé / Référence" required>
+                <input value={debtLabel} onChange={(e) => setDebtLabel(e.target.value)} placeholder="Ex: Paiement espèce, virement…" className={inputCls} />
+              </FormField>
+            </div>
+
+            {unpaidClientSales.length === 0 ? (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 py-10 text-center">
+                <p className="text-sm font-medium text-gray-700">Aucune dette en attente pour ce client</p>
+                <p className="text-xs text-gray-400 mt-1">Les ventes à crédit déjà réglées n’apparaissent plus ici.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Ventes à crédit avec solde dû</p>
+                  <button
+                    onClick={() => {
+                      if (Object.keys(debtSelections).length === unpaidClientSales.length) {
+                        setDebtSelections({})
+                      } else {
+                        const all = {}
+                        unpaidClientSales.forEach(sale => {
+                          all[sale.id] = String(Math.round(Number(sale.remaining_amount || 0)))
+                        })
+                        setDebtSelections(all)
+                      }
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    {Object.keys(debtSelections).length === unpaidClientSales.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
+                  {unpaidClientSales.map(sale => {
+                    const isSelected = sale.id in debtSelections
+                    const remaining = Number(sale.remaining_amount || 0)
+                    return (
+                      <div key={sale.id} className={`flex items-start gap-3 px-4 py-3 transition-colors ${isSelected ? 'bg-blue-50' : 'bg-white hover:bg-gray-50'}`}>
+                        <button onClick={() => toggleDebtSale(sale.id, remaining)} className={`mt-0.5 flex-none w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 hover:border-blue-400'}`}>
+                          {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900 text-sm truncate">{sale.product_name || '—'}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">{format(new Date(sale.date), 'dd MMM yyyy', { locale: fr })}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-semibold text-gray-900">{formatFCFA(remaining)}</p>
+                              <p className="text-xs text-gray-400">reste à payer</p>
+                            </div>
+                          </div>
+                          <div className="mt-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={debtSelections[sale.id] || ''}
+                              onChange={(e) => setDebtSaleAmount(sale.id, e.target.value)}
+                              disabled={!isSelected}
+                              placeholder="Montant à payer"
+                              className={`${inputCls} ${!isSelected ? 'bg-gray-100 text-gray-400' : ''}`}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
+              <span className="text-gray-600">Total à enregistrer</span>
+              <span className="font-semibold text-gray-900">{formatFCFA(debtPaymentTotal)}</span>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Btn variant="secondary" onClick={() => setDebtPaymentModal(false)}>Annuler</Btn>
+              <Btn onClick={handleDebtPaymentSubmit}>Enregistrer</Btn>
+            </div>
+          </div>
+        </Modal>
 
         <Modal open={txModal} onClose={() => setTxModal(false)} title={editingTx ? 'Modifier la ligne' : 'Nouvelle ligne'} maxW="max-w-md">
           <form onSubmit={handleTxSubmit(onAddTx)} className="space-y-4">

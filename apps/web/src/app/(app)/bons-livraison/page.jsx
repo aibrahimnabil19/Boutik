@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { Truck, Printer, Search } from 'lucide-react'
+import { Truck, Printer, Search, ArrowLeft } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -87,6 +87,7 @@ export default function BonsLivraisonPage() {
       <PageHeader
         title="Bons de livraison"
         subtitle={`${saleGroups.length} vente${saleGroups.length !== 1 ? 's' : ''} disponible${saleGroups.length !== 1 ? 's' : ''}`}
+        action={<Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')}>Retour</Btn>}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

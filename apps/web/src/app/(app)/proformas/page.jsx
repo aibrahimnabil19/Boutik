@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { FileText, Plus, Printer, Trash2, TrendingUp } from 'lucide-react'
+import { FileText, Plus, Printer, Trash2, TrendingUp, ArrowLeft } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -211,7 +211,12 @@ export default function ProformasPage() {
       <PageHeader
         title="Proformas"
         subtitle={`${invoices.length} proforma${invoices.length !== 1 ? 's' : ''}`}
-        action={<Btn icon={Plus} onClick={() => router.push('/proformas/nouvelle')}>Nouveau proforma</Btn>}
+        action={
+          <div className="flex items-center gap-2">
+            <Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')}>Retour</Btn>
+            <Btn icon={Plus} onClick={() => router.push('/proformas/nouvelle')}>Nouveau proforma</Btn>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 gap-4 mb-6">

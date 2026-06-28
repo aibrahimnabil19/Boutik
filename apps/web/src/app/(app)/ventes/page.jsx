@@ -1509,7 +1509,7 @@ export default function VentesPage() {
               <option value="">— Choisir le mode de paiement —</option>
               <option value="paid">Payé comptant</option>
               <option value="credit">Vente à crédit</option>
-              <option value="advance">Réservation / Avance client</option>
+              <option value="advance">A compte</option>
             </select>
           </FormField>
 
@@ -1552,7 +1552,7 @@ export default function VentesPage() {
               <div className="flex items-start gap-2">
                 <PackageCheck className="w-4 h-4 text-blue-600 mt-0.5 flex-none" />
                 <div>
-                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Réservation / Avance</p>
+                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">A compte</p>
                   <p className="text-xs text-blue-600 mt-0.5">Le stock ne sera pas déduit tant que la vente n'est pas collectée. Vous pourrez ajouter des paiements ensuite.</p>
                 </div>
               </div>
