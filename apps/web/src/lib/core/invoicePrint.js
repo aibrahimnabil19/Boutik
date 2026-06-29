@@ -378,7 +378,7 @@ function renderLandscapeHTML({
       background: ${ORANGE};
       color: #fff;
       font-family: Calibri, "Segoe UI", Arial, sans-serif;
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 700;
       /* text-align: justify with middle vertical alignment */
       text-align: center;
