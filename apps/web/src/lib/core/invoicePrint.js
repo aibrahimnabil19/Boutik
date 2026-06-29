@@ -239,24 +239,7 @@ function fmtNum(n) {
 }
 
 // ─── LANDSCAPE LAYOUT ────────────────────────────────────────────────────────
-// Spec (from Excel reference):
-//   Logo:        h 2.92 cm × w 7.05 cm  — top-left
-//   Middle block: h 3.06 cm × w 9 cm    — centered on page, text left-aligned
-//                 Font: Calibri 14 bold
-//                 Content: shop name / address / NIF–RCCM / phone(+WA) / city-NIGER
-//   Orange box:  h 2.23 cm × w 8.77 cm — top-right
-//                3 lines: Vente, Installation / D'équipements… / Entretien et dépannage
-//                Font: Calibri (body) 14 bold, text middle+justified inside box
-//   Date:        Times New Roman 15, right-aligned, below orange box
-//   Title bar:   Orange, full-width, Times New Roman 16 bold, centred
-//   Small white gap
-//   Client strip: 3 cols (CLIENT / ADRESSE / TÉL), blue bg, TNR 15 bold, centred
-//   Table:        5 cols with blue headers, alt-row light-blue body, TNR 15 bold hdrs / TNR 14 regular body
-//   MONTANT TOTAL row: blue, 4+1 cols, TNR 15 bold
-//   Arrêté…: TNR 15 regular  + amount in words TNR 15 bold
-//   GARANTIE label: red, underlined, uppercase, TNR 15 regular (own line)
-//   Garantie body: TNR 15 regular
-//   SIGNATURE: right, TNR 15 bold uppercase
+
 // ─────────────────────────────────────────────────────────────────────────────
 function renderLandscapeHTML({
   shop,
@@ -407,6 +390,8 @@ function renderLandscapeHTML({
       height: 22mm;   /* 2.23 cm */
       padding: 2mm 4mm;
       line-height: 1.35;
+      /* Rounded corners for landscape (paysage) */
+      border-radius: 16px;
     }
     .date-line {
       font-family: "Times New Roman", Times, serif;
@@ -648,20 +633,7 @@ function renderLandscapeHTML({
 }
 
 // ─── PORTRAIT LAYOUT ─────────────────────────────────────────────────────────
-// Matches Portrait_facture.pdf exactly:
-//   Top-left:  Logo (same proportions, left-aligned)
-//   Top-right: Orange activity box (full-width of right col, no border-radius)
-//              Company block right-aligned: address / NIF–RCCM / BANK / CITY
-//              Date right-aligned below
-//   Orange title bar — full width, TNR 16 bold, centred
-//   (no white gap between title bar and client strip)
-//   Blue client strip 3 cols: DOIT / ADRESSE / phone — TNR 15 bold, centred
-//   Table: blue headers TNR 15 bold centred, alternating white/light-blue body TNR 14 regular
-//   MONTANT TOTAL blue row: spans 4 cols + amount col, TNR 15 bold
-//   Amount in words: TNR 15 regular + bold amount
-//   GARANTIE label (red, underlined, own line) + bold body — left col
-//   SIGNATURE — right col, bottom-aligned, TNR 15 bold uppercase
-//   Blue footer bar: Tél ; WhatsApp ; Email — TNR 11 bold, centred
+
 // ─────────────────────────────────────────────────────────────────────────────
 function renderPortraitHTML({
   shop,
@@ -777,7 +749,7 @@ function renderPortraitHTML({
       align-items: stretch;
       gap: 1.5mm;
     }
-    /* Orange activity box — full width, no border-radius */
+    /* Orange activity box — full width */
     .activity-box {
       background: ${ORANGE};
       color: #fff;
@@ -787,6 +759,7 @@ function renderPortraitHTML({
       text-align: center;
       padding: 2mm 3mm;
       line-height: 1.35;
+      border-radius: 8px;
     }
     /* Company info — right-aligned, bold — matches PDF */
     .company-block {
