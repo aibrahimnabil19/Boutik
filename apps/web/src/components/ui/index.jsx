@@ -18,10 +18,19 @@ export function PageHeader({ title, subtitle, action }) {
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 export function StatCard({ label, value, sub, icon: Icon, color = 'blue' }) {
+  const iconBg = {
+    gray:   'bg-white/10',
+    green:  'bg-emerald-600',
+    red:    'bg-red-600',
+    amber:  'bg-amber-500',
+    blue:   'bg-blue-600',
+    purple: 'bg-purple-600',
+  }
+
   return (
     <div className="rounded-2xl border border-white/10 bg-[#1A1A1A] p-5 shadow-sm">
       {Icon && (
-        <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center mb-3">
+        <div className={`w-9 h-9 rounded-xl ${iconBg[color] || iconBg.gray} flex items-center justify-center mb-3`}>
           <Icon className="w-5 h-5 text-white" />
         </div>
       )}

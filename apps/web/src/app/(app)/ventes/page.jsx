@@ -391,6 +391,25 @@ export default function VentesPage() {
     // If there's a remaining balance and a client, record it as credit
     const firstItem = sessionSales.find(s => !s.is_charge)
     if (remaining > 0 && firstItem?.client_id) {
+      // Remove any previously recorded advance payments linked to this session
+      // (they were created when the sale was saved as an advance). Keeping
+      // them would incorrectly offset the credit created on collection
+      // (example: advance -5k + credit 15k => net +10k instead of +15k).
+      try {
+        const txs = await getAll('client_transactions', shop.id)
+        const key = String(group.key).slice(0, 8).toUpperCase()
+        const linkedAdvances = txs.filter(tx =>
+          tx.client_id === firstItem.client_id &&
+          String(tx.label || '').includes(key) &&
+          String(tx.label || '').startsWith('Paiement avance')
+        )
+        for (const tx of linkedAdvances) {
+          await localDelete('client_transactions', tx.id)
+        }
+      } catch (e) {
+        console.error('Failed cleaning linked advances', e)
+      }
+
       await localUpsert('client_transactions', {
         id: uuid(), shop_id: shop.id, client_id: firstItem.client_id,
         date: format(new Date(), 'yyyy-MM-dd'),
