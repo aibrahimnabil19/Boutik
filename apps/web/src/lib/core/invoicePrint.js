@@ -59,7 +59,7 @@ async function imageUrlToDataUrl(url) {
 export function printSaleDocumentMulti({
   shop,
   type,
-  saleGroups, // array of group objects (same shape as saleGroup)
+  saleGroups,
   invoiceNumber,
   guaranteeText,
   includeCachet,
@@ -71,7 +71,6 @@ export function printSaleDocumentMulti({
   );
   const anchor = allFirstItems[0] || {};
 
-  // Use the earliest date among the merged sales for the document date
   const earliestDate =
     saleGroups
       .map((g) => g.date)
@@ -88,7 +87,6 @@ export function printSaleDocumentMulti({
     validity: "30 jours",
   };
 
-  // Flatten every non-charge line item from every selected sale group
   const items = saleGroups.flatMap((g) =>
     (g.items || [])
       .filter((s) => !s.is_charge)
@@ -122,11 +120,11 @@ export function printSaleDocumentMulti({
   printHtmlDocument(html, orientation);
 }
 
-// ─── Multi-purchase (combined invoice across several purchase entries, same supplier) ──
+// ─── Multi-purchase ──
 export function printPurchaseDocumentMulti({
   shop,
   type,
-  purchases, // array of purchase row objects
+  purchases,
   invoiceNumber,
   guaranteeText = "",
   includeCachet,
@@ -223,7 +221,43 @@ export function printHtmlDocument(html, orientation = "landscape") {
   };
 }
 
+// ─── helpers ─────────────────────────────────────────────────────────────────
+/** Build the phone string shown in the landscape middle block.
+ *  If shop has both phone and whatsapp (and they differ), join with " / ". */
+function buildPhoneLine(shop) {
+  const phone = shop?.phone || "";
+  const wa = shop?.whatsapp || "";
+  if (phone && wa && phone.trim() !== wa.trim()) {
+    return `${phone} / ${wa}`;
+  }
+  return phone || wa || "";
+}
+
+/** Format numbers with spaces as thousands separator (French style). */
+function fmtNum(n) {
+  return Number(n || 0).toLocaleString("fr-FR");
+}
+
 // ─── LANDSCAPE LAYOUT ────────────────────────────────────────────────────────
+// Spec (from Excel reference):
+//   Logo:        h 2.92 cm × w 7.05 cm  — top-left
+//   Middle block: h 3.06 cm × w 9 cm    — centered on page, text left-aligned
+//                 Font: Calibri 14 bold
+//                 Content: shop name / address / NIF–RCCM / phone(+WA) / city-NIGER
+//   Orange box:  h 2.23 cm × w 8.77 cm — top-right
+//                3 lines: Vente, Installation / D'équipements… / Entretien et dépannage
+//                Font: Calibri (body) 14 bold, text middle+justified inside box
+//   Date:        Times New Roman 15, right-aligned, below orange box
+//   Title bar:   Orange, full-width, Times New Roman 16 bold, centred
+//   Small white gap
+//   Client strip: 3 cols (CLIENT / ADRESSE / TÉL), blue bg, TNR 15 bold, centred
+//   Table:        5 cols with blue headers, alt-row light-blue body, TNR 15 bold hdrs / TNR 14 regular body
+//   MONTANT TOTAL row: blue, 4+1 cols, TNR 15 bold
+//   Arrêté…: TNR 15 regular  + amount in words TNR 15 bold
+//   GARANTIE label: red, underlined, uppercase, TNR 15 regular (own line)
+//   Garantie body: TNR 15 regular
+//   SIGNATURE: right, TNR 15 bold uppercase
+// ─────────────────────────────────────────────────────────────────────────────
 function renderLandscapeHTML({
   shop,
   invoiceNumber,
@@ -240,48 +274,63 @@ function renderLandscapeHTML({
 
   const city = formValues.city || shop?.city || "Niamey";
 
-  const primary = "#1D71B8";
-  const orange = "#F29100";
-  const rowBg = "#D9E1F2";
+  const PRIMARY = "#1D71B8";
+  const ORANGE  = "#F29100";
+  const ROW_BG  = "#D9E1F2";
 
-  const isProforma = type === "proforma";
+  const isProforma    = type === "proforma";
   const isBonLivraison = type === "bon_livraison";
-  const isBonCommande = type === "bon_commande";
+  const isBonCommande  = type === "bon_commande";
 
   let title = "FACTURE DE VENTE";
-  if (isProforma) title = "FACTURE PROFORMA";
+  if (isProforma)    title = "FACTURE PROFORMA";
   if (isBonLivraison) title = "BON DE LIVRAISON";
-  if (isBonCommande) title = "BON DE COMMANDE";
+  if (isBonCommande)  title = "BON DE COMMANDE";
 
   const showPrices = !isBonLivraison && !isBonCommande;
 
   const printItems = items.filter((item) => !item.is_charge);
 
   const itemsHTML = printItems
-    .map(
-      (item, i) => `
+    .map((item, i) => {
+      const bg = i % 2 === 0 ? ROW_BG : "#fff";
+      return `
     <tr>
-      <td class="td-cell td-left" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${item.designation || item.product_name || "—"}</td>
-      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${item.quantity || 0}</td>
-      <td class="td-cell td-center" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${item.unit || "Pièces"}</td>
-      ${
-        showPrices
-          ? `<td class="td-cell td-right" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
-           <td class="td-cell td-right td-bold" style="background:${i % 2 === 0 ? rowBg : "#fff"}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
-          : ""
-      }
-    </tr>`,
-    )
+      <td class="td-cell td-left"  style="background:${bg}">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-center" style="background:${bg}">${item.quantity || 0}</td>
+      <td class="td-cell td-center" style="background:${bg}">${item.unit || "Pièces"}</td>
+      ${showPrices ? `
+      <td class="td-cell td-right"  style="background:${bg}">${fmtNum(item.unit_price || item.unit_sale_price)}</td>
+      <td class="td-cell td-right td-bold" style="background:${bg}">${fmtNum(item.total_price || item.total_sale)}</td>` : ""}
+    </tr>`;
+    })
     .join("");
 
   const printGrandTotal = printItems.reduce(
-    (sum, item) => sum + Number(item.total_price || item.total_sale || 0),
-    0,
+    (sum, item) => sum + Number(item.total_price || item.total_sale || 0), 0,
   );
 
-  const clientName = formValues.client_name || "—";
+  const clientName    = formValues.client_name    || "—";
   const clientAddress = formValues.client_address || "—";
-  const clientPhone = formValues.client_phone || "—";
+  const clientPhone   = formValues.client_phone   || "—";
+
+  // Shop info
+  const shopName     = shop?.name     || "";
+  const shopAddress  = shop?.address  || "DAR ES SALAM derrière ESCAE";
+  const shopNif      = shop?.nif      || "50873/P";
+  const shopRccm     = shop?.rccm     || "NE-NIA-2019-A-467";
+  const shopCity     = (shop?.city    || "NIAMEY").toUpperCase();
+  const shopEmail    = shop?.email    || "elso.niger@gmail.com";
+  const shopPhone    = shop?.phone    || "(+227) 90 27 54 53 / 94 29 29 19";
+  const shopWhatsapp = shop?.whatsapp || shop?.phone || "+227 94 29 29 19";
+  const phoneLine    = buildPhoneLine(shop);
+
+  // Activity: 3-line split matching the orange box spec
+  const shopActivity = shop?.activity ||
+    "VENTE ET INSTALLATION\nD'ÉQUIPEMENTS SOLAIRES\nENTRETIEN ET DÉPANNAGE";
+  const activityLines = shopActivity.split("\n");
+
+  const colSpan = showPrices ? 5 : 3;
 
   return `<!doctype html>
 <html>
@@ -291,156 +340,194 @@ function renderLandscapeHTML({
   <style>
     @page {
       size: A4 landscape;
-      margin: 4mm 6mm 4mm 6mm;
+      margin: 6mm 8mm 6mm 8mm;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       background: white;
       color: #000;
       font-family: "Times New Roman", Times, serif;
-      font-size: 13px;
+      font-size: 15px;
+      width: 281mm;
     }
-    .page { width: 285mm; }
 
+    /* ── TOP HEADER: 3-column grid ── */
     .top {
       display: grid;
-      grid-template-columns: 72mm 110mm 1fr;
-      gap: 5mm;
+      /* Logo 7.05cm | middle 9cm auto-placed | orange box 8.77cm */
+      grid-template-columns: 76mm auto 94mm;
+      gap: 4mm;
       align-items: start;
       margin-bottom: 3mm;
     }
+
+    /* Logo cell — 7.05 cm wide × 2.92 cm tall */
     .logo-cell img {
-      max-width: 70mm;
-      max-height: 38mm;
+      width:  75mm;
+      height: 29mm;
       object-fit: contain;
       display: block;
     }
-    .logo-placeholder { width: 70mm; height: 38mm; }
-    .company-info {
-      font-size: 13px;
-      line-height: 1.5;
+    .logo-placeholder { width: 75mm; height: 29mm; }
+
+    /* Middle block — 9 cm wide × 3.06 cm tall, text left-aligned, Calibri 14 bold */
+    .company-block {
+      font-family: Calibri, "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
       font-weight: 700;
-      padding-top: 2mm;
+      line-height: 1.55;
+      text-align: left;
+      width: 90mm;
+      height: 30mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
+
+    /* Right column: orange activity box (8.77 cm × 2.23 cm) + date */
     .right-col {
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: 2mm;
+      gap: 1.5mm;
     }
     .activity-box {
-      background: ${orange};
+      background: ${ORANGE};
       color: #fff;
-      font-weight: bold;
-      font-size: 12px;
+      font-family: Calibri, "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      /* text-align: justify with middle vertical alignment */
       text-align: center;
-      border-radius: 4mm;
-      padding: 2.5mm 3mm;
-      max-width: 52mm;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width:  93mm;   /* 8.77 cm */
+      height: 22mm;   /* 2.23 cm */
+      padding: 2mm 4mm;
       line-height: 1.35;
     }
     .date-line {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
       text-align: right;
-      font-size: 13px;
-      font-weight: normal;
-      white-space: nowrap;
-      width: 100%;
+      width: 93mm;
     }
 
+    /* ── ORANGE TITLE BAR ── */
     .doc-title {
-      background: ${orange};
+      background: ${ORANGE};
       color: #fff;
+      font-family: "Times New Roman", Times, serif;
       font-size: 16px;
       font-weight: bold;
       text-align: center;
       padding: 2.5mm 0;
     }
+    .title-spacer { height: 3mm; }
 
-    .title-spacer {
-      height: 3mm;
-      background: white;
-    }
-
+    /* ── CLIENT STRIP ── */
     .client-strip {
       display: grid;
       grid-template-columns: 1.1fr 1fr 1fr;
-      background: ${primary};
+      background: ${PRIMARY};
       color: #fff;
-      font-weight: 800;
-      margin-bottom: 0;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
     }
     .client-cell {
       padding: 1.5mm 3mm;
-      border-right: 2px solid #fff;
+      border-right: 2.5px solid #fff;
       text-align: center;
-      font-size: 14px;
     }
-    .client-cell:last-child { border-right: 0; }
+    .client-cell:last-child { border-right: none; }
 
+    /* ── TABLE ── */
     table {
       width: 100%;
       border-collapse: collapse;
       margin-top: 4mm;
     }
     th {
-      background: ${primary};
+      background: ${PRIMARY};
       color: #fff;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
+      text-align: center;
       padding: 1.5mm 2mm;
-      font-size: 14px;
-      border: 2px solid #fff;
-      font-weight: 800;
+      border: 2.5px solid #fff;
     }
-    .th-left  { text-align: left; }
-    .th-center { text-align: center; }
-    .th-right { text-align: right; }
+    .th-left   { text-align: left; }
+    .th-right  { text-align: right; }
+
     .td-cell {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 14px;
+      font-weight: normal;
       padding: 1.5mm 2mm;
-      border: 2px solid #fff;
-      font-size: 13px;
+      border: 2.5px solid #fff;
     }
     .td-left   { text-align: left; }
     .td-center { text-align: center; }
     .td-right  { text-align: right; }
-    .td-bold   { font-weight: 700; }
+    .td-bold   { font-weight: bold; }
+
+    /* Total row */
     .total-row td {
-      background: ${primary};
+      background: ${PRIMARY};
       color: #fff;
-      font-weight: 800;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
       padding: 1.5mm 2mm;
-      border: 2px solid #fff;
-      font-size: 14px;
+      border: 2.5px solid #fff;
+      text-align: center;
     }
-    .total-label { text-align: center; }
     .total-value { text-align: right; }
 
+    /* ── AMOUNT IN WORDS ── */
     .words {
       margin-top: 5mm;
-      font-size: 14px;
-      line-height: 1.4;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: normal;
+      line-height: 1.5;
     }
-    .words strong { font-weight: 900; }
+    .words strong { font-weight: bold; }
 
+    /* ── BOTTOM SECTION ── */
+    .bottom-section {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-top: 5mm;
+    }
+    .garantie-col { flex: 1; }
     .garantie {
-      margin-top: 4mm;
-      font-size: 13px;
-      line-height: 1.4;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: normal;
+      line-height: 1.6;
     }
     .garantie .label {
       color: red;
       text-decoration: underline;
-      font-weight: 900;
-    }
-
-    .signature-wrap {
-      margin-top: 4mm;
-      display: flex;
-      justify-content: flex-end;
+      font-weight: normal;
+      display: block;
+      margin-bottom: 1mm;
     }
     .signature-box {
-      width: 52mm;
+      width: 54mm;
       text-align: center;
+      font-family: "Times New Roman", Times, serif;
       font-size: 15px;
-      font-weight: 900;
+      font-weight: bold;
+      text-transform: uppercase;
+      flex-shrink: 0;
+      margin-left: 6mm;
     }
     .signature-img {
       max-width: 44mm;
@@ -453,135 +540,128 @@ function renderLandscapeHTML({
     }
 
     @media print {
-  html, body {
-    width: 297mm;
-    height: 210mm;
-    overflow: hidden;
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
-  }
-}
+      html, body {
+        width: 297mm;
+        height: 210mm;
+        overflow: hidden;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
   </style>
 </head>
 <body>
-<div class="page">
 
+  <!-- TOP HEADER -->
   <div class="top">
+    <!-- Logo -->
     <div class="logo-cell">
-      ${
-        getAssetSrc(shop, "logo")
-          ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
-          : '<div class="logo-placeholder"></div>'
-      }
+      ${getAssetSrc(shop, "logo")
+        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
+        : '<div class="logo-placeholder"></div>'}
     </div>
-    <div class="company-info">
-      <div>${shop?.name || ""}</div>
-      <div>Situé à ${shop?.address || "DAR ES SALAM derrière ESCAE"}</div>
-      <div>Tél : ${shop?.phone || "+ 227 90 27 54 53 / 94 29 29 19"}</div>
-      <div>Email : ${shop?.email || "elso.niger@gmail.com"}</div>
-      <div>NIF : ${shop?.nif || "50873"}${shop?.rccm ? ` – RCCM : ${shop.rccm}` : " – RCCM : NE-NIA-2019-A-467"}</div>
-      <div>${(shop?.city || "NIAMEY").toUpperCase()} - NIGER</div>
+
+    <!-- Middle info block -->
+    <div class="company-block">
+      ${shopName ? `<div>${shopName}</div>` : ""}
+      <div>Situé à ${shopAddress}</div>
+      <div>NIF : ${shopNif} – RCCM : ${shopRccm}</div>
+      ${phoneLine ? `<div>${phoneLine}</div>` : ""}
+      <div>${shopCity} - NIGER</div>
     </div>
+
+    <!-- Right: orange box + date -->
     <div class="right-col">
       <div class="activity-box">
-        ${shop?.activity || "VENTE, INSTALLATION D'ÉQUIPEMENTS SOLAIRES, ENTRETIEN ET DÉPANNAGE"}
+        ${activityLines.map((l) => `<div>${l}</div>`).join("")}
       </div>
       <div class="date-line">${city}, le ${dateStr}</div>
     </div>
   </div>
 
+  <!-- TITLE BAR -->
   <div class="doc-title">${title} ${invoiceNumber}</div>
   <div class="title-spacer"></div>
 
+  <!-- CLIENT STRIP -->
   <div class="client-strip">
     <div class="client-cell">CLIENT : ${clientName}</div>
     <div class="client-cell">ADRESSE : ${clientAddress}</div>
     <div class="client-cell">Tél : ${clientPhone}</div>
   </div>
 
+  <!-- ITEMS TABLE -->
   <table>
     <thead>
       <tr>
-        <th class="th-left" style="width:45%">Désignation</th>
-        <th class="th-center" style="width:10%">Quantité</th>
-        <th class="th-center" style="width:10%">Unité</th>
-        ${
-          showPrices
-            ? `<th class="th-right" style="width:17%">Prix Unitaire CFA</th>
-             <th class="th-right" style="width:18%">Prix Total CFA</th>`
-            : ""
-        }
+        <th class="th-left"  style="width:43%">Désignation</th>
+        <th                   style="width:9%">Quantité</th>
+        <th                   style="width:9%">Unité</th>
+        ${showPrices ? `
+        <th class="th-right" style="width:19%">Prix Unitaire CFA</th>
+        <th class="th-right" style="width:20%">Prix Total CFA</th>` : ""}
       </tr>
     </thead>
     <tbody>
-      ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${rowBg}" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
+      ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${ROW_BG}" colspan="${colSpan}">Aucun article</td></tr>`}
     </tbody>
-    ${
-      showPrices
-        ? `<tfoot>
-           <tr class="total-row">
-             <td colspan="4" class="total-label">MONTANT TOTAL</td>
-             <td class="total-value">${formatFCFA(printGrandTotal).replace(" FCFA", "")}</td>
-           </tr>
-         </tfoot>`
-        : ""
-    }
+    ${showPrices ? `
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="${colSpan - 1}" style="text-align:center">MONTANT TOTAL</td>
+        <td class="total-value">${fmtNum(printGrandTotal)}</td>
+      </tr>
+    </tfoot>` : ""}
   </table>
 
-  ${
-    showPrices
-      ? `<div class="words">${amountToWordsFCFA(
-          printGrandTotal,
-          isProforma ? "proforma" : "facture",
-        ).replace(
-          /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
-          "$1<strong>$2</strong>",
-        )}</div>`
-      : ""
-  }
+  ${showPrices ? `
+  <div class="words">${
+    amountToWordsFCFA(printGrandTotal, isProforma ? "proforma" : "facture")
+      .replace(
+        /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+        "$1<strong>$2</strong>",
+      )
+  }</div>` : ""}
 
-  ${
-    guaranteeText
-      ? `<div class="garantie"><span class="label">GARANTIE</span> : ${guaranteeText}</div>`
-      : ""
-  }
-
-  <div class="signature-wrap">
+  <!-- BOTTOM: garantie + signature -->
+  <div class="bottom-section">
+    <div class="garantie-col">
+      ${guaranteeText ? `
+      <div class="garantie">
+        <span class="label">GARANTIE</span>
+        ${guaranteeText}
+      </div>` : ""}
+    </div>
     <div class="signature-box">
       SIGNATURE
-      ${
-        documentOptions.includeSignature &&
-        (shop?.signature_print_src || shop?.signature_url)
-          ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
-          : ""
-      }
-      ${
-        documentOptions.includeCachet &&
-        (shop?.cachet_print_src || shop?.cachet_url)
-          ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
-          : ""
-      }
+      ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
+        ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+        : ""}
+      ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
+        ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+        : ""}
     </div>
   </div>
 
-</div>
 </body>
 </html>`;
 }
 
 // ─── PORTRAIT LAYOUT ─────────────────────────────────────────────────────────
 // Matches Portrait_facture.pdf exactly:
-//   Top-left:  Logo
+//   Top-left:  Logo (same proportions, left-aligned)
 //   Top-right: Orange activity box (full-width of right col, no border-radius)
-//              Company block centered (address / NIF / RCCM / BANK / CITY) — no shop name
+//              Company block right-aligned: address / NIF–RCCM / BANK / CITY
 //              Date right-aligned below
-//   Orange title bar — no spacer between it and client strip
-//   Blue client strip: DOIT / ADRESSE / bare phone number
-//   Table: blue headers, alternating white/#D9E1F2 rows, blue total row
-//   Amount in words
-//   Bottom: GARANTIE label (red underline, own line) + bold body — left col
-//           SIGNATURE — right col, bottom-aligned
-//   Blue footer bar: Tél ; WhatsApp ; Email
+//   Orange title bar — full width, TNR 16 bold, centred
+//   (no white gap between title bar and client strip)
+//   Blue client strip 3 cols: DOIT / ADRESSE / phone — TNR 15 bold, centred
+//   Table: blue headers TNR 15 bold centred, alternating white/light-blue body TNR 14 regular
+//   MONTANT TOTAL blue row: spans 4 cols + amount col, TNR 15 bold
+//   Amount in words: TNR 15 regular + bold amount
+//   GARANTIE label (red, underlined, own line) + bold body — left col
+//   SIGNATURE — right col, bottom-aligned, TNR 15 bold uppercase
+//   Blue footer bar: Tél ; WhatsApp ; Email — TNR 11 bold, centred
 // ─────────────────────────────────────────────────────────────────────────────
 function renderPortraitHTML({
   shop,
@@ -599,62 +679,57 @@ function renderPortraitHTML({
 
   const city = formValues.city || shop?.city || "Niamey";
 
-  const primary = "#1D71B8";
-  const orange = "#F29100";
-  const rowBg = "#D9E1F2";
+  const PRIMARY = "#1D71B8";
+  const ORANGE  = "#F29100";
+  const ROW_BG  = "#D9E1F2";
 
-  const isProforma = type === "proforma";
+  const isProforma    = type === "proforma";
   const isBonLivraison = type === "bon_livraison";
-  const isBonCommande = type === "bon_commande";
+  const isBonCommande  = type === "bon_commande";
 
   let title = "FACTURE DE VENTE";
-  if (isProforma) title = "FACTURE PROFORMA";
+  if (isProforma)    title = "FACTURE PROFORMA";
   if (isBonLivraison) title = "BON DE LIVRAISON";
-  if (isBonCommande) title = "BON DE COMMANDE";
+  if (isBonCommande)  title = "BON DE COMMANDE";
 
   const showPrices = !isBonLivraison && !isBonCommande;
 
   const printItems = items.filter((item) => !item.is_charge);
 
-  // Alternating rows: even index = rowBg (#D9E1F2), odd = white — matching the PDF
   const itemsHTML = printItems
     .map((item, i) => {
-      const bg = i % 2 === 0 ? rowBg : "#ffffff";
+      const bg = i % 2 === 0 ? ROW_BG : "#ffffff";
       return `
     <tr>
-      <td class="td-cell td-left" style="background:${bg}">${item.designation || item.product_name || "—"}</td>
+      <td class="td-cell td-left"   style="background:${bg}">${item.designation || item.product_name || "—"}</td>
       <td class="td-cell td-center" style="background:${bg}">${item.quantity || 0}</td>
       <td class="td-cell td-center" style="background:${bg}">${item.unit || "Pièce"}</td>
-      ${
-        showPrices
-          ? `<td class="td-cell td-right" style="background:${bg}">${formatFCFA(item.unit_price || item.unit_sale_price || 0).replace(" FCFA", "")}</td>
-           <td class="td-cell td-right td-bold" style="background:${bg}">${formatFCFA(item.total_price || item.total_sale || 0).replace(" FCFA", "")}</td>`
-          : ""
-      }
+      ${showPrices ? `
+      <td class="td-cell td-right"  style="background:${bg}">${fmtNum(item.unit_price || item.unit_sale_price)}</td>
+      <td class="td-cell td-right td-bold" style="background:${bg}">${fmtNum(item.total_price || item.total_sale)}</td>` : ""}
     </tr>`;
     })
     .join("");
 
   const printGrandTotal = printItems.reduce(
-    (sum, item) => sum + Number(item.total_price || item.total_sale || 0),
-    0,
+    (sum, item) => sum + Number(item.total_price || item.total_sale || 0), 0,
   );
 
-  const clientName = formValues.client_name || "—";
+  const clientName    = formValues.client_name    || "—";
   const clientAddress = formValues.client_address || "—";
-  const clientPhone = formValues.client_phone || "—";
+  const clientPhone   = formValues.client_phone   || "—";
 
-  const shopPhone = shop?.phone || "(+227) 90 27 54 53 / 94 29 29 19";
+  const shopPhone    = shop?.phone    || "(+227) 90 27 54 53 / 94 29 29 19";
   const shopWhatsapp = shop?.whatsapp || shop?.phone || "+227 94 29 29 19";
-  const shopEmail = shop?.email || "elso.niger@gmail.com";
+  const shopEmail    = shop?.email    || "elso.niger@gmail.com";
+  const shopAddress  = shop?.address  || "DAR ES SALAM derrière ESCAE";
+  const shopNif      = shop?.nif      || "50873/P";
+  const shopRccm     = shop?.rccm     || "NE-NIA-2019-A-467";
+  const shopBank     = shop?.bank_account || "02134924401-79";
+  const shopCity     = (shop?.city    || "NIAMEY").toUpperCase();
+  const shopActivity = shop?.activity || "VENTE ET INSTALLATION D'EQUIPEMENTS SOLAIRES";
 
-  const shopActivity =
-    shop?.activity || "VENTE ET INSTALLATION D'EQUIPEMENTS SOLAIRES";
-  const shopAddress = shop?.address || "DAR ES SALAM derrière ESCAE";
-  const shopNif = shop?.nif || "50873/P";
-  const shopRccm = shop?.rccm || "NE-NIA-2019-A-467";
-  const shopBank = shop?.bank_account || "02134924401-79";
-  const shopCity = (shop?.city || "NIAMEY").toUpperCase();
+  const colSpan = showPrices ? 5 : 3;
 
   return `<!doctype html>
 <html>
@@ -671,94 +746,91 @@ function renderPortraitHTML({
       background: white;
       color: #000;
       font-family: "Times New Roman", Times, serif;
-      font-size: 12px;
+      font-size: 15px;
       display: flex;
       flex-direction: column;
       min-height: 285mm;
-      margin: 0;
-      width: 210mm;
-    }
-    .page {
-      flex: 1;
       width: 194mm;
-      marging: 0 auto;
     }
+    .page { flex: 1; }
 
     /* ── TOP HEADER ── */
     .top {
       display: grid;
-      grid-template-columns: 50mm 1fr;
+      grid-template-columns: 55mm 1fr;
       gap: 4mm;
       align-items: start;
-      margin-bottom: 3mm;
+      margin-bottom: 4mm;
     }
     .logo-cell img {
-      max-width: 48mm;
-      max-height: 36mm;
+      max-width: 53mm;
+      max-height: 34mm;
       object-fit: contain;
       display: block;
     }
-    .logo-placeholder { width: 48mm; height: 36mm; }
+    .logo-placeholder { width: 53mm; height: 34mm; }
 
-    /* Right column: activity box top, company block centered below, date right */
+    /* Right col: orange box top-right, company info right-aligned below, date right */
     .right-col {
       display: flex;
       flex-direction: column;
       align-items: stretch;
       gap: 1.5mm;
     }
-    /* Orange activity box — full width of right col, no border-radius, matching PDF */
+    /* Orange activity box — full width, no border-radius */
     .activity-box {
-      background: ${orange};
+      background: ${ORANGE};
       color: #fff;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
       font-weight: bold;
-      font-size: 11px;
       text-align: center;
-      padding: 2mm 4mm;
-      line-height: 1.3;
+      padding: 2mm 3mm;
+      line-height: 1.35;
     }
-    /* Company info block — centered, bold, no shop name (logo carries the brand) */
+    /* Company info — right-aligned, bold — matches PDF */
     .company-block {
-      text-align: center;
-      font-weight: 700;
-      font-size: 12px;
+      text-align: right;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 13px;
+      font-weight: bold;
       line-height: 1.6;
-      width: 100%;
     }
     .date-line {
       text-align: right;
-      font-size: 12px;
-      width: 100%;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
       margin-top: 1mm;
     }
 
     /* ── ORANGE TITLE BAR ── */
     .doc-title {
-      background: ${orange};
+      background: ${ORANGE};
       color: #fff;
-      font-size: 15px;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 16px;
       font-weight: bold;
       text-align: center;
       padding: 2.5mm 0;
-      margin-top: 3mm;
-      /* No margin-bottom — client strip is directly below, matching PDF */
+      /* no margin-bottom — client strip sits flush below */
     }
 
-    /* ── CLIENT STRIP — directly below title bar, no gap ── */
+    /* ── CLIENT STRIP — flush below title, no gap ── */
     .client-strip {
       display: grid;
-      grid-template-columns: 1.1fr 1fr 0.8fr;
-      background: ${primary};
+      grid-template-columns: 1.15fr 1fr 0.8fr;
+      background: ${PRIMARY};
       color: #fff;
-      font-weight: 800;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
     }
     .client-cell {
       padding: 1.5mm 2.5mm;
-      border-right: 2px solid #fff;
+      border-right: 2.5px solid #fff;
       text-align: center;
-      font-size: 13px;
     }
-    .client-cell:last-child { border-right: 0; }
+    .client-cell:last-child { border-right: none; }
 
     /* ── TABLE ── */
     table {
@@ -767,80 +839,92 @@ function renderPortraitHTML({
       margin-top: 3.5mm;
     }
     th {
-      background: ${primary};
+      background: ${PRIMARY};
       color: #fff;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
+      text-align: center;
       padding: 1.5mm 2mm;
-      font-size: 13px;
-      border: 2px solid #fff;
-      font-weight: 800;
+      border: 2.5px solid #fff;
     }
-    .th-left   { text-align: left; }
-    .th-center { text-align: center; }
-    .th-right  { text-align: right; }
+    .th-left  { text-align: left; }
+    .th-right { text-align: right; }
+
     .td-cell {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 14px;
+      font-weight: normal;
       padding: 1.5mm 2mm;
-      border: 2px solid #fff;
-      font-size: 12px;
-      /* background set inline per row for alternating effect */
+      border: 2.5px solid #fff;
     }
     .td-left   { text-align: left; }
     .td-center { text-align: center; }
     .td-right  { text-align: right; }
-    .td-bold   { font-weight: 700; }
+    .td-bold   { font-weight: bold; }
+
     .total-row td {
-      background: ${primary};
+      background: ${PRIMARY};
       color: #fff;
-      font-weight: 800;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
       padding: 1.5mm 2mm;
-      border: 2px solid #fff;
-      font-size: 13px;
+      border: 2.5px solid #fff;
+      text-align: center;
     }
-    .total-label { text-align: center; }
     .total-value { text-align: right; }
 
     /* ── AMOUNT IN WORDS ── */
     .words {
       margin-top: 4mm;
-      font-size: 12px;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: normal;
       line-height: 1.5;
       padding-left: 1mm;
     }
-    .words strong { font-weight: 900; }
+    .words strong { font-weight: bold; }
 
-    /* ── BOTTOM SECTION: garantie left + signature right, bottom-aligned ── */
+    /* ── BOTTOM SECTION ── */
     .bottom-section {
       display: flex;
       justify-content: space-between;
       align-items: flex-end;
-      margin-top: 5mm;
+      margin-top: 6mm;
     }
     .garantie-col { flex: 1; }
     .garantie {
-      font-size: 12px;
-      line-height: 1.5;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: normal;
+      line-height: 1.6;
     }
-    /* GARANTIE label: red, underlined, on its own line — matching PDF */
+    /* GARANTIE label: red, underlined, own line — matches PDF */
     .garantie .label {
       color: red;
       text-decoration: underline;
-      font-weight: 900;
+      font-weight: normal;
       display: block;
       margin-bottom: 1mm;
+      text-transform: uppercase;
     }
-    /* Guarantee body text is bold — matching PDF */
+    /* Garantie body is bold — matches PDF */
     .garantie .body {
-      font-weight: 700;
+      font-weight: bold;
     }
     .signature-box {
-      width: 48mm;
+      width: 50mm;
       text-align: center;
-      font-size: 14px;
-      font-weight: 900;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 15px;
+      font-weight: bold;
+      text-transform: uppercase;
       flex-shrink: 0;
       margin-left: 6mm;
     }
     .signature-img {
-      max-width: 40mm;
+      max-width: 42mm;
       max-height: 22mm;
       object-fit: contain;
       margin-top: 2mm;
@@ -851,37 +935,36 @@ function renderPortraitHTML({
 
     /* ── BLUE FOOTER BAR — pinned at very bottom ── */
     .footer-bar {
-      background: ${primary};
+      background: ${PRIMARY};
       color: #fff;
-      font-weight: 700;
+      font-family: "Times New Roman", Times, serif;
       font-size: 11px;
+      font-weight: bold;
       text-align: center;
       padding: 2.5mm 4mm;
       margin-top: 8mm;
     }
 
     @media print {
-  html, body {
-    width: 210mm;
-    height: 297mm;
-    overflow: hidden;
-    print-color-adjust: exact;
-    -webkit-print-color-adjust: exact;
-  }
-}
+      html, body {
+        width: 210mm;
+        height: 297mm;
+        overflow: hidden;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+    }
   </style>
 </head>
 <body>
 <div class="page">
 
-  <!-- TOP: Logo (left) | Activity box + Company info (right) -->
+  <!-- TOP: Logo (left) | Activity + Company info (right) -->
   <div class="top">
     <div class="logo-cell">
-      ${
-        getAssetSrc(shop, "logo")
-          ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
-          : '<div class="logo-placeholder"></div>'
-      }
+      ${getAssetSrc(shop, "logo")
+        ? `<img src="${shop.logo_print_src || getAssetSrc(shop, "logo")}" alt="Logo" />`
+        : '<div class="logo-placeholder"></div>'}
     </div>
     <div class="right-col">
       <div class="activity-box">${shopActivity}</div>
@@ -898,7 +981,7 @@ function renderPortraitHTML({
   <!-- ORANGE TITLE BAR -->
   <div class="doc-title">${title} ${invoiceNumber}</div>
 
-  <!-- BLUE CLIENT STRIP: directly below title, no spacer — DOIT / ADRESSE / bare phone -->
+  <!-- BLUE CLIENT STRIP — flush below title bar -->
   <div class="client-strip">
     <div class="client-cell">DOIT : ${clientName}</div>
     <div class="client-cell">ADRESSE : ${clientAddress}</div>
@@ -909,76 +992,58 @@ function renderPortraitHTML({
   <table>
     <thead>
       <tr>
-        <th class="th-left" style="width:42%">Désignation</th>
-        <th class="th-center" style="width:10%">Quantité</th>
-        <th class="th-center" style="width:9%">Unité</th>
-        ${
-          showPrices
-            ? `<th class="th-right" style="width:19%">Prix Unitaire CFA</th>
-             <th class="th-right" style="width:20%">Prix Total CFA</th>`
-            : ""
-        }
+        <th class="th-left" style="width:40%">Désignation</th>
+        <th                  style="width:10%">Quantité</th>
+        <th                  style="width:9%">Unité</th>
+        ${showPrices ? `
+        <th class="th-right" style="width:20%">Prix Unitaire CFA</th>
+        <th class="th-right" style="width:21%">Prix Total CFA</th>` : ""}
       </tr>
     </thead>
     <tbody>
-      ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${rowBg}" colspan="${showPrices ? 5 : 3}">Aucun article</td></tr>`}
+      ${itemsHTML || `<tr><td class="td-cell td-left" style="background:${ROW_BG}" colspan="${colSpan}">Aucun article</td></tr>`}
     </tbody>
-    ${
-      showPrices
-        ? `<tfoot>
-           <tr class="total-row">
-             <td colspan="4" class="total-label">MONTANT TOTAL</td>
-             <td class="total-value">${formatFCFA(printGrandTotal).replace(" FCFA", "")}</td>
-           </tr>
-         </tfoot>`
-        : ""
-    }
+    ${showPrices ? `
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="${colSpan - 1}" style="text-align:center">MONTANT TOTAL</td>
+        <td class="total-value">${fmtNum(printGrandTotal)}</td>
+      </tr>
+    </tfoot>` : ""}
   </table>
 
-  ${
-    showPrices
-      ? `<div class="words">${amountToWordsFCFA(
-          printGrandTotal,
-          isProforma ? "proforma" : "facture",
-        ).replace(
-          /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
-          "$1<strong>$2</strong>",
-        )}</div>`
-      : ""
-  }
+  ${showPrices ? `
+  <div class="words">${
+    amountToWordsFCFA(printGrandTotal, isProforma ? "proforma" : "facture")
+      .replace(
+        /(Arrêté la présente (?:facture|proforma) à la somme de )(.+)/i,
+        "$1<strong>$2</strong>",
+      )
+  }</div>` : ""}
 
   <!-- BOTTOM SECTION: Garantie left + Signature right, bottom-aligned -->
   <div class="bottom-section">
     <div class="garantie-col">
-      ${
-        guaranteeText
-          ? `<div class="garantie">
-             <span class="label">GARANTIE</span>
-             <div class="body">${guaranteeText}</div>
-           </div>`
-          : ""
-      }
+      ${guaranteeText ? `
+      <div class="garantie">
+        <span class="label">GARANTIE</span>
+        <div class="body">${guaranteeText}</div>
+      </div>` : ""}
     </div>
     <div class="signature-box">
       SIGNATURE
-      ${
-        documentOptions.includeSignature &&
-        (shop?.signature_print_src || shop?.signature_url)
-          ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
-          : ""
-      }
-      ${
-        documentOptions.includeCachet &&
-        (shop?.cachet_print_src || shop?.cachet_url)
-          ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
-          : ""
-      }
+      ${documentOptions.includeSignature && (shop?.signature_print_src || shop?.signature_url)
+        ? `<br/><img class="signature-img" src="${shop.signature_print_src || shop.signature_url}" />`
+        : ""}
+      ${documentOptions.includeCachet && (shop?.cachet_print_src || shop?.cachet_url)
+        ? `<br/><img class="signature-img" src="${shop.cachet_print_src || shop.cachet_url}" />`
+        : ""}
     </div>
   </div>
 
 </div>
 
-<!-- BLUE FOOTER BAR — outside .page so it stays at the very bottom -->
+<!-- BLUE FOOTER BAR — outside .page so it sits at the very bottom -->
 <div class="footer-bar">
   Tél: ${shopPhone} &nbsp;|&nbsp; WhatsApp : ${shopWhatsapp} &nbsp;|&nbsp; Email : ${shopEmail}
 </div>
@@ -1043,9 +1108,9 @@ export function printSaleDocument({
   const formValues = {
     date: saleGroup.date,
     city: shop?.city || "",
-    client_name: saleGroup.client_name || firstItem.client_name || "",
+    client_name:    saleGroup.client_name    || firstItem.client_name    || "",
     client_address: saleGroup.client_address || firstItem.client_address || "",
-    client_phone: saleGroup.client_phone || firstItem.client_phone || "",
+    client_phone:   saleGroup.client_phone   || firstItem.client_phone   || "",
     validity: "30 jours",
   };
 
@@ -1077,23 +1142,7 @@ export function printSaleDocument({
     orientation,
   });
 
-  const isPortrait = orientation === "portrait";
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = isPortrait
-    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;"
-    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
-
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  iframe.onload = () => {
-    setTimeout(() => {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-      setTimeout(() => document.body.removeChild(iframe), 1500);
-    }, 300);
-  };
+  printHtmlDocument(html, orientation);
 }
 
 export function printPurchaseDocument({
@@ -1109,9 +1158,9 @@ export function printPurchaseDocument({
   const formValues = {
     date: purchase.date,
     city: shop?.city || "",
-    client_name: purchase.supplier || "",
+    client_name:    purchase.supplier || "",
     client_address: "",
-    client_phone: "",
+    client_phone:   "",
   };
 
   const items = [
@@ -1121,7 +1170,7 @@ export function printPurchaseDocument({
       designation: purchase.product_name,
       quantity: purchase.quantity,
       unit: "Pièces",
-      unit_price: purchase.unit_price || 0,
+      unit_price:  purchase.unit_price   || 0,
       total_price: purchase.total_amount || 0,
     },
   ];
@@ -1142,21 +1191,5 @@ export function printPurchaseDocument({
     orientation,
   });
 
-  const isPortrait = orientation === "portrait";
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = isPortrait
-    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;"
-    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
-
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  iframe.onload = () => {
-    setTimeout(() => {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-      setTimeout(() => document.body.removeChild(iframe), 1500);
-    }, 300);
-  };
+  printHtmlDocument(html, orientation);
 }
