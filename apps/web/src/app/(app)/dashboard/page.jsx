@@ -451,11 +451,20 @@ export default function DashboardPage() {
 }
 
 // ─── KPI Card ────────────────────────────────────────────────────────────────
-function KpiCard({ label, value, icon: Icon, loading }) {
+function KpiCard({ label, value, icon: Icon, loading, color = 'blue', sub }) {
+  const iconBg = {
+    gray:   'bg-white/10',
+    green:  'bg-emerald-600/20',
+    red:    'bg-red-600/20',
+    amber:  'bg-amber-500/20',
+    blue:   'bg-blue-600/20',
+    purple: 'bg-purple-600/20',
+  }
+
   return (
     <div className="rounded-2xl border border-white/10 bg-[#1A1A1A] p-5 shadow-sm">
-      <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center mb-3">
-        <Icon className="w-4 h-4 text-white" />
+      <div className={`w-9 h-9 rounded-xl ${iconBg[color] || iconBg.gray} flex items-center justify-center mb-3`}>
+        <Icon className="w-5 h-5 text-white" />
       </div>
       {loading ? (
         <div className="h-6 w-24 bg-white/10 rounded animate-pulse mb-1" />
@@ -463,6 +472,7 @@ function KpiCard({ label, value, icon: Icon, loading }) {
         <p className="font-display text-xl font-bold text-white">{value}</p>
       )}
       <p className="text-gray-300 text-xs mt-0.5">{label}</p>
+      {sub && <p className="text-gray-400 text-xs mt-1">{sub}</p>}
     </div>
   )
 }

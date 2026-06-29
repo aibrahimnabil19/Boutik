@@ -211,9 +211,9 @@ export default function ProformasPage() {
       <PageHeader
         title="Proformas"
         subtitle={`${invoices.length} proforma${invoices.length !== 1 ? 's' : ''}`}
+        back={<Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')} />}
         action={
           <div className="flex items-center gap-2">
-            <Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')}>Retour</Btn>
             <Btn icon={Plus} onClick={() => router.push('/proformas/nouvelle')}>Nouveau proforma</Btn>
           </div>
         }

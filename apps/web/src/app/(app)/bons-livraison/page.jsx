@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Truck, Printer, Search, ArrowLeft } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { useAppStore } from '@/context/store'
@@ -20,6 +21,7 @@ import {
 
 export default function BonsLivraisonPage() {
   const shop = useAppStore(s => s.shop)
+  const router = useRouter()
   const [sales, setSales] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -87,7 +89,7 @@ export default function BonsLivraisonPage() {
       <PageHeader
         title="Bons de livraison"
         subtitle={`${saleGroups.length} vente${saleGroups.length !== 1 ? 's' : ''} disponible${saleGroups.length !== 1 ? 's' : ''}`}
-        action={<Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')}>Retour</Btn>}
+        back={<Btn variant="secondary" icon={ArrowLeft} onClick={() => router.push('/documents')} />}
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">

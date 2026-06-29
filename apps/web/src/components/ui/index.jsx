@@ -4,12 +4,15 @@ import { X, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
 // ─── PageHeader ───────────────────────────────────────────────────────────────
-export function PageHeader({ title, subtitle, action }) {
+export function PageHeader({ title, subtitle, action, back }) {
   return (
     <div className="flex items-center justify-between mb-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-gray-900">{title}</h1>
-        {subtitle && <p className="text-gray-500 text-sm mt-0.5">{subtitle}</p>}
+      <div className="flex items-center gap-3">
+        {back && <div className="flex-none">{back}</div>}
+        <div>
+          <h1 className="font-display text-2xl font-bold text-gray-900">{title}</h1>
+          {subtitle && <p className="text-gray-500 text-sm mt-0.5">{subtitle}</p>}
+        </div>
       </div>
       {action && <div>{action}</div>}
     </div>
@@ -20,11 +23,11 @@ export function PageHeader({ title, subtitle, action }) {
 export function StatCard({ label, value, sub, icon: Icon, color = 'blue' }) {
   const iconBg = {
     gray:   'bg-white/10',
-    green:  'bg-emerald-600',
-    red:    'bg-red-600',
-    amber:  'bg-amber-500',
-    blue:   'bg-blue-600',
-    purple: 'bg-purple-600',
+    green:  'bg-emerald-600/20',
+    red:    'bg-red-600/20',
+    amber:  'bg-amber-500/20',
+    blue:   'bg-blue-600/20',
+    purple: 'bg-purple-600/20',
   }
 
   return (
