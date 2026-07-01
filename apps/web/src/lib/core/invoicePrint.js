@@ -310,7 +310,7 @@ function renderLandscapeHTML({
 
   // Activity: 3-line split matching the orange box spec
   const shopActivity = shop?.activity ||
-  "VENTE, INSTALLATION D'EQUIPEMENTS SOLAIRES,\nENTRETIEN ET DEPANNAGE";
+  "VENTE, INSTALLATION D'EQUIPEMENTS \nSOLAIRES, ENTRETIEN ET DEPANNAGE";
   const activityLines = shopActivity.split("\n");
 
   const colSpan = showPrices ? 5 : 3;
@@ -388,7 +388,7 @@ function renderLandscapeHTML({
       justify-content: center;
       width:  93mm;   /* 8.77 cm */
       height: 22mm;   /* 2.23 cm */
-      padding: 2mm 4mm;
+      padding: 2mm 2mm;
       line-height: 1.35;
       /* Rounded corners for landscape (paysage) */
       border-radius: 16px;
@@ -757,7 +757,7 @@ function renderPortraitHTML({
       font-size: 15px;
       font-weight: bold;
       text-align: center;
-      padding: 2mm 3mm;
+      padding: 2mm 1.5mm;
       line-height: 1.35;
       border-radius: 8px;
     }
