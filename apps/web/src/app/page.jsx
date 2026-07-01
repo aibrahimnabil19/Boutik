@@ -66,11 +66,6 @@ export default function RootPage() {
           }
         }
 
-        if (!accessGranted) {
-          router.replace('/access-code')
-          return
-        }
-
         let session = null
 
         try {
@@ -87,6 +82,11 @@ export default function RootPage() {
         if (!session) {
           if (!navigator.onLine && offlineReady && shopId) {
             router.replace('/dashboard')
+            return
+          }
+
+          if (!accessGranted) {
+            router.replace('/access-code')
             return
           }
 

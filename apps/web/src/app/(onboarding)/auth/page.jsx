@@ -83,6 +83,9 @@ export default function AuthPage() {
 
         if (error) throw error
 
+        await supabase.from('access_codes').delete().eq('code', pendingCode)
+
+        await setSetting('access_granted', true)
         await setSetting('pending_code', null)
         await setSetting('user_id', authData.user.id)
         await setSetting('offline_ready', true)
@@ -96,6 +99,7 @@ export default function AuthPage() {
         })
         if (error) throw error
 
+        await setSetting('access_granted', true)
         await setSetting('user_id', authData.user.id)
         await setSetting('offline_ready', true)
 

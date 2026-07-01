@@ -33,13 +33,44 @@ export default function AccessCodePage() {
   const fullCode = groups.join('').toUpperCase()
 
   function handleGroupChange(index, value) {
-    const clean = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, GROUP_SIZE)
+    const clean = value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
+    if (clean.length > GROUP_SIZE) {
+      const all = clean.slice(0, CODE_LENGTH)
+      const next = Array.from({ length: NUM_GROUPS }, (_, groupIndex) =>
+        all.slice(groupIndex * GROUP_SIZE, groupIndex * GROUP_SIZE + GROUP_SIZE)
+      )
+      setGroups(next)
+      const focusIndex = Math.min(Math.floor((all.length - 1) / GROUP_SIZE) + 1, NUM_GROUPS - 1)
+      inputRefs.current[focusIndex]?.focus()
+      return
+    }
+
     const next = [...groups]
-    next[index] = clean
+    next[index] = clean.slice(0, GROUP_SIZE)
     setGroups(next)
     if (clean.length === GROUP_SIZE && index < NUM_GROUPS - 1) {
       inputRefs.current[index + 1]?.focus()
     }
+  }
+
+  function handlePaste(index, e) {
+    const pasted = (e.clipboardData?.getData('text') || '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, CODE_LENGTH)
+
+    if (!pasted) return
+    e.preventDefault()
+
+    const next = [...groups]
+    for (let i = index, pos = 0; i < NUM_GROUPS && pos < pasted.length; i += 1) {
+      next[i] = pasted.slice(pos, pos + GROUP_SIZE)
+      pos += GROUP_SIZE
+    }
+
+    setGroups(next)
+    const nextFocus = Math.min(index + Math.ceil(pasted.length / GROUP_SIZE), NUM_GROUPS - 1)
+    inputRefs.current[nextFocus]?.focus()
   }
 
   function handleKeyDown(index, e) {
@@ -128,6 +159,7 @@ export default function AccessCodePage() {
                     maxLength={GROUP_SIZE}
                     value={group}
                     onChange={(e) => handleGroupChange(i, e.target.value)}
+                    onPaste={(e) => handlePaste(i, e)}
                     onKeyDown={(e) => handleKeyDown(i, e)}
                     className="w-16 h-14 text-center text-white font-mono text-lg font-bold
                                bg-white/10 border border-white/20 rounded-xl

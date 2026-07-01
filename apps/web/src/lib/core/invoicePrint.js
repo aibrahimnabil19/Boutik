@@ -310,7 +310,7 @@ function renderLandscapeHTML({
 
   // Activity: 3-line split matching the orange box spec
   const shopActivity = shop?.activity ||
-    "VENTE ET INSTALLATION\nD'ÉQUIPEMENTS SOLAIRES\nENTRETIEN ET DÉPANNAGE";
+  "VENTE, INSTALLATION D'EQUIPEMENTS SOLAIRES,\nENTRETIEN ET DEPANNAGE";
   const activityLines = shopActivity.split("\n");
 
   const colSpan = showPrices ? 5 : 3;
@@ -548,10 +548,10 @@ function renderLandscapeHTML({
 
     <!-- Middle info block -->
     <div class="company-block">
-      ${shopName ? `<div>${shopName}</div>` : ""}
       <div>Situé à ${shopAddress}</div>
-      <div>NIF : ${shopNif} – RCCM : ${shopRccm}</div>
-      ${phoneLine ? `<div>${phoneLine}</div>` : ""}
+      ${phoneLine ? `<div>Tél : ${phoneLine}</div>` : ""}
+      <div>Email : ${shopEmail}</div>
+      <div>NIF: ${shopNif} – RCCM : ${shopRccm}</div>
       <div>${shopCity} - NIGER</div>
     </div>
 
