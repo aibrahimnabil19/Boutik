@@ -323,7 +323,7 @@ function renderLandscapeHTML({
   <style>
     @page {
       size: A4 landscape;
-      margin: 6mm 8mm 6mm 8mm;
+      margin: 0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -331,7 +331,8 @@ function renderLandscapeHTML({
       color: #000;
       font-family: "Times New Roman", Times, serif;
       font-size: 15px;
-      width: 281mm;
+      width: 297mm;
+      padding: 6mm 8mm;
     }
 
     /* ── TOP HEADER: 3-column grid ── */
@@ -711,7 +712,7 @@ function renderPortraitHTML({
   <style>
     @page {
       size: A4 portrait;
-      margin: 6mm 8mm 6mm 8mm;
+      margin: 0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -721,8 +722,9 @@ function renderPortraitHTML({
       font-size: 15px;
       display: flex;
       flex-direction: column;
-      min-height: 285mm;
-      width: 194mm;
+      min-height: 297mm;
+      width: 210mm;
+      padding: 6mm 8mm;
     }
     .page { flex: 1; }
 
