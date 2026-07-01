@@ -711,7 +711,7 @@ function renderPortraitHTML({
   <style>
     @page {
       size: A4 portrait;
-      margin: 6mm 8mm 0mm 8mm;
+      margin: 6mm 8mm 6mm 8mm;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -906,18 +906,6 @@ function renderPortraitHTML({
       margin-right: auto;
     }
 
-    /* ── BLUE FOOTER BAR — pinned at very bottom ── */
-    .footer-bar {
-      background: ${PRIMARY};
-      color: #fff;
-      font-family: "Times New Roman", Times, serif;
-      font-size: 11px;
-      font-weight: bold;
-      text-align: center;
-      padding: 2.5mm 4mm;
-      margin-top: 8mm;
-    }
-
     @media print {
       html, body {
         width: 210mm;
@@ -1014,11 +1002,6 @@ function renderPortraitHTML({
     </div>
   </div>
 
-</div>
-
-<!-- BLUE FOOTER BAR — outside .page so it sits at the very bottom -->
-<div class="footer-bar">
-  Tél: ${shopPhone} &nbsp;|&nbsp; WhatsApp : ${shopWhatsapp} &nbsp;|&nbsp; Email : ${shopEmail}
 </div>
 
 </body>
