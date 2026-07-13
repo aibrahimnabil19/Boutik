@@ -205,15 +205,19 @@ export function printHtmlDocument(html, orientation = "landscape") {
 
   const iframe = document.createElement("iframe");
   iframe.style.cssText = isPortrait
-    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;"
-    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;";
+    ? "position:fixed;top:-9999px;left:-9999px;width:210mm;height:297mm;border:none;visibility:hidden;opacity:0;"
+    : "position:fixed;top:-9999px;left:-9999px;width:297mm;height:210mm;border:none;visibility:hidden;opacity:0;";
+  iframe.setAttribute("aria-hidden", "true");
 
+  iframe.srcdoc = html;
   document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
 
   iframe.onload = async () => {
+    if (iframe.contentDocument) {
+      iframe.contentDocument.title = "";
+      const titleEl = iframe.contentDocument.querySelector("title");
+      if (titleEl) titleEl.textContent = "";
+    }
     await waitForPrintAssets(iframe.contentDocument);
     iframe.contentWindow.focus();
     iframe.contentWindow.print();
@@ -326,13 +330,26 @@ function renderLandscapeHTML({
       margin: 0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html,
     body {
+      width: 100%;
+      height: auto;
+      margin: 0;
+      padding: 0;
       background: white;
+    }
+    body {
       color: #000;
       font-family: "Times New Roman", Times, serif;
       font-size: 15px;
-      width: 297mm;
+      display: block;
+    }
+    .page {
+      width: 100%;
       padding: 6mm 8mm;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
     }
 
     /* ── TOP HEADER: 3-column grid ── */
@@ -527,9 +544,9 @@ function renderLandscapeHTML({
 
     @media print {
       html, body {
-        width: 297mm;
-        height: 210mm;
-        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
       }
@@ -537,6 +554,7 @@ function renderLandscapeHTML({
   </style>
 </head>
 <body>
+  <div class="page">
 
   <!-- TOP HEADER -->
   <div class="top">
@@ -715,18 +733,27 @@ function renderPortraitHTML({
       margin: 0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html,
     body {
+      width: 100%;
+      height: auto;
+      margin: 0;
+      padding: 0;
       background: white;
+    }
+    body {
       color: #000;
       font-family: "Times New Roman", Times, serif;
       font-size: 15px;
+      display: block;
+    }
+    .page {
+      min-height: auto;
+      padding: 6mm 8mm;
+      box-sizing: border-box;
       display: flex;
       flex-direction: column;
-      min-height: 297mm;
-      width: 210mm;
-      padding: 6mm 8mm;
     }
-    .page { flex: 1; }
 
     /* ── TOP HEADER ── */
     .top {
@@ -910,9 +937,9 @@ function renderPortraitHTML({
 
     @media print {
       html, body {
-        width: 210mm;
-        height: 297mm;
-        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
       }

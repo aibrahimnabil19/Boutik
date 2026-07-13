@@ -1,4 +1,3 @@
-// apps/web/src/app/(app)/achats/page.jsx
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from 'react'
