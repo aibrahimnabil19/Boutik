@@ -4,8 +4,8 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 let syncInProgress = false;
 
 const IS_DEMO_LOCAL_ONLY =
-  process.env.NEXT_PUBLIC_IS_DEMO === 'true' ||
-  process.env.NEXT_PUBLIC_DEMO_LOCAL_ONLY === 'true'
+  process.env.NEXT_PUBLIC_IS_DEMO === "true" ||
+  process.env.NEXT_PUBLIC_DEMO_LOCAL_ONLY === "true";
 
 const TABLES = [
   "products",
@@ -92,7 +92,7 @@ const REMOTE_COLUMNS = {
     "cancelled_at",
     "is_charge",
     "expense_categories",
-    "status"
+    "status",
   ],
   expenses: [
     "id",
@@ -257,7 +257,7 @@ async function getRemoteStock(supabase, shopId, salePayload) {
 }
 
 async function handleStockConflict(item, message) {
-  const { table_name, record_id, _localId } = item;
+  const { table_name, record_id, id } = item;
 
   if (localDb[table_name]) {
     await localDb[table_name].where("id").equals(record_id).modify({
@@ -266,7 +266,7 @@ async function handleStockConflict(item, message) {
     });
   }
 
-  await localDb.sync_queue.delete(_localId);
+  await localDb.sync_queue.delete(id);
 
   console.warn("[sync conflict]", {
     table: table_name,
@@ -276,9 +276,9 @@ async function handleStockConflict(item, message) {
 }
 
 export async function runSync(shopId) {
-  if (IS_DEMO_LOCAL_ONLY) return
-  if (syncInProgress) return
-  if (!shopId) return
+  if (IS_DEMO_LOCAL_ONLY) return;
+  if (syncInProgress) return;
+  if (!shopId) return;
 
   syncInProgress = true;
   const supabase = getSupabaseClient();
@@ -293,7 +293,7 @@ export async function runSync(shopId) {
 
     for (const item of queue) {
       try {
-        const { table_name, operation, payload, record_id, _localId } = item;
+        const { table_name, operation, payload, record_id, id } = item;
         const cleanPayload = cleanForRemote(table_name, payload);
 
         if (operation === "delete") {
@@ -339,7 +339,7 @@ export async function runSync(shopId) {
             .modify({ sync_status: "synced", sync_error: null });
         }
 
-        await localDb.sync_queue.delete(_localId);
+        await localDb.sync_queue.delete(id);
       } catch (err) {
         failCount++;
         console.error("[sync push failed]", {
@@ -363,8 +363,8 @@ export async function runSync(shopId) {
 }
 
 export async function pullFromRemote(shopId) {
-  if (IS_DEMO_LOCAL_ONLY) return
-  if (!shopId) return
+  if (IS_DEMO_LOCAL_ONLY) return;
+  if (!shopId) return;
 
   const supabase = getSupabaseClient();
 
@@ -424,9 +424,9 @@ export async function pullFromRemote(shopId) {
 }
 
 export function startSyncListener(shopId) {
-  if (IS_DEMO_LOCAL_ONLY) return () => {}
-  if (typeof window === "undefined") return () => {}
-  if (!shopId) return () => {}
+  if (IS_DEMO_LOCAL_ONLY) return () => {};
+  if (typeof window === "undefined") return () => {};
+  if (!shopId) return () => {};
 
   const handleOnline = () => runSync(shopId);
 
