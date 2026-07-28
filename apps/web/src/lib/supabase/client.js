@@ -7,8 +7,8 @@ let initError = null
 
 function isNativeBuild() {
   return (
-    process.env.NEXT_PUBLIC_NATIVE_BUILD === 'true' ||
-    (typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__)
+    typeof window !== 'undefined' &&
+    (process.env.NEXT_PUBLIC_NATIVE_BUILD === 'true' || !!window.__TAURI_INTERNALS__)
   )
 }
 

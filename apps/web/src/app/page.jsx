@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { getSetting, setSetting } from '@/lib/db/local'
+import { getSetting, getStoredSessionState, setSetting } from '@/lib/db/local'
 import { isDemo, resetDemoStorageIfNeeded } from '@/lib/demo'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
@@ -14,28 +14,36 @@ export default function RootPage() {
     let failSafeTimer = null
 
     async function redirect() {
-      // Failsafe: if redirect() hangs for more than 5 seconds, force a redirect to auth
-      // This prevents infinite "Chargement…" when IndexedDB fails or is blocked.
-      failSafeTimer = setTimeout(() => {
+      failSafeTimer = setTimeout(async () => {
         if (!mounted) return
-        console.error('[root] redirect timeout exceeded, forcing /auth')
+        console.error('[root] redirect timeout exceeded')
+        try {
+          const { canOpenStoredSession } = await getStoredSessionState()
+          if (canOpenStoredSession) {
+            router.replace('/dashboard')
+            return
+          }
+        } catch (e) {
+          console.warn('[root] fail-safe cache check failed', e?.message)
+        }
         router.replace('/auth')
       }, 5000)
 
       try {
-        let accessGranted, shopId, offlineReady
+        let storedState = {
+          accessGranted: null,
+          shopId: null,
+          offlineLoginActive: null,
+          canOpenStoredSession: false,
+        }
 
         try {
-          accessGranted = await getSetting('access_granted')
-          shopId = await getSetting('shop_id')
-          offlineReady = await getSetting('offline_ready')
+          storedState = await getStoredSessionState()
         } catch (err) {
           console.error('[root] getSetting failed (likely IndexedDB issue)', err?.message)
-          // Fallback: try to get session and redirect
-          accessGranted = null
-          shopId = null
-          offlineReady = false
         }
+
+        const { accessGranted, shopId, offlineLoginActive, canOpenStoredSession } = storedState
 
         if (!mounted) return
 
@@ -70,7 +78,11 @@ export default function RootPage() {
 
         try {
           const supabase = getSupabaseClient()
-          const { data } = await supabase.auth.getSession()
+          const sessionPromise = supabase.auth.getSession()
+          const timeoutPromise = new Promise((resolve) =>
+            setTimeout(() => resolve({ data: { session: null }, timedOut: true }), 3000)
+          )
+          const { data } = await Promise.race([sessionPromise, timeoutPromise])
           session = data?.session || null
         } catch (err) {
           console.warn('[root] supabase.auth.getSession failed', err?.message)
@@ -80,16 +92,19 @@ export default function RootPage() {
         if (!mounted) return
 
         if (!session) {
-          if (!navigator.onLine && offlineReady && shopId) {
+          if (canOpenStoredSession) {
             router.replace('/dashboard')
             return
           }
-
           if (!accessGranted) {
             router.replace('/access-code')
             return
           }
+          router.replace('/auth')
+          return
+        }
 
+        if (offlineLoginActive === false) {
           router.replace('/auth')
           return
         }

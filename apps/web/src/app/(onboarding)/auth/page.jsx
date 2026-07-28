@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { getSetting, setSetting } from '@/lib/db/local'
+import { getSetting, setOfflineLoginActive, setSetting } from '@/lib/db/local'
 import { toast } from 'sonner'
 import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react'
 
@@ -36,9 +36,10 @@ export default function AuthPage() {
         await setSetting('access_granted', true)
         await setSetting('user_id', userId)
         await setSetting('demo_auth_user', demoUser)
-        await setSetting('offline_ready', true)
+        await setOfflineLoginActive(true)
 
         const shopId = await getSetting('shop_id')
+        await setSetting('offline_ready', Boolean(shopId))
 
         toast.success(
           mode === 'signup'
@@ -88,7 +89,10 @@ export default function AuthPage() {
         await setSetting('access_granted', true)
         await setSetting('pending_code', null)
         await setSetting('user_id', authData.user.id)
-        await setSetting('offline_ready', true)
+        await setSetting('shop_id', null)
+        await setSetting('cached_shop', null)
+        await setOfflineLoginActive(true)
+        await setSetting('offline_ready', false)
 
         toast.success('Compte créé ! Configurez votre boutique.')
         router.push('/setup')
@@ -101,7 +105,7 @@ export default function AuthPage() {
 
         await setSetting('access_granted', true)
         await setSetting('user_id', authData.user.id)
-        await setSetting('offline_ready', true)
+        await setOfflineLoginActive(true)
 
         const { data: profile } = await supabase
           .from('profiles')
@@ -110,11 +114,30 @@ export default function AuthPage() {
           .single()
 
         if (profile?.shop_id) {
+          const { data: shop, error: shopError } = await supabase
+            .from('shops')
+            .select('*')
+            .eq('id', profile.shop_id)
+            .single()
+
+          if (shopError) {
+            console.warn('[auth] failed to cache shop after login', shopError?.message)
+          }
+
           await setSetting('shop_id', profile.shop_id)
-          await setSetting('offline_ready', true)
+          if (shop) {
+            await setSetting('cached_shop', shop)
+            await setSetting('offline_ready', true)
+          } else {
+            const cachedShop = await getSetting('cached_shop')
+            await setSetting('offline_ready', cachedShop?.id === profile.shop_id)
+          }
           toast.success('Connexion réussie !')
           router.push('/dashboard')
         } else {
+          await setSetting('shop_id', null)
+          await setSetting('cached_shop', null)
+          await setSetting('offline_ready', false)
           router.push('/setup')
         }
       }

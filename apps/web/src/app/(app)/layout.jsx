@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { getSetting, setSetting } from '@/lib/db/local'
+import { getSetting, getStoredSessionState, setOfflineLoginActive, setSetting } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
 import { startSyncListener, runSync, pullFromRemote } from '@/lib/sync/engine'
 import {
@@ -58,11 +58,10 @@ export default function AppLayout({ children }) {
         if (!mounted) return
         console.warn('[layout init] fail-safe timeout triggered')
         try {
-          const shopId = await getSetting('shop_id')
-          const cached = await getSetting('cached_shop')
-          if (shopId && cached) {
-            setShop(cached)
-            applyTheme(cached)
+          const { shopId, fallbackShop, canOpenStoredSession } = await getStoredSessionState()
+          if (canOpenStoredSession && fallbackShop) {
+            setShop(fallbackShop)
+            applyTheme(fallbackShop)
             setLoaded(true)
             cleanupSync = startSyncListener(shopId)
           } else {
@@ -105,14 +104,22 @@ export default function AppLayout({ children }) {
       }
 
       try {
-        const cachedShopId = await getSetting('shop_id')
-        const cachedShop = await getSetting('cached_shop')
-        const offlineReady = await getSetting('offline_ready')
+        const {
+          shopId: cachedShopId,
+          fallbackShop,
+          offlineLoginActive,
+          canOpenStoredSession,
+        } = await getStoredSessionState()
 
-        if (!navigator.onLine && offlineReady && cachedShopId) {
-          if (cachedShop) {
-            setShop(cachedShop)
-            applyTheme(cachedShop)
+        if (offlineLoginActive === false) {
+          router.replace('/auth')
+          return
+        }
+
+        if (!navigator.onLine && canOpenStoredSession && fallbackShop) {
+          if (fallbackShop) {
+            setShop(fallbackShop)
+            applyTheme(fallbackShop)
           }
 
           setLoaded(true)
@@ -122,9 +129,9 @@ export default function AppLayout({ children }) {
 
         // FIX: if we have a usable cache, show the app immediately and
         // STOP HERE. Background sync below should never block the UI.
-        if (cachedShopId && cachedShop) {
-          setShop(cachedShop)
-          applyTheme(cachedShop)
+        if (canOpenStoredSession && fallbackShop) {
+          setShop(fallbackShop)
+          applyTheme(fallbackShop)
           setLoaded(true)
 
             // Kick off a background refresh but never let it block/crash
@@ -148,6 +155,7 @@ export default function AppLayout({ children }) {
                 const session = data?.session
 
                 if (!session || timedOut) return
+                await setOfflineLoginActive(true)
                 if (!navigator.onLine) return
 
                 const [profileRes, shopRes] = await Promise.allSettled([
@@ -208,21 +216,31 @@ export default function AppLayout({ children }) {
         const session = data?.session
 
         if (timedOut || !session) {
-          const shopId = cachedShopId
-          if (!shopId) {
-            router.replace('/auth')
+          if (canOpenStoredSession && fallbackShop) {
+            setShop(fallbackShop)
+            applyTheme(fallbackShop)
+            cleanupSync = startSyncListener(cachedShopId)
+            if (!mounted) return
+            setLoaded(true)
             return
           }
-          if (!mounted) return
-          setLoaded(true)
+
+          router.replace('/auth')
           return
         }
 
-        const shopId = await getSetting('shop_id')
-        if (!shopId) {
+        if (!mounted) {
+          return
+        }
+
+        await setOfflineLoginActive(true)
+
+        if (!cachedShopId) {
           router.replace('/setup')
           return
         }
+
+        const shopId = cachedShopId
 
         const [profileRes, shopRes] = await Promise.allSettled([
           supabase.from('profiles').select('*').eq('id', session.user.id).single(),
@@ -239,6 +257,9 @@ export default function AppLayout({ children }) {
           applyTheme(shopRes.value.data)
           await setSetting('cached_shop', shopRes.value.data)
           await setSetting('offline_ready', true)
+        } else if (fallbackShop) {
+          setShop(fallbackShop)
+          applyTheme(fallbackShop)
         }
 
         setUser(session.user)
@@ -255,13 +276,11 @@ export default function AppLayout({ children }) {
       } catch (err) {
         console.error('[layout init failed]', err)
         if (!mounted) return
-        const shopId = await getSetting('shop_id').catch(() => null)
-        const cachedShop = await getSetting('cached_shop').catch(() => null)
-        if (shopId && cachedShop) {
-          setShop(cachedShop)
-          applyTheme(cachedShop)
-          setLoaded(true)
-        } else if (shopId) {
+        const storedState = await getStoredSessionState().catch(() => null)
+        if (storedState?.canOpenStoredSession && storedState.fallbackShop) {
+          setShop(storedState.fallbackShop)
+          applyTheme(storedState.fallbackShop)
+          if (!mounted) return
           setLoaded(true)
         } else {
           setLoadError(err.message)
@@ -318,8 +337,18 @@ export default function AppLayout({ children }) {
   }
 
   async function handleLogout() {
-    const supabase = getSupabaseClient()
-    await supabase.auth.signOut()
+    await setOfflineLoginActive(false)
+    setUser(null)
+    setProfile(null)
+    setShop(null)
+
+    try {
+      const supabase = getSupabaseClient()
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.warn('[logout] supabase signOut failed', err?.message)
+    }
+
     router.push('/auth')
   }
 

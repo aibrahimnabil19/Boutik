@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { setSetting, getSetting } from '@/lib/db/local'
+import { getSetting, setOfflineLoginActive, setSetting } from '@/lib/db/local'
 import { useAppStore } from '@/context/store'
 import { toast } from 'sonner'
 import {
@@ -154,6 +154,7 @@ export default function SetupPage() {
 
         await setSetting('shop_id', shopId)
         await setSetting('cached_shop', shopData)
+        await setOfflineLoginActive(true)
         await setSetting('offline_ready', true)
 
         setShop(shopData)
@@ -214,6 +215,7 @@ export default function SetupPage() {
       await supabase.from('profiles').update({ shop_id: shopId }).eq('id', user.id)
       await setSetting('shop_id', shopId)
       await setSetting('cached_shop', shopData)
+      await setOfflineLoginActive(true)
       await setSetting('offline_ready', true)
 
       setShop(shopData)

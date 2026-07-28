@@ -92,6 +92,55 @@ export async function setSetting(key, value) {
   }
 }
 
+/** Create a minimal shop shape when an older install only has shop_id cached. */
+export function createFallbackShop(shopId) {
+  return {
+    id: shopId,
+    name: 'Ma Boutique',
+    color_primary: '#1a56db',
+    color_accent: '#e3a008',
+    currency: 'FCFA',
+  }
+}
+
+export async function setOfflineLoginActive(active) {
+  await setSetting('offline_login_active', active)
+}
+
+export async function getStoredSessionState() {
+  const [
+    accessGranted,
+    shopId,
+    cachedShop,
+    offlineReady,
+    offlineLoginActive,
+  ] = await Promise.all([
+    getSetting('access_granted'),
+    getSetting('shop_id'),
+    getSetting('cached_shop'),
+    getSetting('offline_ready'),
+    getSetting('offline_login_active'),
+  ])
+
+  const hasActiveOfflineLogin =
+    offlineLoginActive === true ||
+    (offlineLoginActive === null && accessGranted && shopId)
+  const cachedShopMatches = cachedShop && cachedShop.id === shopId
+  const hasMismatchedCachedShop = cachedShop && !cachedShopMatches
+  const canUseOfflineReadyFallback = offlineReady && !hasMismatchedCachedShop
+
+  return {
+    accessGranted,
+    shopId,
+    cachedShop: cachedShopMatches ? cachedShop : null,
+    offlineReady,
+    offlineLoginActive,
+    hasActiveOfflineLogin: Boolean(hasActiveOfflineLogin),
+    fallbackShop: cachedShopMatches ? cachedShop : (shopId ? createFallbackShop(shopId) : null),
+    canOpenStoredSession: Boolean(hasActiveOfflineLogin && shopId && (cachedShopMatches || canUseOfflineReadyFallback)),
+  }
+}
+
 /** Mark a record as pending sync */
 export async function queueSync(tableName, operation, recordId, payload) {
   await localDb.sync_queue.add({
