@@ -44,6 +44,7 @@ export default function ClientsPage() {
   const [selected, setSelected] = useState(null)
   const [debtPaymentModal, setDebtPaymentModal] = useState(false)
   const [debtSelections, setDebtSelections] = useState({})
+  const [debtGeneralAmount, setDebtGeneralAmount] = useState('')
   const [debtLabel, setDebtLabel] = useState('')
   const [debtDate, setDebtDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [confirm, setConfirm] = useState(null)
@@ -308,22 +309,26 @@ const load = useCallback(async () => {
 
   const unpaidClientSales = useMemo(() => {
     if (!selected) return []
+    const selectedName = normalizeText(selected.name)
     return sales
-      .filter(s => s.client_id === selected.id && !s.cancelled_at && !s.is_charge && Number(s.remaining_amount || 0) > 0)
+      .filter(s =>
+        (s.client_id === selected.id || (!s.client_id && normalizeText(s.client_name) === selectedName)) &&
+        !s.deleted_at &&
+        !s.cancelled_at &&
+        !s.is_charge &&
+        Number(s.remaining_amount || 0) > 0
+      )
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [sales, selected])
 
   const debtPaymentTotal = useMemo(() => {
-    return Object.values(debtSelections).reduce((sum, value) => sum + (Number(value) || 0), 0)
-  }, [debtSelections])
+    return Object.values(debtSelections).reduce((sum, value) => sum + (Number(value) || 0), 0) + Number(debtGeneralAmount || 0)
+  }, [debtSelections, debtGeneralAmount])
 
   function openDebtPaymentModal() {
     if (!selected) return
-    const initial = {}
-    unpaidClientSales.forEach(sale => {
-      initial[sale.id] = String(Math.round(Number(sale.remaining_amount || 0)))
-    })
-    setDebtSelections(initial)
+    setDebtSelections({})
+    setDebtGeneralAmount('')
     setDebtLabel('')
     setDebtDate(format(new Date(), 'yyyy-MM-dd'))
     setDebtPaymentModal(true)
@@ -347,8 +352,9 @@ const load = useCallback(async () => {
   async function handleDebtPaymentSubmit() {
     if (!selected) return
     const selectedCount = Object.keys(debtSelections).length
-    if (selectedCount === 0) {
-      toast.error('Sélectionnez au moins une dette à régler.')
+    const generalAmount = Number(debtGeneralAmount || 0)
+    if (selectedCount === 0 && generalAmount <= 0) {
+      toast.error('Saisissez un paiement global ou sélectionnez une vente à régler.')
       return
     }
     if (!debtLabel.trim()) {
@@ -367,6 +373,14 @@ const load = useCallback(async () => {
         return
       }
     }
+    if (generalAmount < 0) {
+      toast.error('Le paiement global ne peut pas être négatif.')
+      return
+    }
+    if (generalAmount > Math.max(0, clientBalance(selected.id)) + 0.01) {
+      toast.error('Le paiement global dépasse la créance totale du client.')
+      return
+    }
 
     try {
       const now = new Date().toISOString()
@@ -378,6 +392,7 @@ const load = useCallback(async () => {
         const newRemaining = Math.max(0, Number(sale.total_sale || 0) - newPaid)
         await localUpsert('sales', {
           ...sale,
+          client_id: sale.client_id || selected.id,
           paid_amount: newPaid,
           remaining_amount: newRemaining,
           payment_status: newRemaining <= 0 ? 'paid' : 'credit',
@@ -398,9 +413,26 @@ const load = useCallback(async () => {
         })
       }
 
-      toast.success(selectedCount === 1 ? 'Règlement enregistré' : `${selectedCount} règlements enregistrés`)
+      if (generalAmount > 0) {
+        await localUpsert('client_transactions', {
+          id: uuid(),
+          shop_id: shop.id,
+          client_id: selected.id,
+          date: debtDate,
+          label: `${debtLabel.trim()} — Paiement global`,
+          amount: -generalAmount,
+          type: 'credit',
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+
+      const savedCount = selectedCount + (generalAmount > 0 ? 1 : 0)
+      toast.success(savedCount === 1 ? 'Règlement enregistré' : `${savedCount} règlements enregistrés`)
       setDebtPaymentModal(false)
       setDebtSelections({})
+      setDebtGeneralAmount('')
       setDebtLabel('')
       await load()
     } catch (err) {
@@ -716,6 +748,15 @@ const load = useCallback(async () => {
                 <input value={debtLabel} onChange={(e) => setDebtLabel(e.target.value)} placeholder="Ex: Paiement espèce, virement…" className={inputCls} />
               </FormField>
             </div>
+
+            <FormField label="Paiement global (sans vente)">
+              <FrenchInput
+                value={debtGeneralAmount}
+                onChange={setDebtGeneralAmount}
+                placeholder="0"
+                className={inputCls}
+              />
+            </FormField>
 
             {unpaidClientSales.length === 0 ? (
               <div className="rounded-xl border border-gray-200 bg-gray-50 py-10 text-center">

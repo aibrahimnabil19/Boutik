@@ -492,23 +492,29 @@ function buildChartData({ sales, purchases, expenses, period }) {
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      const key = d.toISOString().slice(0, 10)
+      const key = format(d, 'yyyy-MM-dd')
 
       const ventes = sales
-        .filter((s) => String(s.date).slice(0, 10) === key)
+        .filter((s) => !s.deleted_at && !s.cancelled_at && String(s.date).slice(0, 10) === key)
         .reduce((a, s) => a + Number(s.total_sale || 0), 0)
 
       const benefice = sales
-        .filter((s) => String(s.date).slice(0, 10) === key)
+        .filter((s) => !s.deleted_at && !s.cancelled_at && String(s.date).slice(0, 10) === key)
         .reduce((a, s) => a + Number(s.profit || 0), 0)
 
+      const achats = purchases
+        .filter((p) => !p.deleted_at && String(p.date).slice(0, 10) === key)
+        .reduce((a, p) => a + Number(p.total_amount || 0), 0)
+
       const dep = expenses
-        .filter((e) => String(e.date).slice(0, 10) === key)
+        .filter((e) => !e.deleted_at && String(e.date).slice(0, 10) === key)
         .reduce((a, e) => a + Number(e.amount || 0), 0)
 
       result.push({
         month: format(d, 'dd MMM', { locale: fr }),
         ventes,
+        achats,
+        depenses: dep,
         benefice: benefice - dep,
       })
     }
