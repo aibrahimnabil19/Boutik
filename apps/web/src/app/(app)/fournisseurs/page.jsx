@@ -59,12 +59,14 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
   const [submitting, setSubmitting] = useState(false)
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [label, setLabel] = useState('')
+  const [generalAmount, setGeneralAmount] = useState('')
 
   // Reset state whenever modal opens
   useEffect(() => {
     if (open) {
       setDate(format(new Date(), 'yyyy-MM-dd'))
       setLabel('')
+      setGeneralAmount('')
       // Pre-select all unpaid purchases, pre-fill with their remaining amount
       const initial = {}
       purchases.forEach(p => {
@@ -96,11 +98,13 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
   const totalPaying = Object.values(selections).reduce(
     (sum, v) => sum + (Number(v) || 0),
     0
-  )
+  ) + Number(generalAmount || 0)
 
   async function handleSubmit() {
-    if (selectedCount === 0) {
-      toast.error('Sélectionnez au moins une entrée de stock à régler.')
+    const general = Number(generalAmount || 0)
+
+    if (selectedCount === 0 && general <= 0) {
+      toast.error('Saisissez un paiement global ou sélectionnez une entrée de stock à régler.')
       return
     }
     if (!label.trim()) {
@@ -112,6 +116,20 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
         toast.error('Chaque montant doit être supérieur à 0.')
         return
       }
+      const purchase = purchases.find(p => p.id === pid)
+      if (purchase && Number(amt) > Number(purchase.remaining_amount || 0) + 0.01) {
+        toast.error('Un montant dépasse le reste à payer sur une entrée de stock.')
+        return
+      }
+    }
+    if (general < 0) {
+      toast.error('Le paiement global ne peut pas être négatif.')
+      return
+    }
+    const totalDebt = purchases.reduce((sum, p) => sum + Number(p.remaining_amount || 0), 0)
+    if (general > totalDebt + 0.01) {
+      toast.error('Le paiement global dépasse la dette totale du fournisseur.')
+      return
     }
 
     setSubmitting(true)
@@ -151,10 +169,25 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
         })
       }
 
+      if (general > 0) {
+        await localUpsert('supplier_transactions', {
+          id: uuid(),
+          shop_id: shop.id,
+          supplier_id: supplier.id,
+          date,
+          label: `${label.trim()} — Paiement global`,
+          amount: -general,
+          type: 'credit',
+          created_at: now,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
+
       toast.success(
-        selectedCount === 1
+        selectedCount + (general > 0 ? 1 : 0) === 1
           ? 'Paiement enregistré'
-          : `${selectedCount} paiements enregistrés`
+          : `${selectedCount + (general > 0 ? 1 : 0)} paiements enregistrés`
       )
       onClose()
       onSaved()
@@ -189,6 +222,15 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
             />
           </FormField>
         </div>
+
+        <FormField label="Paiement global (sans entrée)">
+          <FrenchInput
+            value={generalAmount}
+            onChange={setGeneralAmount}
+            placeholder="0"
+            className={inputCls}
+          />
+        </FormField>
 
         {/* Purchase list */}
         {!hasPurchases ? (
@@ -332,7 +374,7 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
         {hasPurchases && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <div>
-              {selectedCount > 0 ? (
+              {selectedCount > 0 || Number(generalAmount || 0) > 0 ? (
                 <p className="text-sm text-gray-600">
                   <span className="font-bold text-gray-900">{selectedCount}</span> entrée{selectedCount > 1 ? 's' : ''} sélectionnée{selectedCount > 1 ? 's' : ''} ·{' '}
                   <span className="font-bold text-blue-700">{formatFCFA(totalPaying)}</span> à enregistrer
@@ -346,7 +388,7 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
               <Btn
                 icon={CreditCard}
                 onClick={handleSubmit}
-                disabled={submitting || selectedCount === 0 || !hasPurchases}
+                disabled={submitting || (selectedCount === 0 && Number(generalAmount || 0) <= 0)}
               >
                 {submitting ? 'Enregistrement…' : 'Enregistrer le paiement'}
               </Btn>

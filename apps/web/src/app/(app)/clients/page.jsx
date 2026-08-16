@@ -70,17 +70,6 @@ export default function ClientsPage() {
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), type: 'debit', amount: '' }
   })
 
-  // Replace the `load` useCallback in ClientsPage with this version.
-//
-// Bug: setLoading(false) was only reached if shop?.id was truthy AND
-// every getAll() call succeeded. Any thrown error in the Promise.all,
-// or a falsy shop?.id, left `loading` stuck at `true` forever — this is
-// the "Chargement..." that never resolves.
-//
-// Fix: try/finally guarantees setLoading(false) always runs. Errors are
-// surfaced via toast instead of silently hanging. The falsy shop?.id case
-// now also clears loading (with empty data) instead of returning early.
-
 const load = useCallback(async () => {
   if (!shop?.id) {
     setLoading(false)
