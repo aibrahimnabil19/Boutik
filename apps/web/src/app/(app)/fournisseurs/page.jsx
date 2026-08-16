@@ -53,7 +53,7 @@ import PhoneInput from '@/components/PhoneInput'
 // Shows only unpaid/partial purchases; user selects which ones to pay and
 // enters the amount paid per purchase. One supplier_transaction is created
 // per selected purchase.
-function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
+function PaymentModal({ open, onClose, supplier, purchases, shop, balance = 0, onSaved }) {
   // purchases prop = all purchases for this supplier with remaining_amount > 0
   const [selections, setSelections] = useState({}) // { [purchaseId]: amountString }
   const [submitting, setSubmitting] = useState(false)
@@ -126,7 +126,7 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
       toast.error('Le paiement global ne peut pas être négatif.')
       return
     }
-    const totalDebt = purchases.reduce((sum, p) => sum + Number(p.remaining_amount || 0), 0)
+    const totalDebt = Math.max(0, Number(balance || 0))
     if (general > totalDebt + 0.01) {
       toast.error('Le paiement global dépasse la dette totale du fournisseur.')
       return
@@ -956,6 +956,7 @@ export default function FournisseursPage() {
           supplier={selected}
           purchases={supplierUnpaidPurchases}
           shop={shop}
+          balance={balance}
           onSaved={load}
         />
 
