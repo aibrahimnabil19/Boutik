@@ -371,7 +371,7 @@ function PaymentModal({ open, onClose, supplier, purchases, shop, onSaved }) {
         )}
 
         {/* Footer summary + actions */}
-        {hasPurchases && (
+        {true && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <div>
               {selectedCount > 0 || Number(generalAmount || 0) > 0 ? (
