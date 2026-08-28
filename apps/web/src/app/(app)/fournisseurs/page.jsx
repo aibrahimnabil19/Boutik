@@ -728,17 +728,12 @@ export default function FournisseursPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <StatCard
-            label="Solde actuel"
+            label="Dette à payer"
             value={formatFCFA(Math.abs(balance))}
             color={balance > 0 ? 'amber' : balance < 0 ? 'green' : 'blue'}
-            sub={balance > 0 ? 'À payer au fournisseur' : balance < 0 ? 'Crédit fournisseur' : 'Solde nul'}
-          />
-          <StatCard
-            label="Total dettes"
-            value={formatFCFA(supplierTx.filter(t => t.amount > 0).reduce((s, t) => s + Number(t.amount || 0), 0))}
-            color="red"
+            sub={balance > 0 ? 'Montant à régler maintenant' : balance < 0 ? 'Crédit fournisseur' : 'Solde nul'}
           />
           <StatCard
             label="Total payé"

@@ -26,6 +26,9 @@ import {
   Send,
   Upload,
   FileSpreadsheet,
+  Ban,
+  Power,
+  AlertOctagon,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -33,6 +36,16 @@ import { useRouter } from 'next/navigation'
 
 const CODE_LENGTH = 16
 const ADMIN_EMAIL_DOMAIN = '@admin.local'
+
+const BM_DURATION_OPTIONS = [
+  { key: '1h', label: '1 heure', ms: 60 * 60 * 1000 },
+  { key: '6h', label: '6 heures', ms: 6 * 60 * 60 * 1000 },
+  { key: '24h', label: '24 heures', ms: 24 * 60 * 60 * 1000 },
+  { key: '3d', label: '3 jours', ms: 3 * 24 * 60 * 60 * 1000 },
+  { key: '7d', label: '7 jours', ms: 7 * 24 * 60 * 60 * 1000 },
+  { key: 'custom', label: 'Date personnalisée', ms: null },
+  { key: 'indefinite', label: 'Indéfiniment', ms: null },
+]
 
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -85,6 +98,13 @@ export default function AdminPage() {
   const [showUsed, setShowUsed] = useState(false)
   const [stats, setStats] = useState({ total: 0, active: 0, codes_available: 0 })
 
+  const [bmStatus, setBmStatus] = useState(null)
+  const [bmLoading, setBmLoading] = useState(true)
+  const [bmSaving, setBmSaving] = useState(false)
+  const [bmDuration, setBmDuration] = useState('1h')
+  const [bmCustomUntil, setBmCustomUntil] = useState('')
+  const [bmReason, setBmReason] = useState('')
+
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
@@ -136,6 +156,82 @@ export default function AdminPage() {
       setLoading(false)
     }
   }, [supabase])
+
+  useEffect(() => {
+    if (tab === 'bm_trading') loadBmStatus()
+  }, [tab])
+
+  async function loadBmStatus() {
+    setBmLoading(true)
+    try {
+      const res = await fetch('/api/bm-trading-status')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur de chargement')
+      setBmStatus(data)
+    } catch (err) {
+      toast.error(err.message || 'Impossible de charger le statut de BM Trading')
+    } finally {
+      setBmLoading(false)
+    }
+  }
+
+  async function handleSuspendBm() {
+    let suspendedUntil = null
+
+    if (bmDuration === 'custom') {
+      if (!bmCustomUntil) {
+        toast.error('Choisissez une date et une heure de fin.')
+        return
+      }
+      suspendedUntil = new Date(bmCustomUntil).toISOString()
+    } else if (bmDuration !== 'indefinite') {
+      const opt = BM_DURATION_OPTIONS.find((o) => o.key === bmDuration)
+      suspendedUntil = new Date(Date.now() + (opt?.ms || 0)).toISOString()
+    }
+
+    setBmSaving(true)
+    try {
+      const res = await fetch('/api/bm-trading-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suspended: true,
+          suspended_until: suspendedUntil,
+          reason: bmReason.trim() || null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la suspension')
+
+      toast.success('BM Trading a été suspendu')
+      setBmStatus(data)
+      setBmReason('')
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de la suspension')
+    } finally {
+      setBmSaving(false)
+    }
+  }
+
+  async function handleUnsuspendBm() {
+    setBmSaving(true)
+    try {
+      const res = await fetch('/api/bm-trading-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suspended: false, suspended_until: null, reason: null }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la réactivation')
+
+      toast.success('BM Trading a été réactivé')
+      setBmStatus(data)
+    } catch (err) {
+      toast.error(err.message || 'Erreur lors de la réactivation')
+    } finally {
+      setBmSaving(false)
+    }
+  }
 
   useEffect(() => {
     async function checkAdminSession() {
@@ -833,6 +929,7 @@ export default function AdminPage() {
             { key: 'shops', label: 'Boutiques', icon: Store },
             { key: 'updates', label: 'Mises à jour', icon: Rocket },
             { key: 'import', label: 'Import Excel', icon: FileSpreadsheet },
+            { key: 'bm_trading', label: 'BM Trading', icon: Ban },
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -1343,6 +1440,108 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'bm_trading' && (
+          <div className="space-y-5">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+              <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+                <Ban className="w-4 h-4 text-red-400" />
+                Statut de BM Trading
+              </h3>
+              <p className="text-sm text-slate-400 mb-4">
+                Suspendez ou réactivez l&apos;accès au site BM Trading pour tous les utilisateurs.
+              </p>
+
+              {bmLoading ? (
+                <p className="text-sm text-slate-500">Chargement du statut…</p>
+              ) : bmStatus?.suspended ? (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 mb-4">
+                  <p className="text-sm font-semibold text-red-300 flex items-center gap-2">
+                    <AlertOctagon className="w-4 h-4" />
+                    Site actuellement suspendu
+                  </p>
+                  <p className="text-xs text-red-200/80 mt-1">
+                    {bmStatus.suspended_until
+                      ? `Jusqu'au ${format(new Date(bmStatus.suspended_until), 'dd MMM yyyy à HH:mm', { locale: fr })}`
+                      : 'Suspendu indéfiniment'}
+                  </p>
+                  {bmStatus.reason && (
+                    <p className="text-xs text-red-200/80 mt-1">Raison : {bmStatus.reason}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 mb-4">
+                  <p className="text-sm font-semibold text-emerald-300">✓ Site actif</p>
+                </div>
+              )}
+
+              {bmStatus?.suspended ? (
+                <button
+                  onClick={handleUnsuspendBm}
+                  disabled={bmSaving}
+                  className="h-10 px-5 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-sm font-semibold disabled:opacity-50 transition-all"
+                >
+                  {bmSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
+                  {bmSaving ? 'Réactivation…' : 'Réactiver le site'}
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                        Durée de la suspension
+                      </label>
+                      <select
+                        value={bmDuration}
+                        onChange={(e) => setBmDuration(e.target.value)}
+                        className="w-full h-10 px-3 bg-slate-900 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                      >
+                        {BM_DURATION_OPTIONS.map((opt) => (
+                          <option key={opt.key} value={opt.key}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {bmDuration === 'custom' && (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                          Suspendre jusqu&apos;à
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={bmCustomUntil}
+                          onChange={(e) => setBmCustomUntil(e.target.value)}
+                          className="w-full h-10 px-3 bg-slate-900 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                      Raison (optionnel, usage interne)
+                    </label>
+                    <input
+                      value={bmReason}
+                      onChange={(e) => setBmReason(e.target.value)}
+                      placeholder="Ex: Maintenance en cours"
+                      className="w-full h-10 px-4 bg-white/10 border border-white/15 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleSuspendBm}
+                    disabled={bmSaving}
+                    className="h-10 px-5 flex items-center gap-2 bg-red-600 hover:bg-red-500 rounded-xl text-sm font-semibold disabled:opacity-50 transition-all"
+                  >
+                    {bmSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                    {bmSaving ? 'Suspension…' : "Suspendre l'accès à BM Trading"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
