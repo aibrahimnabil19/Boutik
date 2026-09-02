@@ -57,6 +57,7 @@ export default function AchatsPage() {
   const [loading, setLoading] = useState(true)
   const [purchaseLines, setPurchaseLines] = useState([emptyPurchaseLine()])
   const [suppliers, setSuppliers] = useState([])
+  const [purchaseProductSearch, setPurchaseProductSearch] = useState('')
   const [purchaseDetail, setPurchaseDetail] = useState(null)
   const [editingPurchase, setEditingPurchase] = useState(null)
   // Document modal: holds the purchase to print
@@ -399,6 +400,15 @@ export default function AchatsPage() {
       }
 
       await localUpsert('purchases', record)
+      const product = products.find(item => item.id === line.product_id)
+      if (product) {
+        await localUpsert('products', {
+          ...product,
+          purchase_price: line.unit_price,
+          updated_at: now,
+          sync_status: 'pending',
+        })
+      }
       savedPurchases.push(record)
     }
 
@@ -446,6 +456,7 @@ export default function AchatsPage() {
 
   function openAdd() {
     setEditingPurchase(null)
+    setPurchaseProductSearch('')
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' })
     setChargeRows([])
     setPurchaseLines([emptyPurchaseLine()])
@@ -457,6 +468,7 @@ export default function AchatsPage() {
 
   function openEditPurchase(purchase) {
     setEditingPurchase(purchase)
+    setPurchaseProductSearch('')
     setPurchaseLines([
       {
         _key: uuid(),
@@ -573,11 +585,16 @@ function handlePrintDocMulti(purchases, docType) {
   )
 
   const purchaseProductOptions = useMemo(() => {
+    const query = purchaseProductSearch.trim().toLowerCase()
+
     return products
       .map(p => ({
         ...p,
         currentStock: calculateStock(p, purchases, sales),
       }))
+      .filter(p => !query || [p.name, p.code, p.id].some(value =>
+        String(value || '').toLowerCase().includes(query)
+      ))
       .sort((a, b) => {
         const aOut = Number(a.currentStock || 0) <= 0 ? 1 : 0
         const bOut = Number(b.currentStock || 0) <= 0 ? 1 : 0
@@ -586,7 +603,7 @@ function handlePrintDocMulti(purchases, docType) {
 
         return String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
       })
-  }, [products, purchases, sales])
+  }, [products, purchases, sales, purchaseProductSearch])
 
   return (
     <div className="p-6">
@@ -898,6 +915,12 @@ function handlePrintDocMulti(purchases, docType) {
             </div>
 
             <div className="space-y-2">
+              <SearchBar
+                value={purchaseProductSearch}
+                onChange={setPurchaseProductSearch}
+                placeholder="Rechercher un produit par nom ou code…"
+              />
+
               {purchaseLines.map((line, index) => (
                 <div
                   key={line._key}

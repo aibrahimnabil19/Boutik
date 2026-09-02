@@ -59,7 +59,7 @@ export function SearchBar({ value, onChange, placeholder = 'Rechercher…' }) {
         style={{ '--tw-ring-color': 'var(--color-primary)33' }}
       />
       {value && (
-        <button onClick={() => onChange('')}
+        <button type="button" onClick={() => onChange('')}
           className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
           <X className="w-3.5 h-3.5" />
         </button>
