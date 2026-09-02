@@ -17,6 +17,7 @@ import {
 import { printPurchaseDocument, printPurchaseDocumentMulti } from '@/lib/core/invoicePrint'
 import FrenchInput from '@/components/FrenchInput'
 import PhoneInput from '@/components/PhoneInput'
+import SearchableSelect from '@/components/SearchableSelect'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DateFilter from '@/components/DateFilter'
 import { defaultDateFilter, isDateInFilter } from '@/lib/core/dateFilters'
@@ -57,7 +58,6 @@ export default function AchatsPage() {
   const [loading, setLoading] = useState(true)
   const [purchaseLines, setPurchaseLines] = useState([emptyPurchaseLine()])
   const [suppliers, setSuppliers] = useState([])
-  const [purchaseProductSearch, setPurchaseProductSearch] = useState('')
   const [purchaseDetail, setPurchaseDetail] = useState(null)
   const [editingPurchase, setEditingPurchase] = useState(null)
   // Document modal: holds the purchase to print
@@ -456,7 +456,6 @@ export default function AchatsPage() {
 
   function openAdd() {
     setEditingPurchase(null)
-    setPurchaseProductSearch('')
     reset({ date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' })
     setChargeRows([])
     setPurchaseLines([emptyPurchaseLine()])
@@ -468,7 +467,6 @@ export default function AchatsPage() {
 
   function openEditPurchase(purchase) {
     setEditingPurchase(purchase)
-    setPurchaseProductSearch('')
     setPurchaseLines([
       {
         _key: uuid(),
@@ -585,16 +583,11 @@ function handlePrintDocMulti(purchases, docType) {
   )
 
   const purchaseProductOptions = useMemo(() => {
-    const query = purchaseProductSearch.trim().toLowerCase()
-
     return products
       .map(p => ({
         ...p,
         currentStock: calculateStock(p, purchases, sales),
       }))
-      .filter(p => !query || [p.name, p.code, p.id].some(value =>
-        String(value || '').toLowerCase().includes(query)
-      ))
       .sort((a, b) => {
         const aOut = Number(a.currentStock || 0) <= 0 ? 1 : 0
         const bOut = Number(b.currentStock || 0) <= 0 ? 1 : 0
@@ -603,7 +596,15 @@ function handlePrintDocMulti(purchases, docType) {
 
         return String(a.name || '').localeCompare(String(b.name || ''), 'fr', { sensitivity: 'base' })
       })
-  }, [products, purchases, sales, purchaseProductSearch])
+      .map(p => ({
+        value: p.id,
+        label: p.name || 'Produit sans nom',
+        hint: p.code || '',
+        meta: `Stock: ${formatNumber(p.currentStock)}`,
+        metaTone: Number(p.currentStock || 0) <= 0 ? 'danger' : 'default',
+        search: [p.name, p.code, p.id].filter(Boolean).join(' '),
+      }))
+  }, [products, purchases, sales])
 
   return (
     <div className="p-6">
@@ -915,31 +916,21 @@ function handlePrintDocMulti(purchases, docType) {
             </div>
 
             <div className="space-y-2">
-              <SearchBar
-                value={purchaseProductSearch}
-                onChange={setPurchaseProductSearch}
-                placeholder="Rechercher un produit par nom ou code…"
-              />
-
               {purchaseLines.map((line, index) => (
                 <div
                   key={line._key}
                   className="grid grid-cols-[1.7fr_110px_150px_36px] gap-2 items-end rounded-xl bg-gray-50 border border-gray-100 p-3"
                 >
                   <FormField label={`Produit ${index + 1}`} required>
-                    <select
+                    <SearchableSelect
                       value={line.product_id}
-                      onChange={(e) => handlePurchaseProductSelect(line._key, e.target.value)}
-                      className={selectCls}
+                      onChange={(productId) => handlePurchaseProductSelect(line._key, productId)}
+                      options={purchaseProductOptions}
+                      placeholder="— Choisir —"
+                      searchPlaceholder="Rechercher par nom ou code…"
+                      emptyLabel="Aucun produit trouvé"
                       required
-                    >
-                      <option value="">— Choisir —</option>
-                      {purchaseProductOptions.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} {p.code ? `(${p.code})` : ''} — Stock: {formatNumber(p.currentStock)}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </FormField>
 
                   <FormField label="Qté" required>
