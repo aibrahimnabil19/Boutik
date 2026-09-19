@@ -78,6 +78,7 @@ export default function AchatsPage() {
   const [paymentBreakdown, setPaymentBreakdown] = useState([])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [sortMode, setSortMode] = useState('recent')
 
   const { register, handleSubmit, reset, watch, setValue, control } = useForm({
     defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), quantity: 1, unit_price: '' }
@@ -533,7 +534,7 @@ function handlePrintDocMulti(purchases, docType) {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
 
-    return purchases.filter(p => {
+    const rows = purchases.filter(p => {
       const matchesSearch =
         !q ||
         p.product_name?.toLowerCase().includes(q) ||
@@ -542,7 +543,14 @@ function handlePrintDocMulti(purchases, docType) {
 
       return matchesSearch && isDateInFilter(p.date, dateFilter)
     })
-  }, [purchases, search, dateFilter])
+
+    return rows.sort((a, b) => {
+      if (sortMode === 'oldest') return new Date(a.created_at || a.date || 0) - new Date(b.created_at || b.date || 0)
+      if (sortMode === 'amount_desc') return Number(b.total_amount || 0) - Number(a.total_amount || 0)
+      if (sortMode === 'amount_asc') return Number(a.total_amount || 0) - Number(b.total_amount || 0)
+      return new Date(b.created_at || b.date || 0) - new Date(a.created_at || a.date || 0)
+    })
+  }, [purchases, search, dateFilter, sortMode])
 
   const totalSpent = useMemo(
     () => filtered.reduce((a, p) => a + Number(p.total_amount || 0), 0),
@@ -634,6 +642,12 @@ function handlePrintDocMulti(purchases, docType) {
           </div>
 
           <DateFilter value={dateFilter} onChange={setDateFilter} />
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)} className={`${selectCls} w-auto min-w-[180px]`} aria-label="Trier les entrées de stock">
+            <option value="recent">Plus récent</option>
+            <option value="oldest">Plus ancien</option>
+            <option value="amount_desc">Montant décroissant</option>
+            <option value="amount_asc">Montant croissant</option>
+          </select>
         </div>
 
         {selectMode && (

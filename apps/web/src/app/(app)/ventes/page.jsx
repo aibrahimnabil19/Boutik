@@ -98,6 +98,7 @@ export default function VentesPage() {
   const [paymentBreakdown, setPaymentBreakdown] = useState([])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedKeys, setSelectedKeys] = useState(new Set())
+  const [sortMode, setSortMode] = useState('recent')
 
   const load = useCallback(async () => {
     if (!shop?.id) return
@@ -931,8 +932,16 @@ export default function VentesPage() {
       if (s.client_phone && !groups[key].client_phone) groups[key].client_phone = s.client_phone
       if (s.client_address && !groups[key].client_address) groups[key].client_address = s.client_address
     })
-    return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [filteredSales])
+    return Object.values(groups).sort((a, b) => {
+      if (sortMode === 'oldest') return new Date(a.created_at || a.date || 0) - new Date(b.created_at || b.date || 0)
+
+      const aTotal = a.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
+      const bTotal = b.items.reduce((sum, item) => sum + Number(item.total_sale || 0), 0)
+      if (sortMode === 'amount_desc') return bTotal - aTotal
+      if (sortMode === 'amount_asc') return aTotal - bTotal
+      return new Date(b.created_at || b.date || 0) - new Date(a.created_at || a.date || 0)
+    })
+  }, [filteredSales, sortMode])
 
   // The client that "locks" the current selection (null if nothing selected yet)
   const selectionClientName = useMemo(() => {
@@ -1141,6 +1150,12 @@ export default function VentesPage() {
             <SearchBar value={search} onChange={setSearch} placeholder="Client, produit, code…" />
           </div>
           <DateFilter value={dateFilter} onChange={setDateFilter} />
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)} className={`${selectCls} w-auto min-w-[180px]`} aria-label="Trier les ventes">
+            <option value="recent">Plus récent</option>
+            <option value="oldest">Plus ancien</option>
+            <option value="amount_desc">Montant décroissant</option>
+            <option value="amount_asc">Montant croissant</option>
+          </select>
         </div>
 
         {selectMode && (
