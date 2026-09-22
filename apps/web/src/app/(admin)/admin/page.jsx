@@ -104,6 +104,11 @@ export default function AdminPage() {
   const [bmDuration, setBmDuration] = useState('1h')
   const [bmCustomUntil, setBmCustomUntil] = useState('')
   const [bmReason, setBmReason] = useState('')
+  const [superAdmin, setSuperAdmin] = useState(null)
+  const [superAdminLoading, setSuperAdminLoading] = useState(false)
+  const [superAdminSaving, setSuperAdminSaving] = useState(false)
+  const [superAdminUsername, setSuperAdminUsername] = useState('')
+  const [superAdminPassword, setSuperAdminPassword] = useState('')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -116,7 +121,8 @@ export default function AdminPage() {
 
         supabase
           .from('profiles')
-          .select('*, shop:shop_id(name, city, color_primary)')
+          .select('id, email, full_name, role, is_super_admin, shop_id, created_at, shop:shop_id(name, city, color_primary)')
+          .eq('is_super_admin', false)
           .order('created_at', { ascending: false }),
 
         supabase
@@ -158,7 +164,10 @@ export default function AdminPage() {
   }, [supabase])
 
   useEffect(() => {
-    if (tab === 'bm_trading') loadBmStatus()
+    if (tab === 'bm_trading') {
+      loadBmStatus()
+      loadSuperAdmin()
+    }
   }, [tab])
 
   async function loadBmStatus() {
@@ -172,6 +181,53 @@ export default function AdminPage() {
       toast.error(err.message || 'Impossible de charger le statut de BM Trading')
     } finally {
       setBmLoading(false)
+    }
+  }
+
+  async function loadSuperAdmin() {
+    setSuperAdminLoading(true)
+    try {
+      const res = await fetch('/api/super-admin', { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur de chargement')
+      setSuperAdmin(data)
+      setSuperAdminUsername(data.username || '')
+    } catch (err) {
+      toast.error(err.message || 'Impossible de charger le super-admin')
+    } finally {
+      setSuperAdminLoading(false)
+    }
+  }
+
+  async function handleSuperAdminUpdate(e) {
+    e.preventDefault()
+    if (!superAdminUsername.trim() && !superAdminPassword) {
+      toast.error('Modifiez le nom d’utilisateur ou le mot de passe.')
+      return
+    }
+    if (!confirm('Confirmer la modification du compte super-admin ?')) return
+
+    setSuperAdminSaving(true)
+    try {
+      const res = await fetch('/api/super-admin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(superAdminUsername.trim() ? { username: superAdminUsername.trim() } : {}),
+          ...(superAdminPassword ? { password: superAdminPassword } : {}),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur de mise à jour')
+      setSuperAdmin(data)
+      setSuperAdminUsername(data.username || '')
+      setSuperAdminPassword('')
+      localStorage.removeItem('bm-suite-store')
+      toast.success('Compte super-admin mis à jour')
+    } catch (err) {
+      toast.error(err.message || 'Impossible de mettre à jour le compte')
+    } finally {
+      setSuperAdminSaving(false)
     }
   }
 
@@ -250,7 +306,7 @@ export default function AdminPage() {
 
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, is_super_admin')
           .eq('id', user.id)
           .single()
 
@@ -299,7 +355,7 @@ export default function AdminPage() {
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, is_super_admin')
         .eq('id', user.id)
         .single()
 
@@ -391,6 +447,11 @@ export default function AdminPage() {
 
   async function handleDeleteUser(userId) {
     const user = users.find(u => u.id === userId)
+
+    if (user?.is_super_admin) {
+      toast.error('Le compte super-admin ne peut pas être supprimé depuis cette liste.')
+      return
+    }
 
     if (userId === currentAdminId) {
       toast.error('Vous ne pouvez pas supprimer votre propre compte admin.')
@@ -1540,6 +1601,66 @@ export default function AdminPage() {
                     {bmSaving ? 'Suspension…' : "Suspendre l'accès à BM Trading"}
                   </button>
                 </div>
+              )}
+            </div>
+
+            <div className="bg-white/5 border border-amber-500/20 rounded-2xl p-5">
+              <h3 className="font-semibold text-white mb-1 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-amber-400" />
+                Compte super-admin BM Trading
+              </h3>
+              <p className="text-sm text-slate-400 mb-4">
+                Gestion restreinte du compte partagé. Le rôle, le statut super-admin et la boutique ne sont jamais modifiables ici.
+              </p>
+
+              {superAdminLoading ? (
+                <p className="text-sm text-slate-500">Chargement du compte…</p>
+              ) : superAdmin ? (
+                <form onSubmit={handleSuperAdminUpdate} className="space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-xl bg-slate-900/70 border border-white/10 p-3">
+                      <p className="text-xs text-slate-500">Email</p>
+                      <p className="text-white mt-1 break-all">{superAdmin.email || '—'}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-900/70 border border-white/10 p-3">
+                      <p className="text-xs text-slate-500">Statut</p>
+                      <p className="text-amber-300 mt-1">Super-admin · aucun magasin</p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Nom d&apos;utilisateur</label>
+                    <input
+                      value={superAdminUsername}
+                      onChange={(e) => setSuperAdminUsername(e.target.value)}
+                      minLength={3}
+                      maxLength={32}
+                      autoComplete="username"
+                      className="w-full h-10 px-4 bg-white/10 border border-white/15 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Nouveau mot de passe</label>
+                    <input
+                      type="password"
+                      value={superAdminPassword}
+                      onChange={(e) => setSuperAdminPassword(e.target.value)}
+                      minLength={12}
+                      autoComplete="new-password"
+                      placeholder="Laissez vide pour ne pas le modifier"
+                      className="w-full h-10 px-4 bg-white/10 border border-white/15 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={superAdminSaving}
+                    className="h-10 px-5 flex items-center gap-2 bg-amber-600 hover:bg-amber-500 rounded-xl text-sm font-semibold disabled:opacity-50 transition-all"
+                  >
+                    {superAdminSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                    {superAdminSaving ? 'Mise à jour…' : 'Mettre à jour le compte'}
+                  </button>
+                </form>
+              ) : (
+                <p className="text-sm text-slate-500">Compte super-admin introuvable.</p>
               )}
             </div>
           </div>

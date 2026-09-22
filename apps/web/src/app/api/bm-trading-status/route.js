@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireBoutikAdmin } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +14,9 @@ export async function GET() {
   if (process.env.NEXT_PUBLIC_NATIVE_BUILD === 'true') {
     return new NextResponse(null, { status: 204 })
   }
+
+  const auth = await requireBoutikAdmin()
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const base = process.env.BM_TRADING_API_URL
@@ -35,6 +39,9 @@ export async function POST(request) {
   if (process.env.NEXT_PUBLIC_NATIVE_BUILD === 'true') {
     return new NextResponse(null, { status: 204 })
   }
+
+  const auth = await requireBoutikAdmin()
+  if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const base = process.env.BM_TRADING_API_URL
